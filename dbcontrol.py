@@ -13,20 +13,20 @@ class DBControl:
         """close sqlite3 connection"""
         self.conn.close()
     
-    def createMovieDB():
+    def createMovieDB(self):
         with self.conn:
-            c.execute("""CREATE TABLE movies (
+            self.c.execute("""CREATE TABLE movies (
             id_imdb text,
             name text,
             year integer,
             seriestype integer
             )""")
 
-    def addMovie(movie):
+    def addMovie(self, movie):
         with self.conn:
-            c.execute("INSERT INTO movies VALUES (?, ?, ?, ?)", (movie.id_imdb, movie.name, movie.year, movie.seriestype))
+            self.c.execute("INSERT INTO movies VALUES (?, ?, ?, ?)", (movie.id_imdb, movie.name, movie.year, movie.seriestype))
             
-    def getAllMovies():
+    def getAllMovies(self):
         with self.conn:
-            c.execute("SELECT * FROM movies")
-            return(c.fetchall())
+            self.c.execute("SELECT * FROM movies")
+            return(self.c.fetchall())
