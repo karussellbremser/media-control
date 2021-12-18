@@ -4,4 +4,4 @@ class Movie:
         self.id_imdb = id_imdb
         self.name = name
         self.year = year
-        self.seriestype = seriestype
+        self.seriestype = seriestype # 0: movie, 1: series
