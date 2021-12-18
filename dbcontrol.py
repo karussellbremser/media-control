@@ -2,11 +2,9 @@ import sqlite3
 
 class DBControl:
     
-    DB_LOCATION = ':memory:' # in RAM for testing purposes
-    
-    def __init__(self):
+    def __init__(self, dbLocation):
         """Initialize db class variables"""
-        self.conn = sqlite3.connect(DBControl.DB_LOCATION)
+        self.conn = sqlite3.connect(dbLocation)
         self.c = self.conn.cursor()
 
     def close(self):
