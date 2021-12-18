@@ -14,10 +14,11 @@ class DBControl:
     def createMovieDB(self):
         with self.conn:
             self.c.execute("""CREATE TABLE movies (
-            id_imdb text,
-            name text,
-            year integer,
-            seriestype integer
+            id_imdb text NOT NULL,
+            name text NOT NULL,
+            year integer NOT NULL,
+            seriestype integer,
+            PRIMARY KEY (id_imdb)
             )""")
 
     def addMovie(self, movie):
