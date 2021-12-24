@@ -11,15 +11,37 @@ class ScrapeLocal:
     def scrapeLocalComplete(self):
         root, dirs, files = next(os.walk(self.rootdir))
         
-        for directory in dirs:
-            if "!" in directory or directory == "#recycle": #skip 'in progress' directories and trash bin
+        for subdir in dirs:
+            if "!" in subdir or subdir == "#recycle": #skip 'in progress' directories and trash bin
                 continue
-            self.__scrapeSingleMovie(directory)
+            self.__scrapeSingleMovieOrSeries(subdir)
             
-    def __scrapeSingleMovie(self, directory):
-        currentMovie = directory.rsplit('_', 2)
+    def __scrapeSingleMovieOrSeries(self, subdir):
+        root, dirs, files = next(os.walk(self.__complDirName(subdir)))
         
-        if len(currentMovie) != 3 or currentMovie[0] == "" or not re.search("^\d{4}$", currentMovie[1]) or not re.search("^tt\d{7,8}$", currentMovie[2]):
-            raise SyntaxError('Bad format of directory ' + directory)
+        if len(dirs) == 0:
+            self.__scrapeSingleMovie(subdir)
+        else:
+            self.__scrapeSingleSeries(subdir)
+    
+    def __scrapeSingleMovie(self, subdir): # TBD
+        currentMovie = self.__getMovieObjFromSubdir(subdir)
+        currentMovie.movietype = 1
         
-        self.db.addMovie(Movie(currentMovie[2], currentMovie[0], int(currentMovie[1]), 0)) # movie type still TBD
+        #TBD all checks
+        
+        self.db.addMovie(currentMovie)
+    
+    def __scrapeSingleSeries(self, subdir): # TBD
+        return
+    
+    def __complDirName(self, subdir):
+        return(self.rootdir + '\\' + subdir)
+    
+    def __getMovieObjFromSubdir(self, subdir):
+        thisMovie = subdir.rsplit('_', 2)
+        
+        if len(thisMovie) != 3 or thisMovie[0] == "" or not re.search("^\d{4}$", thisMovie[1]) or not re.search("^tt\d{7,8}$", thisMovie[2]):
+            raise SyntaxError('Bad format of subdirectory ' + subdir)
+        
+        return Movie(thisMovie[2], thisMovie[0], int(thisMovie[1]))
