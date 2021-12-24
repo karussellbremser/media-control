@@ -2,7 +2,7 @@ from movie import Movie
 from dbcontrol import DBControl
 from scrapelocal import ScrapeLocal
 
-db = DBControl('myMovieDB.db')
+db = DBControl(':memory:')
 db.createMovieDB()
 
 scrape = ScrapeLocal(r"Y:", db)

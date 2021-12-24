@@ -14,9 +14,12 @@ class ScrapeLocal:
         for directory in dirs:
             if "!" in directory or directory == "#recycle": #skip 'in progress' directories and trash bin
                 continue
-            currentMovie = directory.rsplit('_', 2)
-            if len(currentMovie) != 3 or currentMovie[0] == "" or not re.search("^\d{4}$", currentMovie[1]) or not re.search("^tt\d{7,8}$", currentMovie[2]):
-                raise SyntaxError('Bad format of directory ' + directory)
+            self.__scrapeSingleMovie(directory)
             
-            self.db.addMovie(Movie(currentMovie[2], currentMovie[0], int(currentMovie[1]), 0)) # movie type still TBD
-            
+    def __scrapeSingleMovie(self, directory):
+        currentMovie = directory.rsplit('_', 2)
+        
+        if len(currentMovie) != 3 or currentMovie[0] == "" or not re.search("^\d{4}$", currentMovie[1]) or not re.search("^tt\d{7,8}$", currentMovie[2]):
+            raise SyntaxError('Bad format of directory ' + directory)
+        
+        self.db.addMovie(Movie(currentMovie[2], currentMovie[0], int(currentMovie[1]), 0)) # movie type still TBD
