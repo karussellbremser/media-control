@@ -30,7 +30,14 @@ class ScrapeLocal:
         currentMovie = self.__getMovieObjFromSubdir(subdir)
         currentMovie.movietype = 1
         
-        #TBD all checks
+        # TBD all checks
+        # rules:
+        # - .torrent files are ignored
+        # - check[#].txt files are ignored
+        # - src-[...].txt or sources.txt must exist once
+        # - 1 or more .mkv files must exist
+        # - versions.txt may exist. if > 1 .mkv file exists, versions.txt must exist
+        # - no other files must exist
         
         self.db.addMovie(currentMovie)
     
