@@ -28,7 +28,7 @@ class ScrapeLocal:
     
     def __scrapeSingleMovie(self, subdir, files):
         currentMovie = self.__getMovieObjFromSubdir(subdir)
-        currentMovie.movietype = 1
+        currentMovie.mediatype = 1
         
         # TBD all checks
         # rules:

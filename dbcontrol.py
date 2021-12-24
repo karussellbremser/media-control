@@ -17,15 +17,15 @@ class DBControl:
             id_imdb text NOT NULL,
             name text NOT NULL,
             year integer NOT NULL,
-            movietype integer,
+            mediatype integer,
             PRIMARY KEY (id_imdb)
             )""")
 
     def addMovie(self, movie):
-        if movie.movietype == 0:
-            raise RuntimeError('movietype not set')
+        if movie.mediatype == 0:
+            raise RuntimeError('mediatype not set')
         with self.conn:
-            self.c.execute("INSERT INTO movies VALUES (?, ?, ?, ?)", (movie.id_imdb, movie.name, movie.year, movie.movietype))
+            self.c.execute("INSERT INTO movies VALUES (?, ?, ?, ?)", (movie.id_imdb, movie.name, movie.year, movie.mediatype))
             
     def getAllMovies(self):
         with self.conn:
