@@ -17,14 +17,16 @@ class ScrapeLocal:
             self.__scrapeSingleMovieOrSeries(subdir)
             
     def __scrapeSingleMovieOrSeries(self, subdir):
-        root, dirs, files = next(os.walk(self.__complDirName(subdir)))
+        root, dirs, files = next(os.walk(self.__complDirPath(subdir)))
         
         if len(dirs) == 0:
-            self.__scrapeSingleMovie(subdir)
-        else:
+            self.__scrapeSingleMovie(subdir, files)
+        elif len(files) == 0:
             self.__scrapeSingleSeries(subdir)
+        else:
+            raise SyntaxError('Bad content of subdirectory ' + subdir)
     
-    def __scrapeSingleMovie(self, subdir): # TBD
+    def __scrapeSingleMovie(self, subdir, files):
         currentMovie = self.__getMovieObjFromSubdir(subdir)
         currentMovie.movietype = 1
         
@@ -35,7 +37,7 @@ class ScrapeLocal:
     def __scrapeSingleSeries(self, subdir): # TBD
         return
     
-    def __complDirName(self, subdir):
+    def __complDirPath(self, subdir):
         return(self.rootdir + '\\' + subdir)
     
     def __getMovieObjFromSubdir(self, subdir):
