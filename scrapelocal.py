@@ -1,5 +1,5 @@
 import sys, os
-from media import Media
+from movie import Movie
 from dbcontrol import DBControl
 
 class ScrapeLocal:
@@ -27,8 +27,7 @@ class ScrapeLocal:
             raise SyntaxError('Bad content of subdirectory ' + subdir)
     
     def __scrapeSingleMovie(self, subdir, files):
-        currentMovie = Media(subdir, 1)
-        currentMovie.mediatype = 1
+        currentMovie = Movie(subdir)
         
         # TBD all checks
         # rules:
