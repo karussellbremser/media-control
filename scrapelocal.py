@@ -1,4 +1,4 @@
-import sys, os, re
+import sys, os
 from media import Media
 from dbcontrol import DBControl
 
@@ -27,7 +27,7 @@ class ScrapeLocal:
             raise SyntaxError('Bad content of subdirectory ' + subdir)
     
     def __scrapeSingleMovie(self, subdir, files):
-        currentMovie = self.__getMovieObjFromSubdir(subdir)
+        currentMovie = Media(subdir, 1)
         currentMovie.mediatype = 1
         
         # TBD all checks
@@ -46,11 +46,3 @@ class ScrapeLocal:
     
     def __complDirPath(self, subdir):
         return(self.rootdir + '\\' + subdir)
-    
-    def __getMovieObjFromSubdir(self, subdir):
-        thisMovie = subdir.rsplit('_', 2)
-        
-        if len(thisMovie) != 3 or thisMovie[0] == "" or not re.search("^\d{4}$", thisMovie[1]) or not re.search("^tt\d{7,8}$", thisMovie[2]):
-            raise SyntaxError('Bad format of subdirectory ' + subdir)
-        
-        return Media(thisMovie[2], thisMovie[0], int(thisMovie[1]))
