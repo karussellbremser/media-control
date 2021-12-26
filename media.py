@@ -1,4 +1,4 @@
-class Movie:
+class Media:
     
     def __init__(self, id_imdb, name, year):
         self.id_imdb = id_imdb

@@ -1,4 +1,4 @@
-from movie import Movie
+from media import Media
 from dbcontrol import DBControl
 from scrapelocal import ScrapeLocal
 

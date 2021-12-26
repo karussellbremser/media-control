@@ -1,5 +1,5 @@
 import sys, os, re
-from movie import Movie
+from media import Media
 from dbcontrol import DBControl
 
 class ScrapeLocal:
@@ -14,9 +14,9 @@ class ScrapeLocal:
         for subdir in dirs:
             if "!" in subdir or subdir == "#recycle": #skip 'in progress' directories and trash bin
                 continue
-            self.__scrapeSingleMovieOrSeries(subdir)
+            self.__scrapeSingleMedia(subdir)
             
-    def __scrapeSingleMovieOrSeries(self, subdir):
+    def __scrapeSingleMedia(self, subdir):
         root, dirs, files = next(os.walk(self.__complDirPath(subdir)))
         
         if len(dirs) == 0:
@@ -53,4 +53,4 @@ class ScrapeLocal:
         if len(thisMovie) != 3 or thisMovie[0] == "" or not re.search("^\d{4}$", thisMovie[1]) or not re.search("^tt\d{7,8}$", thisMovie[2]):
             raise SyntaxError('Bad format of subdirectory ' + subdir)
         
-        return Movie(thisMovie[2], thisMovie[0], int(thisMovie[1]))
+        return Media(thisMovie[2], thisMovie[0], int(thisMovie[1]))
