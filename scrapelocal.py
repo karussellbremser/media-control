@@ -29,14 +29,9 @@ class ScrapeLocal:
     def __scrapeSingleMovie(self, subdir, files):
         currentMovie = Movie(subdir)
         
-        # TBD all checks
-        # rules:
-        # - .torrent files are ignored
-        # - check[#].txt files are ignored
-        # - src-[...].txt or sources.txt must exist once
-        # - 1 or more .mkv files must exist
-        # - versions.txt may exist. if > 1 .mkv file exists, versions.txt must exist
-        # - no other files must exist
+        self.__checkMovieFilenames(subdir, files)
+        
+        ### TODO: parse source and version files
         
         self.db.addMovie(currentMovie)
     
@@ -45,3 +40,45 @@ class ScrapeLocal:
     
     def __complDirPath(self, subdir):
         return(self.rootdir + '\\' + subdir)
+        
+    def __checkMovieFilenames(self, subdir, files):
+        # rules:
+        # - .torrent files are ignored
+        # - check[#].txt files are ignored
+        # - src-[...].txt or sources.txt must exist once
+        # - 1 or more .mkv files must exist
+        # - versions.txt may exist. if > 1 .mkv file exists, versions.txt must exist
+        # - no other files must exist
+        
+        mkv_count = 0
+        first_mkv_file = ""
+        sources_file = ""
+        versions_exists = False
+        
+        for file in files:
+            file_split = file.rsplit('.', 1)
+            if len(file_split) != 2:
+                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+            
+            if file_split[1] == "torrent": # torrent file
+                continue
+            elif file_split[1] == "txt":
+                if file_split[0].startswith("check"): # check file
+                    continue
+                elif file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
+                    if sources_file != "":
+                        raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+                    sources_file = file
+                elif file_split[0] == "versions": # versions file
+                    versions_exists = True
+                else:
+                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+            elif file_split[1] == "mkv": # mkv files
+                if mkv_count == 0:
+                    first_mkv_file = file
+                mkv_count += 1
+            else:
+                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+            
+        if sources_file == "" or mkv_count == 0 or (mkv_count > 1 and versions_exists == False):
+            raise SyntaxError('Bad content of subdirectory ' + subdir)       
