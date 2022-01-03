@@ -29,7 +29,7 @@ class ScrapeLocal:
     def __scrapeSingleMovie(self, subdir, files):
         currentMovie = Movie(subdir)
         
-        self.__checkMovieFilenames(subdir, files)
+        mkv_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
         
         ### TODO: parse source and version files
         
@@ -41,7 +41,7 @@ class ScrapeLocal:
     def __complDirPath(self, subdir):
         return(self.rootdir + '\\' + subdir)
         
-    def __checkMovieFilenames(self, subdir, files):
+    def __checkMovieFilenames(self, subdir, files): # returns mkv_files, sources_file, versions_exists
         # rules:
         # - .torrent files are ignored
         # - check[#].txt files are ignored
@@ -50,8 +50,7 @@ class ScrapeLocal:
         # - versions.txt may exist. if > 1 .mkv file exists, versions.txt must exist
         # - no other files must exist
         
-        mkv_count = 0
-        first_mkv_file = ""
+        mkv_files = []
         sources_file = ""
         versions_exists = False
         
@@ -74,11 +73,11 @@ class ScrapeLocal:
                 else:
                     raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
             elif file_split[1] == "mkv": # mkv files
-                if mkv_count == 0:
-                    first_mkv_file = file
-                mkv_count += 1
+                mkv_files.append(file)
             else:
                 raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
             
-        if sources_file == "" or mkv_count == 0 or (mkv_count > 1 and versions_exists == False):
-            raise SyntaxError('Bad content of subdirectory ' + subdir)       
+        if sources_file == "" or len(mkv_files) == 0 or (len(mkv_files) > 1 and versions_exists == False):
+            raise SyntaxError('Bad content of subdirectory ' + subdir)
+        
+        return mkv_files, sources_file, versions_exists
