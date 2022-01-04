@@ -1,6 +1,9 @@
 import re
 
 class Media:
+
+    rating_mul10 = None
+    numVotes = None
     
     def __init__(self, subdir):
         thisMedia = subdir.rsplit('_', 2)

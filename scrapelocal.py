@@ -11,18 +11,24 @@ class ScrapeLocal:
     def scrapeLocalComplete(self):
         root, dirs, files = next(os.walk(self.rootdir))
         
+        mediaList = []
+        
         for subdir in dirs:
             if "!" in subdir or subdir == "#recycle": #skip 'in progress' directories and trash bin
                 continue
-            self.__scrapeSingleMedia(subdir)
+            currentMedia = self.__scrapeSingleMedia(subdir)
+            if currentMedia != None:
+                mediaList.append(currentMedia)
+        
+        return mediaList
             
     def __scrapeSingleMedia(self, subdir):
         root, dirs, files = next(os.walk(self.__complDirPath(subdir)))
         
         if len(dirs) == 0:
-            self.__scrapeSingleMovie(subdir, files)
+            return self.__scrapeSingleMovie(subdir, files)
         elif len(files) == 0:
-            self.__scrapeSingleSeries(subdir)
+            return self.__scrapeSingleSeries(subdir)
         else:
             raise SyntaxError('Bad content of subdirectory ' + subdir)
     
@@ -38,7 +44,8 @@ class ScrapeLocal:
         
         #print(self.__parseDictFile(subdir, sources_file))
         
-        self.db.addMovie(currentMovie)
+        #self.db.addMovie(currentMovie)
+        return currentMovie
     
     def __scrapeSingleSeries(self, subdir): # TBD
         return

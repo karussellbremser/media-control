@@ -13,7 +13,7 @@ class ScrapeIMDbOffline:
         return
     
     def parseTitleRatings(self, id_list):
-        resultList = []
+        resultDict = {}
         
         with open(self.dataset_directory + '\\' + self.title_ratings_filename, "r") as f:
             c = csv.reader(f, delimiter="\t")
@@ -23,6 +23,6 @@ class ScrapeIMDbOffline:
                     firstRow = False
                     continue
                 if row[0] in id_list:
-                    resultList.append(row)
+                    resultDict[row[0]] = [row[1], row[2]]
         
-        return resultList
+        return resultDict
