@@ -27,9 +27,14 @@ class DBControl:
         with self.conn:
             self.c.execute("INSERT INTO movies VALUES (?, ?, ?)", (thismovie.id_imdb, thismovie.name, thismovie.year))
             
-    def getAllMovies(self):
+    def getAllMovieNames(self):
         with self.conn:
             self.c.execute("SELECT name FROM movies")
+            return(self.c.fetchall())
+        
+    def getAllMovieIDs(self):
+        with self.conn:
+            self.c.execute("SELECT id_imdb FROM movies")
             return(self.c.fetchall())
     
     def getMoviesByYear(self, year):
