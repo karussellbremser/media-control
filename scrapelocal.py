@@ -31,7 +31,12 @@ class ScrapeLocal:
         
         mkv_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
         
-        ### TODO: parse source and version files
+        #if versions_exists:
+        #    print(subdir)
+        #    print(self.__parseDictFile(subdir, "versions.txt"))
+        #    print("")
+        
+        #print(self.__parseDictFile(subdir, sources_file))
         
         self.db.addMovie(currentMovie)
     
@@ -40,6 +45,9 @@ class ScrapeLocal:
     
     def __complDirPath(self, subdir):
         return(self.rootdir + '\\' + subdir)
+    
+    def __complFilePath(self, subdir, file):
+        return(self.__complDirPath(subdir) + '\\' + file)
         
     def __checkMovieFilenames(self, subdir, files): # returns mkv_files, sources_file, versions_exists
         # rules:
@@ -81,3 +89,43 @@ class ScrapeLocal:
             raise SyntaxError('Bad content of subdirectory ' + subdir)
         
         return mkv_files, sources_file, versions_exists
+    
+    def __parseDictFile(self, subdir, dictFile):
+        pathToFile = self.__complFilePath(subdir, dictFile)
+        
+        if dictFile == "versions.txt":
+            isSources = False
+        elif dictFile == "sources.txt":
+            isSources = True
+        else: # source is embedded within filename (allowed format of filename was checked before)
+            if not os.stat(pathToFile).st_size == 0: # file must be empty
+                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+            return {"OTHER": dictFile[4:-4]} # source identifier from filename minus "src-" at beginning and ".txt" at end
+    
+        with open(pathToFile, "r") as f:
+            lines = f.read().splitlines()
+            numLines = len(lines)
+            
+            if numLines == 0: # every remaining dict file must have at least one line
+                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+            elif numLines == 1:
+                if isSources: # source files must have at least two lines, since only one source is embedded within file name
+                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                if ':' in lines[0] or lines[0] == '': # single-line version files must not have a key and must not be empty
+                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                return {"OTHER": lines[0]}
+            
+            # main loop for all dict files with > 1 line
+            resultDict = {}
+            for line in lines:
+                if line.count(':') != 1 or line == '': # ':' must only be present as separator between key and value and line must not be empty
+                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                lineSplit = line.split(':', 1)
+                if lineSplit[0] in resultDict: # no key must be present twice
+                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                resultDict[lineSplit[0]] = lineSplit[1]
+            return resultDict
+        
+        
+        
+    
