@@ -2,8 +2,15 @@ import re
 
 class Media:
 
+    id_imdb = None
+    titleType = None
+    originalTitle = None
+    primaryTitle = None
+    startYear = None
+    endYear = None
     rating_mul10 = None
     numVotes = None
+    genres = []
     
     def __init__(self, subdir):
         thisMedia = subdir.rsplit('_', 2)
@@ -12,5 +19,5 @@ class Media:
             raise SyntaxError('Bad format of subdirectory ' + subdir)
         
         self.id_imdb = thisMedia[2]
-        self.name = thisMedia[0]
-        self.year = thisMedia[1]
+        self.originalTitle = thisMedia[0]
+        self.startYear = int(thisMedia[1])
