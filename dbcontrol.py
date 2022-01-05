@@ -1,5 +1,5 @@
 import sqlite3
-from movie import Movie
+from media import Media
 
 class DBControl:
     
@@ -23,11 +23,11 @@ class DBControl:
             PRIMARY KEY (id_imdb)
             )""")
 
-    def addMovie(self, thismovie):
-        if not isinstance(thismovie, Movie):
-            raise RuntimeError('no movie object')
+    def addMovie(self, thismedia):
+        if not isinstance(thismedia, Media):
+            raise RuntimeError('no media object')
         with self.conn:
-            self.c.execute("INSERT INTO movies VALUES (?, ?, ?, ?, ?)", (thismovie.id_imdb, thismovie.name, thismovie.year, thismovie.rating_mul10, thismovie.numVotes))
+            self.c.execute("INSERT INTO movies VALUES (?, ?, ?, ?, ?)", (thismedia.id_imdb, thismedia.name, thismedia.year, thismedia.rating_mul10, thismedia.numVotes))
             
     def addMovies(self, movieList):
         for x in movieList:
