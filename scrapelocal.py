@@ -109,7 +109,7 @@ class ScrapeLocal:
                 raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
             return {"OTHER": dictFile[4:-4]} # source identifier from filename minus "src-" at beginning and ".txt" at end
     
-        with open(pathToFile, "r") as f:
+        with open(pathToFile, "r", encoding="utf8") as f:
             lines = f.read().splitlines()
             numLines = len(lines)
             

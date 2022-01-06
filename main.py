@@ -3,6 +3,7 @@ from dbcontrol import DBControl
 from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 
+
 db = DBControl(':memory:')
 db.createMovieDB()
 
@@ -24,4 +25,5 @@ db.addMovies(basicsDict)
 #print(db.getMoviesByRatingRange(80, 100))
 #print(db.getAllMoviesSortedByNumVotes())
 
-print(basicsDict)
+for x in basicsDict.values():
+    print(x)

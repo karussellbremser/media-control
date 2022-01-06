@@ -15,13 +15,10 @@ class ScrapeIMDbOffline:
         return
     
     def parseTitleRatings(self, media_dict): # imdb_id || rating || numVotes
-        with open(self.dataset_directory + '\\' + self.title_ratings_filename, "r") as f:
+        with open(self.dataset_directory + '\\' + self.title_ratings_filename, "r", encoding="utf8") as f:
             c = csv.reader(f, delimiter="\t")
-            firstRow = True
+            next(c, None) # read from second line
             for row in c:
-                if firstRow:
-                    firstRow = False
-                    continue
                 if row[0] in media_dict:
                     rating_mul10 = int(row[1].replace('.',''))
                     if rating_mul10 < 10 or rating_mul10 > 100:
@@ -32,27 +29,22 @@ class ScrapeIMDbOffline:
         return media_dict
     
     def parseTitleBasics(self, media_dict): # imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
-        with open(self.dataset_directory + '\\' + self.title_basics_filename, "r") as f:
+        with open(self.dataset_directory + '\\' + self.title_basics_filename, "r", encoding="utf8") as f:
             c = csv.reader(f, delimiter="\t")
-            firstRow = True
-            linecount=1
+            next(c, None) # read from second line
             for row in c:
-                print(linecount)
-                linecount+=1
-                if firstRow:
-                    firstRow = False
-                    continue
-                if row[0] in media_dict:
-                    media_dict[row[0]].titleType = row[1]
-                    media_dict[row[0]].primaryTitle = row[2]
-                    media_dict[row[0]].originalTitle = row[3]
-                    if media_dict[row[0]].startYear != int(row[5]):
-                        raise SyntaxError("startYear does not match for title " + row[0] + " (" + str(media_dict[row[0]].startYear) + " vs. " + row[5])
+                current_imdb_id = row[0]
+                if current_imdb_id in media_dict:
+                    media_dict[current_imdb_id].titleType = row[1]
+                    media_dict[current_imdb_id].primaryTitle = row[2]
+                    media_dict[current_imdb_id].originalTitle = row[3]
+                    if media_dict[current_imdb_id].startYear != int(row[5]):
+                        raise SyntaxError("startYear does not match for title " + current_imdb_id + " " + row[3] + " (" + str(media_dict[current_imdb_id].startYear) + " vs. " + row[5] + ")")
                     if row[6] != "\\N":
-                        media_dict[row[0]].endYear = int(row[6])
-                    if len(media_dict[row[0]].genres) != 0:
-                        raise SyntaxError("genres not empty for title " + row[0])
-                    for genre in row[7].split(','):
-                        media_dict[row[0]].append(genre)
+                        media_dict[current_imdb_id].endYear = int(row[6])
+                    if len(media_dict[current_imdb_id].genres) != 0:
+                        raise SyntaxError("genres not empty for title " + current_imdb_id)
+                    for genre in row[8].split(','):
+                        media_dict[current_imdb_id].genres.append(genre)
         
         return media_dict
