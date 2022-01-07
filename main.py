@@ -5,12 +5,12 @@ from scrapeimdboffline import ScrapeIMDbOffline
 
 
 db = DBControl(':memory:')
-db.createMovieDB()
+db.createMediaDB()
 
 scrape = ScrapeLocal(r"Y:", db)
 mediaList = scrape.scrapeLocalComplete()
-#print(db.getAllMovies())
-#print(db.getMoviesByYearRange(1992, 1992))
+#print(db.getAllMedia())
+#print(db.getMediaByYearRange(1992, 1992))
 
 mediaDict = {}
 for x in mediaList:
@@ -18,12 +18,12 @@ for x in mediaList:
 
 scrapeimdboffline = ScrapeIMDbOffline(r"C:\imdb_datasets")
 ratingDict = scrapeimdboffline.parseTitleRatings(mediaDict)
-basicsDict = scrapeimdboffline.parseTitleBasics(ratingDict)
+ratingAndBasicsDict = scrapeimdboffline.parseTitleBasics(ratingDict)
 
-db.addMovies(basicsDict)
 
-#print(db.getMoviesByRatingRange(80, 100))
-#print(db.getAllMoviesSortedByNumVotes())
+db.addMultipleMedia(ratingAndBasicsDict)
 
-for x in basicsDict.values():
-    print(x)
+#print(db.getMediaByRatingRange(80, 100))
+#print(db.getAllMediaSortedByNumVotes())
+
+

@@ -26,6 +26,11 @@ class ScrapeIMDbOffline:
                     media_dict[row[0]].rating_mul10 = rating_mul10
                     media_dict[row[0]].numVotes = int(row[2])
         
+        # make sure that all items have been touched
+        for x in media_dict.values():
+            if x.numVotes == None:
+                raise SyntaxError("no rating info for " + x.id_imdb + " found")
+        
         return media_dict
     
     def parseTitleBasics(self, media_dict): # imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
@@ -44,7 +49,14 @@ class ScrapeIMDbOffline:
                         media_dict[current_imdb_id].endYear = int(row[6])
                     if len(media_dict[current_imdb_id].genres) != 0:
                         raise SyntaxError("genres not empty for title " + current_imdb_id)
+                    if len(row[8].split(',')) not in range(1, 4):
+                        raise SyntaxError("illegal genre count for title " + current_imdb_id)
                     for genre in row[8].split(','):
                         media_dict[current_imdb_id].genres.append(genre)
+        
+        # make sure that all items have been touched
+        for x in media_dict.values():
+            if x.titleType == None:
+                raise SyntaxError("no title info for " + x.id_imdb + " found")
         
         return media_dict
