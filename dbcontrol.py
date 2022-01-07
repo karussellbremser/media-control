@@ -77,4 +77,9 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE rating_mul10 ORDER BY numVotes DESC")
             return(self.c.fetchall())
+    
+    def getMediaByGenre(self, genre):
+        with self.conn:
+            self.c.execute("SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.id_imdb = genres.id_imdb WHERE genres.genre=? ORDER BY media.rating_mul10 DESC", (genre,))
+            return(self.c.fetchall())
             

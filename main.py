@@ -23,6 +23,8 @@ ratingAndBasicsDict = scrapeimdboffline.parseTitleBasics(ratingDict)
 
 db.addMultipleMedia(ratingAndBasicsDict)
 
+print(db.getMediaByGenre("Documentary"))
+
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
 
