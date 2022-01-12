@@ -98,7 +98,7 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT genre_id FROM genre_enum WHERE genre_name=?", (genre_name,))
             genre_id = self.c.fetchone()
-            if not genre_id or not genre_id[0] or genre_id[0] == 0:
+            if not genre_id or not genre_id[0]:
                 raise SyntaxError('unknown genre ' + genre_name)
             return(genre_id[0])
             
