@@ -2,6 +2,8 @@ import sqlite3
 from media import Media
 
 class DBControl:
+
+    genre_list = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi", "Short", "Sport", "Talk-Show", "Thriller", "War", "Western"]
     
     def __init__(self, dbLocation):
         """Initialize db class variables"""
@@ -27,17 +29,26 @@ class DBControl:
             )""")
             self.c.execute("""CREATE TABLE genres (
             imdb_id integer NOT NULL,
-            genre text NOT NULL,
-            PRIMARY KEY (imdb_id, genre)
+            genre_id integer NOT NULL,
+            PRIMARY KEY (imdb_id, genre_id)
             )""")
+            self.c.execute("""CREATE TABLE genre_enum (
+            genre_id integer NOT NULL,
+            genre_name text NOT NULL UNIQUE,
+            PRIMARY KEY (genre_id)
+            )""")
+            i = 1
+            for genre in self.genre_list:
+                self.c.execute("INSERT INTO genre_enum VALUES (?, ?)", (i, genre))
+                i += 1
 
     def addSingleMedia(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
             self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, thisMedia.titleType, thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes))
-            for genre in thisMedia.genres:
-                self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, genre))
+            for genre_name in thisMedia.genres:
+                self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             
     def addMultipleMedia(self, mediaDict):
         for x in mediaDict.values():
@@ -78,8 +89,16 @@ class DBControl:
             self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE rating_mul10 ORDER BY numVotes DESC")
             return(self.c.fetchall())
     
-    def getMediaByGenre(self, genre):
+    def getMediaByGenre(self, genre_name):
         with self.conn:
-            self.c.execute("SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.imdb_id = genres.imdb_id WHERE genres.genre=? ORDER BY media.rating_mul10 DESC", (genre,))
+            self.c.execute("SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.imdb_id = genres.imdb_id WHERE genres.genre_id=? ORDER BY media.rating_mul10 DESC", (self.__getGenreIDByGenreName(genre_name),))
             return(self.c.fetchall())
+    
+    def __getGenreIDByGenreName(self, genre_name):
+        with self.conn:
+            self.c.execute("SELECT genre_id FROM genre_enum WHERE genre_name=?", (genre_name,))
+            genre_id = self.c.fetchone()
+            if not genre_id or not genre_id[0] or genre_id[0] == 0:
+                raise SyntaxError('unknown genre ' + genre_name)
+            return(genre_id[0])
             
