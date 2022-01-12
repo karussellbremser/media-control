@@ -15,7 +15,7 @@ class DBControl:
     def createMediaDB(self):
         with self.conn:
             self.c.execute("""CREATE TABLE media (
-            id_imdb text NOT NULL,
+            id_imdb integer NOT NULL,
             titleType text NOT NULL,
             originalTitle text NOT NULL,
             primaryTitle text NOT NULL,
@@ -26,7 +26,7 @@ class DBControl:
             PRIMARY KEY (id_imdb)
             )""")
             self.c.execute("""CREATE TABLE genres (
-            id_imdb text NOT NULL,
+            id_imdb integer NOT NULL,
             genre text NOT NULL,
             PRIMARY KEY (id_imdb, genre)
             )""")

@@ -19,12 +19,13 @@ class ScrapeIMDbOffline:
             c = csv.reader(f, delimiter="\t")
             next(c, None) # read from second line
             for row in c:
-                if row[0] in media_dict:
+                current_imdb_id = int(row[0][2:])
+                if current_imdb_id in media_dict:
                     rating_mul10 = int(row[1].replace('.',''))
                     if rating_mul10 < 10 or rating_mul10 > 100:
-                        raise SyntaxError("rating conversion problem for movie " + row[0])
-                    media_dict[row[0]].rating_mul10 = rating_mul10
-                    media_dict[row[0]].numVotes = int(row[2])
+                        raise SyntaxError("rating conversion problem for movie " + current_imdb_id)
+                    media_dict[current_imdb_id].rating_mul10 = rating_mul10
+                    media_dict[current_imdb_id].numVotes = int(row[2])
         
         # make sure that all items have been touched
         for x in media_dict.values():
@@ -38,7 +39,7 @@ class ScrapeIMDbOffline:
             c = csv.reader(f, delimiter="\t")
             next(c, None) # read from second line
             for row in c:
-                current_imdb_id = row[0]
+                current_imdb_id = int(row[0][2:])
                 if current_imdb_id in media_dict:
                     media_dict[current_imdb_id].titleType = row[1]
                     media_dict[current_imdb_id].primaryTitle = row[2]
