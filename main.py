@@ -17,8 +17,8 @@ for x in mediaList:
     mediaDict[x.id_imdb] = x
 
 scrapeimdboffline = ScrapeIMDbOffline(r"C:\imdb_datasets")
-ratingDict = scrapeimdboffline.parseTitleRatings(mediaDict)
-ratingAndBasicsDict = scrapeimdboffline.parseTitleBasics(ratingDict)
+ratingDict = scrapeimdboffline.parseIMDbOfflineFile(mediaDict, 0)
+ratingAndBasicsDict = scrapeimdboffline.parseIMDbOfflineFile(ratingDict, 1)
 
 
 db.addMultipleMedia(ratingAndBasicsDict)
