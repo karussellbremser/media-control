@@ -14,7 +14,7 @@ mediaList = scrape.scrapeLocalComplete()
 
 mediaDict = {}
 for x in mediaList:
-    mediaDict[x.id_imdb] = x
+    mediaDict[x.imdb_id] = x
 
 scrapeimdboffline = ScrapeIMDbOffline(r"C:\imdb_datasets")
 ratingDict = scrapeimdboffline.parseIMDbOfflineFile(mediaDict, 0)

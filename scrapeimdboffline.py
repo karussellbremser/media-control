@@ -38,7 +38,7 @@ class ScrapeIMDbOffline:
         # make sure that all items have been touched
         for x in content_dict.values():
             if (file_type == 0 and x.numVotes == None) or (file_type == 1 and x.titleType == None):
-                raise SyntaxError("no info for " + x.id_imdb + " found")
+                raise SyntaxError("no info for " + x.imdb_id + " found")
         
         return content_dict
     

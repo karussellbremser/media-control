@@ -15,7 +15,7 @@ class DBControl:
     def createMediaDB(self):
         with self.conn:
             self.c.execute("""CREATE TABLE media (
-            id_imdb integer NOT NULL,
+            imdb_id integer NOT NULL,
             titleType text NOT NULL,
             originalTitle text NOT NULL,
             primaryTitle text NOT NULL,
@@ -23,21 +23,21 @@ class DBControl:
             endYear integer,
             rating_mul10 integer NOT NULL,
             numVotes integer NOT NULL,
-            PRIMARY KEY (id_imdb)
+            PRIMARY KEY (imdb_id)
             )""")
             self.c.execute("""CREATE TABLE genres (
-            id_imdb integer NOT NULL,
+            imdb_id integer NOT NULL,
             genre text NOT NULL,
-            PRIMARY KEY (id_imdb, genre)
+            PRIMARY KEY (imdb_id, genre)
             )""")
 
     def addSingleMedia(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.id_imdb, thisMedia.titleType, thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes))
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, thisMedia.titleType, thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes))
             for genre in thisMedia.genres:
-                self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.id_imdb, genre))
+                self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, genre))
             
     def addMultipleMedia(self, mediaDict):
         for x in mediaDict.values():
@@ -50,7 +50,7 @@ class DBControl:
         
     def getAllMediaIDs(self):
         with self.conn:
-            self.c.execute("SELECT id_imdb FROM media")
+            self.c.execute("SELECT imdb_id FROM media")
             return(self.c.fetchall())
     
     def getMediaByYear(self, startYear):
@@ -80,6 +80,6 @@ class DBControl:
     
     def getMediaByGenre(self, genre):
         with self.conn:
-            self.c.execute("SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.id_imdb = genres.id_imdb WHERE genres.genre=? ORDER BY media.rating_mul10 DESC", (genre,))
+            self.c.execute("SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.imdb_id = genres.imdb_id WHERE genres.genre=? ORDER BY media.rating_mul10 DESC", (genre,))
             return(self.c.fetchall())
             
