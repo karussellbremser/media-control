@@ -107,7 +107,7 @@ class ScrapeLocal:
         else: # source is embedded within filename (allowed format of filename was checked before)
             if not os.stat(pathToFile).st_size == 0: # file must be empty
                 raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
-            return {"OTHER": dictFile[4:-4]} # source identifier from filename minus "src-" at beginning and ".txt" at end
+            return {"OTHER": dictFile[:-4]} # source identifier from filename minus ".txt" at end
     
         with open(pathToFile, "r", encoding="utf8") as f:
             lines = f.read().splitlines()
