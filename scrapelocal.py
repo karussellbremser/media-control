@@ -1,12 +1,12 @@
 import sys, os
 from media import Media
+from mediaversion import MediaVersion
 from dbcontrol import DBControl
 
 class ScrapeLocal:
 
-    def __init__ (self, rootdir, db):
+    def __init__ (self, rootdir):
         self.rootdir = rootdir
-        self.db = db
 
     def scrapeLocalComplete(self):
         root, dirs, files = next(os.walk(self.rootdir))
@@ -37,14 +37,30 @@ class ScrapeLocal:
         
         mkv_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
         
-        #if versions_exists:
-        #    print(subdir)
-        #    print(self.__parseDictFile(subdir, "versions.txt"))
-        #    print("")
+        src_dict = self.__parseDictFile(subdir, sources_file)
+        if versions_exists:
+            versions_dict = self.__parseDictFile(subdir, "versions.txt")
         
-        #print(self.__parseDictFile(subdir, sources_file))
+        for mkv_file in mkv_files:
+            if mkv_file in src_dict:
+                src = src_dict[mkv_file]
+            elif "OTHER" in src_dict:
+                src = src_dict["OTHER"]
+            else:
+                raise SyntaxError('Bad source file in subdirectory ' + subdir)
+            
+            if not versions_exists:
+                version = None
+            elif mkv_file in versions_dict:
+                version = versions_dict[mkv_file]
+            elif "OTHER" in versions_dict:
+                version = versions_dict["OTHER"]
+            else:
+                raise SyntaxError('Bad versions file in subdirectory ' + subdir)
+            
+            currentMovie.mediaVersions.append(MediaVersion(mkv_file, src, version))
+            
         
-        #self.db.addMovie(currentMovie)
         return currentMovie
     
     def __scrapeSingleSeries(self, subdir): # TBD

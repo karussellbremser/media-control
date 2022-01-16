@@ -7,7 +7,7 @@ from scrapeimdboffline import ScrapeIMDbOffline
 db = DBControl(':memory:')
 db.createMediaDB()
 
-scrape = ScrapeLocal(r"Y:", db)
+scrape = ScrapeLocal(r"Y:")
 mediaList = scrape.scrapeLocalComplete()
 #print(db.getAllMedia())
 #print(db.getMediaByYearRange(1992, 1992))
