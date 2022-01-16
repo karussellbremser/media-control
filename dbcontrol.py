@@ -1,5 +1,6 @@
 import sqlite3
 from media import Media
+from mediaversion import MediaVersion
 
 class DBControl:
 
@@ -29,11 +30,13 @@ class DBControl:
             numVotes integer NOT NULL,
             PRIMARY KEY (imdb_id)
             )""")
+            
             self.c.execute("""CREATE TABLE genres (
             imdb_id integer NOT NULL,
             genre_id integer NOT NULL,
             PRIMARY KEY (imdb_id, genre_id)
             )""")
+            
             self.c.execute("""CREATE TABLE genre_enum (
             genre_id integer NOT NULL,
             genre_name text NOT NULL UNIQUE,
@@ -43,6 +46,7 @@ class DBControl:
             for genre in self.genre_list:
                 self.c.execute("INSERT INTO genre_enum VALUES (?, ?)", (i, genre))
                 i += 1
+                
             self.c.execute("""CREATE TABLE titleType_enum (
             titleType_id integer NOT NULL,
             titleType_name text NOT NULL UNIQUE,
@@ -52,6 +56,15 @@ class DBControl:
             for titleType in self.titleType_list:
                 self.c.execute("INSERT INTO titleType_enum VALUES (?, ?)", (i, titleType))
                 i += 1
+            
+            self.c.execute("""CREATE TABLE mediaVersions (
+            imdb_id integer NOT NULL,
+            filename text NOT NULL,
+            source text NOT NULL,
+            versionDescription text,
+            PRIMARY KEY (imdb_id, versionDescription),
+            UNIQUE (imdb_id, filename)
+            )""")
 
     def addSingleMedia(self, thisMedia):
         if not isinstance(thisMedia, Media):
@@ -60,6 +73,8 @@ class DBControl:
             self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes))
             for genre_name in thisMedia.genres:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
+            for mediaVersion in thisMedia.mediaVersions:
+                self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.versionDescription))
             
     def addMultipleMedia(self, mediaDict):
         for x in mediaDict.values():
