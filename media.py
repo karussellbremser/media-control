@@ -16,6 +16,7 @@ class Media:
         self.endYear = None
         self.rating_mul10 = None
         self.numVotes = None
+        self.subdir = subdir
         self.genres = []
         self.mediaVersions = []
     
