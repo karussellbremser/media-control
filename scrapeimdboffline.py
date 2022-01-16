@@ -8,6 +8,9 @@ class ScrapeIMDbOffline:
     title_ratings_filename = "title.ratings.tsv"
     title_basics_filename = "title.basics.tsv"
     
+    movieTitleTypes = ["movie", "video", "short", "tvMovie"]
+    seriesTitleTypes = [] # TBD
+    
     def __init__(self, dataset_directory):
         self.dataset_directory = dataset_directory
     
@@ -53,7 +56,10 @@ class ScrapeIMDbOffline:
         return media_obj
     
     def insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
-
+        
+        localTitleType = media_obj.titleType # result of local parsing (movie or series)
+        if not ((localTitleType == "localMovie" and row[1] in self.movieTitleTypes) or (localTitleType == "localSeries" and row[1] in self.seriesTitleTypes)):
+            raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]

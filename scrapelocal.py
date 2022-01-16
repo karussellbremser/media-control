@@ -33,7 +33,7 @@ class ScrapeLocal:
             raise SyntaxError('Bad content of subdirectory ' + subdir)
     
     def __scrapeSingleMovie(self, subdir, files):
-        currentMovie = Media(subdir)
+        currentMovie = Media(subdir, False)
         
         mkv_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
         
