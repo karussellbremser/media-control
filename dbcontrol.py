@@ -5,6 +5,8 @@ class DBControl:
 
     genre_list = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi", "Short", "Sport", "Talk-Show", "Thriller", "War", "Western"]
     
+    titleType_list = ["movie", "video", "short", "tvMovie"]
+    
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
@@ -18,7 +20,7 @@ class DBControl:
         with self.conn:
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
-            titleType text NOT NULL,
+            titleType_id integer NOT NULL,
             originalTitle text NOT NULL,
             primaryTitle text NOT NULL,
             startYear integer NOT NULL,
@@ -41,12 +43,21 @@ class DBControl:
             for genre in self.genre_list:
                 self.c.execute("INSERT INTO genre_enum VALUES (?, ?)", (i, genre))
                 i += 1
+            self.c.execute("""CREATE TABLE titleType_enum (
+            titleType_id integer NOT NULL,
+            titleType_name text NOT NULL UNIQUE,
+            PRIMARY KEY (titleType_id)
+            )""")
+            i = 1
+            for titleType in self.titleType_list:
+                self.c.execute("INSERT INTO titleType_enum VALUES (?, ?)", (i, titleType))
+                i += 1
 
     def addSingleMedia(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, thisMedia.titleType, thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes))
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes))
             for genre_name in thisMedia.genres:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             
@@ -101,4 +112,12 @@ class DBControl:
             if not genre_id or not genre_id[0]:
                 raise SyntaxError('unknown genre ' + genre_name)
             return(genre_id[0])
+    
+    def __getTitleTypeIDByTitleTypeName(self, titleType_name):
+        with self.conn:
+            self.c.execute("SELECT titleType_id FROM titleType_enum WHERE titleType_name=?", (titleType_name,))
+            titleType_id = self.c.fetchone()
+            if not titleType_id or not titleType_id[0]:
+                raise SyntaxError('unknown titleType ' + titleType_name)
+            return(titleType_id[0])
             
