@@ -1,7 +1,6 @@
 import sys, os
 from media import Media
 from mediaversion import MediaVersion
-from dbcontrol import DBControl
 
 class ScrapeLocal:
 
