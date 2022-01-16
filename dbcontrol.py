@@ -28,7 +28,7 @@ class DBControl:
             endYear integer,
             rating_mul10 integer NOT NULL,
             numVotes integer NOT NULL,
-            subdir text NOT NULL,
+            subdir text NOT NULL UNIQUE,
             PRIMARY KEY (imdb_id)
             )""")
             
