@@ -116,9 +116,19 @@ class DBControl:
             self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE rating_mul10 ORDER BY numVotes DESC")
             return(self.c.fetchall())
     
-    def getMediaByGenre(self, genre_name):
+    def getMediaByGenreAND(self, genreNameList):
         with self.conn:
-            self.c.execute("SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.imdb_id = genres.imdb_id WHERE genres.genre_id=? ORDER BY media.rating_mul10 DESC", (self.__getGenreIDByGenreName(genre_name),))
+            if len(genreNameList) not in range(1, 4):
+                raise SyntaxError('illegal length of genreNameList: ' + len(genreNameList))
+            sqlStatement = "SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.imdb_id = genres.imdb_id WHERE genres.genre_id in ("
+            first = True
+            for genreName in genreNameList:
+                if not first:
+                    sqlStatement += ","
+                first = False
+                sqlStatement += str(self.__getGenreIDByGenreName(genreName))
+            sqlStatement += ") GROUP BY genres.imdb_id HAVING count(distinct genres.genre_id)=" + str(len(genreNameList)) + " ORDER BY media.rating_mul10 DESC"
+            self.c.execute(sqlStatement)
             return(self.c.fetchall())
     
     def __getGenreIDByGenreName(self, genre_name):
