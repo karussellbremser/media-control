@@ -32,9 +32,9 @@ class ScrapeIMDbOffline:
                 current_imdb_id = int(row[0][2:])
                 if current_imdb_id in content_dict:
                     if file_type == 0:
-                        content_dict[current_imdb_id] = self.insertTitleRatings(content_dict[current_imdb_id], row)
+                        content_dict[current_imdb_id] = self.__insertTitleRatings(content_dict[current_imdb_id], row)
                     elif file_type == 1:
-                        content_dict[current_imdb_id] = self.insertTitleBasics(content_dict[current_imdb_id], row)
+                        content_dict[current_imdb_id] = self.__insertTitleBasics(content_dict[current_imdb_id], row)
                     else:
                         raise SyntaxError("unknown filetype")
         
@@ -45,7 +45,7 @@ class ScrapeIMDbOffline:
         
         return content_dict
     
-    def insertTitleRatings(self, media_obj, row): # row: imdb_id || rating || numVotes
+    def __insertTitleRatings(self, media_obj, row): # row: imdb_id || rating || numVotes
         
         rating_mul10 = int(row[1].replace('.',''))
         if rating_mul10 < 10 or rating_mul10 > 100:
@@ -55,7 +55,7 @@ class ScrapeIMDbOffline:
         
         return media_obj
     
-    def insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
+    def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
         if not ((localTitleType == "localMovie" and row[1] in self.movieTitleTypes) or (localTitleType == "localSeries" and row[1] in self.seriesTitleTypes)):
