@@ -21,7 +21,6 @@ class DBControl:
         with self.conn:
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
-            imdb_id_length NOT NULL,
             titleType_id integer NOT NULL,
             originalTitle text NOT NULL,
             primaryTitle text NOT NULL,
@@ -72,7 +71,7 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, thisMedia.imdb_id_length, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.subdir))
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.subdir))
             for genre_name in thisMedia.genres:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             for mediaVersion in thisMedia.mediaVersions:

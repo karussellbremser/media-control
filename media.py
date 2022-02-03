@@ -9,7 +9,6 @@ class Media:
             raise SyntaxError('Bad format of subdirectory ' + subdir)
         
         self.imdb_id = int(thisMedia[2][2:]) # delete 'tt' at beginning and convert to int
-        self.imdb_id_length = len(thisMedia[2]) - 2 # length of imdb id (currently 7 or 8)
         self.titleType = "localMovie" if not isSeries else "localSeries"
         self.originalTitle = thisMedia[0]
         self.primaryTitle = None
