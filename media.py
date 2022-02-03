@@ -24,3 +24,9 @@ class Media:
     
     def __str__(self):
         return str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.genres)
+    
+    def getIDString(self):
+        idString = str(self.imdb_id)
+        if len(idString) < 7:
+            idString = idString.zfill(7)
+        return "tt" + idString
