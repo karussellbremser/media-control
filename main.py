@@ -23,7 +23,7 @@ ratingAndBasicsDict = scrapeimdboffline.parseIMDbOfflineFile(ratingDict, 1)
 
 db.addMultipleMedia(ratingAndBasicsDict)
 
-print(db.getMediaByGenreAND(["Horror", "Sci-Fi"]))
+print(db.getMediaByGenreAND(["Horror", "Comedy"]))
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
