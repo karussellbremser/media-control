@@ -62,8 +62,8 @@ class DBControl:
             imdb_id integer NOT NULL,
             filename text NOT NULL,
             source text NOT NULL,
-            versionDescription text,
-            PRIMARY KEY (imdb_id, versionDescription),
+            version text,
+            PRIMARY KEY (imdb_id, version),
             UNIQUE (imdb_id, filename)
             )""")
 
@@ -75,7 +75,7 @@ class DBControl:
             for genre_name in thisMedia.genres:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             for mediaVersion in thisMedia.mediaVersions:
-                self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.versionDescription))
+                self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
             
     def addMultipleMedia(self, mediaDict):
         for x in mediaDict.values():

@@ -1,7 +1,7 @@
 class MediaVersion:
     
-    def __init__(self, filename, source, versionDescription):
+    def __init__(self, filename, source, version):
                 
         self.filename = filename
         self.source = source
-        self.versionDescription = versionDescription
+        self.version = version
