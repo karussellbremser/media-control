@@ -8,6 +8,8 @@ class DBControl:
     
     titleType_list = ["movie", "video", "short", "tvMovie"]
     
+    connection_type_list = []
+    
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
@@ -66,6 +68,23 @@ class DBControl:
             PRIMARY KEY (imdb_id, version),
             UNIQUE (imdb_id, filename)
             )""")
+            
+            self.c.execute("""CREATE TABLE mediaConnections (
+            imdb_id integer NOT NULL,
+            foreign_imdb_id text NOT NULL,
+            connection_type_id integer NOT NULL,
+            PRIMARY KEY (imdb_id, foreign_imdb_id, connection_type_id)
+            )""")
+            
+            self.c.execute("""CREATE TABLE connection_type_enum (
+            connection_type_id integer NOT NULL,
+            connection_type_name text NOT NULL UNIQUE,
+            PRIMARY KEY (connection_type_id)
+            )""")
+            i = 1
+            for connection_type in self.connection_type_list:
+                self.c.execute("INSERT INTO connection_type_enum VALUES (?, ?)", (i, connection_type))
+                i += 1
 
     def addSingleMedia(self, thisMedia):
         if not isinstance(thisMedia, Media):
