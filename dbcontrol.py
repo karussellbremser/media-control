@@ -13,6 +13,7 @@ class DBControl:
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
+        self.conn.execute("PRAGMA foreign_keys = ON")
         self.c = self.conn.cursor()
 
     def close(self):
@@ -31,13 +32,25 @@ class DBControl:
             rating_mul10 integer NOT NULL,
             numVotes integer NOT NULL,
             subdir text NOT NULL UNIQUE,
-            PRIMARY KEY (imdb_id)
+            PRIMARY KEY (imdb_id),
+            FOREIGN KEY (titleType_id)
+                REFERENCES titleType_enum (titleType_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
             
             self.c.execute("""CREATE TABLE genres (
             imdb_id integer NOT NULL,
             genre_id integer NOT NULL,
-            PRIMARY KEY (imdb_id, genre_id)
+            PRIMARY KEY (imdb_id, genre_id),
+            FOREIGN KEY (imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (genre_id)
+                REFERENCES genre_enum (genre_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
             
             self.c.execute("""CREATE TABLE genre_enum (
@@ -66,14 +79,26 @@ class DBControl:
             source text NOT NULL,
             version text,
             PRIMARY KEY (imdb_id, version),
-            UNIQUE (imdb_id, filename)
+            UNIQUE (imdb_id, filename),
+            FOREIGN KEY (imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE
             )""")
             
             self.c.execute("""CREATE TABLE mediaConnections (
             imdb_id integer NOT NULL,
             foreign_imdb_id text NOT NULL,
             connection_type_id integer NOT NULL,
-            PRIMARY KEY (imdb_id, foreign_imdb_id, connection_type_id)
+            PRIMARY KEY (imdb_id, foreign_imdb_id, connection_type_id),
+            FOREIGN KEY (imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (connection_type_id)
+                REFERENCES connection_type_enum (connection_type_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
             
             self.c.execute("""CREATE TABLE connection_type_enum (
