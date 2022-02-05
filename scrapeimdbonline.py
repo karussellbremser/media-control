@@ -9,11 +9,11 @@ class ScrapeIMDbOnline:
     def __init__(self, cover_directory):
         self.cover_directory = cover_directory
     
-    def downloadCovers(self, mediaList, maxCount = 0): # maxCount = 0: unlimited cover downloads
+    def downloadCovers(self, mediaDict, maxCount = 0): # maxCount = 0: unlimited cover downloads
         
         count = 0
         
-        for currentMedia in mediaList:
+        for currentMedia in mediaDict.values():
         
             # check if file exists, in this case skip this media
             if os.path.isfile(self.cover_directory + "\\" + currentMedia.getIDString() + ".jpg"):

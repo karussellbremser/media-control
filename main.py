@@ -9,12 +9,13 @@ mediaList = scrape.scrapeLocalComplete()
 #print(db.getAllMedia())
 #print(db.getMediaByYearRange(1992, 1992))
 
-scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers")
-#scrapeimdbonline.downloadCovers(mediaList, 50)
-
 mediaDict = {}
 for x in mediaList:
     mediaDict[x.imdb_id] = x
+
+scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers")
+#scrapeimdbonline.downloadCovers(mediaDict, 50)
+
 
 scrapeimdboffline = ScrapeIMDbOffline(r"C:\imdb_datasets")
 ratingDict = scrapeimdboffline.parseIMDbOfflineFile(mediaDict, 0)
