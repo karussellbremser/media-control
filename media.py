@@ -21,6 +21,7 @@ class Media:
         self.subdir = subdir
         self.genres = []
         self.mediaVersions = []
+        self.mediaConnections = []
     
     def __str__(self):
         return str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.genres)

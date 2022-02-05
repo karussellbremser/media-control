@@ -95,6 +95,8 @@ class DBControl:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             for mediaVersion in thisMedia.mediaVersions:
                 self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
+            for mediaConnection in thisMedia.mediaConnections:
+                self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, __getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
             
     def addMultipleMedia(self, mediaDict):
         for x in mediaDict.values():
@@ -165,4 +167,12 @@ class DBControl:
             if not titleType_id or not titleType_id[0]:
                 raise SyntaxError('unknown titleType ' + titleType_name)
             return(titleType_id[0])
+    
+    def __getConnectionTypeIDByConnectionTypeName(self, connectionType_name):
+        with self.conn:
+            self.c.execute("SELECT connection_type_id FROM connection_type_enum WHERE connection_type_name=?", (connectionType_name,))
+            connection_type_id = self.c.fetchone()
+            if not connection_type_id or not connection_type_id[0]:
+                raise SyntaxError('unknown connection type ' + connectionType_name)
+            return(connection_type_id[0])
             
