@@ -1,4 +1,4 @@
-import requests
+import requests, re
 from bs4 import BeautifulSoup
 import os.path
 from media import Media
@@ -101,7 +101,7 @@ class ScrapeIMDbOnline:
                     if subtag.name != "a" or lastATagID == "":
                         raise EnvironmentError("html parsing problem")
                     foreignIMDbID = subtag['href'].rsplit('/', 1)[1]
-                    if foreignIMDbID[:2] != "tt":
+                    if not re.search("^tt\d{7,8}$", foreignIMDbID):
                         raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
                     resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), lastATagID))
                 else:
