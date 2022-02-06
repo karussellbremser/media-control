@@ -1,10 +1,14 @@
 import requests
 from bs4 import BeautifulSoup
 import os.path
+from media import Media
+from mediaconnection import MediaConnection
 
 class ScrapeIMDbOnline:
 
     headers = {"Accept-Language": "en-US,en;q=0.5"}
+    
+    ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into"]
     
     def __init__(self, cover_directory):
         self.cover_directory = cover_directory
@@ -52,3 +56,74 @@ class ScrapeIMDbOnline:
             count += 1
             if count == maxCount:
                 return
+
+    def parseMediaConnections(self, mediaDict, maxCount = 0):
+        
+        resultDict = mediaDict
+        count = 0
+        
+        for currentMedia in mediaDict.values():
+
+            # scrape IMDb media movie connections page
+            page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections", headers=self.headers)
+            if page.status_code != 200:
+                raise EnvironmentError("no 200 code on page return")
+            soup = BeautifulSoup(page.content, 'html.parser')
+
+            # look for content element
+            content = soup.find_all(attrs={"id": "connections_content"})
+            if len(content) != 1:
+                raise EnvironmentError("no unique connections_content tag found")
+
+            # get direct child list element
+            lists = content[0].find_all(attrs={"class": "list"}, recursive=False)
+            if len(lists) != 1:
+                raise EnvironmentError("no unique child list element found")
+            contentList = lists[0]
+            
+            # check for no_content
+            if contentList.has_attr('id') and contentList['id'] == "no_content":
+                continue
+            
+            # iterate over list elements
+            lastATagID = ""
+            for tag in contentList.children:
+                if tag == '\n':
+                    continue
+                elif tag.name == "a":
+                    lastATagID = tag['id']
+                elif lastATagID in self.ignoredConnections:
+                    continue
+                elif tag.name == "h4":
+                    continue
+                elif tag.name == "div":
+                    subtag = next(tag.children)
+                    if subtag.name != "a" or lastATagID == "":
+                        raise EnvironmentError("html parsing problem")
+                    foreignIMDbID = subtag['href'].rsplit('/', 1)[1]
+                    if foreignIMDbID[:2] != "tt":
+                        raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
+                    resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), lastATagID))
+                else:
+                    raise EnvironmentError("html parsing problem")
+            
+            count += 1
+            if count == maxCount:
+                return resultDict
+
+        return resultDict
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

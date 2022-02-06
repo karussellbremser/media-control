@@ -15,16 +15,16 @@ for x in mediaList:
 
 scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers")
 #scrapeimdbonline.downloadCovers(mediaDict, 50)
-
+mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict, 50)
 
 scrapeimdboffline = ScrapeIMDbOffline(r"C:\imdb_datasets")
-ratingDict = scrapeimdboffline.parseIMDbOfflineFile(mediaDict, 0)
-ratingAndBasicsDict = scrapeimdboffline.parseIMDbOfflineFile(ratingDict, 1)
+mediaDict = scrapeimdboffline.parseIMDbOfflineFile(mediaDict, 0)
+mediaDict = scrapeimdboffline.parseIMDbOfflineFile(mediaDict, 1)
 
-db = DBControl(':memory:')
+db = DBControl('myMovieDB.db')
 db.createMediaDB()
 
-db.addMultipleMedia(ratingAndBasicsDict)
+db.addMultipleMedia(mediaDict)
 
 print(db.getMediaByGenreAND(["Horror", "Comedy"]))
 

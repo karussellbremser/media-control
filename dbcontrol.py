@@ -8,7 +8,7 @@ class DBControl:
     
     titleType_list = ["movie", "video", "short", "tvMovie"]
     
-    connection_type_list = []
+    connection_type_list = ["follows", "followed_by", "remake_of", "remade_as", "spin_off", "spin_off_from", "version_of"]
     
     def __init__(self, dbLocation):
         """Initialize db class variables"""
@@ -88,7 +88,7 @@ class DBControl:
             
             self.c.execute("""CREATE TABLE mediaConnections (
             imdb_id integer NOT NULL,
-            foreign_imdb_id text NOT NULL,
+            foreign_imdb_id integer NOT NULL,
             connection_type_id integer NOT NULL,
             PRIMARY KEY (imdb_id, foreign_imdb_id, connection_type_id),
             FOREIGN KEY (imdb_id)
@@ -121,7 +121,7 @@ class DBControl:
             for mediaVersion in thisMedia.mediaVersions:
                 self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
             for mediaConnection in thisMedia.mediaConnections:
-                self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, __getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
+                self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
             
     def addMultipleMedia(self, mediaDict):
         for x in mediaDict.values():
