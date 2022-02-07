@@ -1,4 +1,4 @@
-import requests, re
+import requests, re, time, random, math
 from bs4 import BeautifulSoup
 import os.path
 from media import Media
@@ -8,10 +8,11 @@ class ScrapeIMDbOnline:
 
     headers = {"Accept-Language": "en-US,en;q=0.5"}
     
-    ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into"]
+    ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into", "edited_from"]
     
-    def __init__(self, cover_directory):
+    def __init__(self, cover_directory, delay = 0):
         self.cover_directory = cover_directory
+        self.delay = delay
     
     def downloadCovers(self, mediaDict, maxCount = 0): # maxCount = 0: unlimited cover downloads
         
@@ -56,6 +57,8 @@ class ScrapeIMDbOnline:
             count += 1
             if count == maxCount:
                 return
+            
+            self.__sleep()
 
     def parseMediaConnections(self, mediaDict, maxCount = 0):
         
@@ -63,6 +66,8 @@ class ScrapeIMDbOnline:
         count = 0
         
         for currentMedia in mediaDict.values():
+            
+            print(str(count+1) + " / " + str(len(mediaDict)))
 
             # scrape IMDb media movie connections page
             page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections", headers=self.headers)
@@ -110,11 +115,15 @@ class ScrapeIMDbOnline:
             count += 1
             if count == maxCount:
                 return resultDict
+            
+            self.__sleep()
 
         return resultDict
 
 
-
+    def __sleep(self):
+        if self.delay > 0:
+            time.sleep(random.randint(self.delay - math.ceil(self.delay / 3), self.delay + math.ceil(self.delay / 3)))
 
 
 

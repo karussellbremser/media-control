@@ -22,6 +22,7 @@ class DBControl:
     
     def createMediaDB(self):
         with self.conn:
+            # media table holds both media present in library and those only linked by IMDb connections. differentiator if medium is actually present is subdir not being NULL
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
             titleType_id integer NOT NULL,
@@ -31,7 +32,9 @@ class DBControl:
             endYear integer,
             rating_mul10 integer NOT NULL,
             numVotes integer NOT NULL,
-            subdir text NOT NULL UNIQUE,
+            releaseMonth integer,
+            releaseDay integer,
+            subdir text UNIQUE,
             PRIMARY KEY (imdb_id),
             FOREIGN KEY (titleType_id)
                 REFERENCES titleType_enum (titleType_id)
@@ -115,7 +118,7 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.subdir))
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir))
             for genre_name in thisMedia.genres:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             for mediaVersion in thisMedia.mediaVersions:

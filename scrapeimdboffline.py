@@ -17,7 +17,13 @@ class ScrapeIMDbOffline:
     def updateDatasets(self): #TBD
         return
     
-    def parseIMDbOfflineFile(self, content_dict, file_type): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
+    def parseTitleRatings(self, content_dict):
+        self.__parseIMDbOfflineFile(content_dict, 0)
+    
+    def parseTitleBasics(self, content_dict):
+        self.__parseIMDbOfflineFile(content_dict, 1)
+    
+    def __parseIMDbOfflineFile(self, content_dict, file_type): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
         if file_type == 0:
             filename = self.title_ratings_filename
         elif file_type == 1:
@@ -41,7 +47,7 @@ class ScrapeIMDbOffline:
         # make sure that all items have been touched
         for x in content_dict.values():
             if (file_type == 0 and x.numVotes == None) or (file_type == 1 and x.titleType == None):
-                raise SyntaxError("no info for " + x.imdb_id + " found")
+                raise SyntaxError("no info for " + str(x.imdb_id) + " found")
         
         return content_dict
     
@@ -58,12 +64,12 @@ class ScrapeIMDbOffline:
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
-        if not ((localTitleType == "localMovie" and row[1] in self.movieTitleTypes) or (localTitleType == "localSeries" and row[1] in self.seriesTitleTypes)):
+        if localTitleType != None and not ((localTitleType == "localMovie" and row[1] in self.movieTitleTypes) or (localTitleType == "localSeries" and row[1] in self.seriesTitleTypes)):
             raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
-        if media_obj.startYear != int(row[5]):
+        if media_obj.startYear != None and media_obj.startYear != int(row[5]):
             raise SyntaxError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
         if row[6] != "\\N":
             media_obj.endYear = int(row[6])
