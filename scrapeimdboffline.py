@@ -49,12 +49,18 @@ class ScrapeIMDbOffline:
         # make sure that all items have been touched; mark ones that are illegal for deletion
         illegal_ids = []
         for x in content_dict.values():
-            if (file_type == 0 and x.numVotes == None) or (file_type == 1 and x.titleType == None):
-                if x.subdir == None and (file_type == 0 and self.scrapeimdbonline.isInDevelopment(x.imdb_id)): # in-development titles are excluded
+            if file_type == 0 and x.numVotes == None:
+                if x.subdir == None and self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
                     # illegal title. mark for deletion from dict keys and mediaConnections
                     illegal_ids.append(x.imdb_id)
                     continue
                 raise SyntaxError("no info for " + str(x.imdb_id) + " found")
+            
+            if file_type == 1 and x.titleType == None:
+                raise SyntaxError("no info for " + str(x.imdb_id) + " found")
+            
+            if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
+                illegal_ids.append(x.imdb_id)
         
         # remove illegal media from dict
         for x in illegal_ids:
@@ -79,10 +85,9 @@ class ScrapeIMDbOffline:
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
-        if ((localTitleType == None and row[1] not in self.movieTitleTypes + self.seriesTitleTypes)
-            or (localTitleType == "localMovie" and row[1] not in self.movieTitleTypes)
+        if ((localTitleType == "localMovie" and row[1] not in self.movieTitleTypes)
             or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes)):
-            raise SyntaxError("title type " + row[1] + " not acceptable")
+            raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
