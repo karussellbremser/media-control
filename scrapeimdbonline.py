@@ -10,6 +10,8 @@ class ScrapeIMDbOnline:
     
     ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into", "edited_from"]
     
+    # TBD: restrict online parsing to locally available movies and no TV episodes
+    
     def __init__(self, cover_directory, delay = 0):
         self.cover_directory = cover_directory
         self.delay = delay
@@ -67,7 +69,7 @@ class ScrapeIMDbOnline:
         
         for currentMedia in mediaDict.values():
             
-            print(str(count+1) + " / " + str(len(mediaDict)))
+            print(str(count+1) + " / " + str(len(mediaDict)) + " " + currentMedia.originalTitle)
 
             # scrape IMDb media movie connections page
             page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections", headers=self.headers)
@@ -119,6 +121,9 @@ class ScrapeIMDbOnline:
             self.__sleep()
 
         return resultDict
+    
+    def isInDevelopment(self, imdb_id): # TBD
+        return True
 
 
     def __sleep(self):

@@ -13,7 +13,7 @@ for x in mediaList:
 
 scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", 5)
 scrapeimdbonline.downloadCovers(mediaDict, 50)
-mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict, 10)
+mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict, 3)
 
 # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
 mediaDictCopy = mediaDict.copy()
@@ -22,11 +22,11 @@ for x in mediaDictCopy.values():
         if y.foreignIMDbID not in mediaDict:
             mediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
 
-scrapeimdboffline = ScrapeIMDbOffline(r"C:\imdb_datasets")
+scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
 mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
 mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 
-db = DBControl('myMovieDB.db')
+db = DBControl(':memory:')
 db.createMediaDB()
 
 db.addMultipleMedia(mediaDict)

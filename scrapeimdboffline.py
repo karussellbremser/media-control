@@ -1,5 +1,6 @@
 import csv
 from media import Media
+from scrapeimdbonline import ScrapeIMDbOnline
 
 class ScrapeIMDbOffline:
     
@@ -11,17 +12,18 @@ class ScrapeIMDbOffline:
     movieTitleTypes = ["movie", "video", "short", "tvMovie"]
     seriesTitleTypes = [] # TBD
     
-    def __init__(self, dataset_directory):
+    def __init__(self, scrapeimdbonline, dataset_directory):
         self.dataset_directory = dataset_directory
+        self.scrapeimdbonline = scrapeimdbonline
     
     def updateDatasets(self): #TBD
         return
     
     def parseTitleRatings(self, content_dict):
-        self.__parseIMDbOfflineFile(content_dict, 0)
+        return self.__parseIMDbOfflineFile(content_dict, 0)
     
     def parseTitleBasics(self, content_dict):
-        self.__parseIMDbOfflineFile(content_dict, 1)
+        return self.__parseIMDbOfflineFile(content_dict, 1)
     
     def __parseIMDbOfflineFile(self, content_dict, file_type): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
         if file_type == 0:
@@ -44,10 +46,23 @@ class ScrapeIMDbOffline:
                     else:
                         raise SyntaxError("unknown filetype")
         
-        # make sure that all items have been touched
+        # make sure that all items have been touched; mark ones that are illegal for deletion
+        illegal_ids = []
         for x in content_dict.values():
             if (file_type == 0 and x.numVotes == None) or (file_type == 1 and x.titleType == None):
+                if x.subdir == None and (file_type == 0 and self.scrapeimdbonline.isInDevelopment(x.imdb_id)): # in-development titles are excluded
+                    # illegal title. mark for deletion from dict keys and mediaConnections
+                    illegal_ids.append(x.imdb_id)
+                    continue
                 raise SyntaxError("no info for " + str(x.imdb_id) + " found")
+        
+        # remove illegal media from dict
+        for x in illegal_ids:
+            content_dict.pop(x)
+        
+        # remove references to illegal media
+        for x in content_dict.values():
+            content_dict[x.imdb_id].mediaConnections = [y for y in x.mediaConnections if not y.foreignIMDbID in illegal_ids]
         
         return content_dict
     
@@ -64,15 +79,16 @@ class ScrapeIMDbOffline:
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
-        if (localTitleType == None and row[1] not in self.movieTitleTypes + self.seriesTitleTypes)
+        if ((localTitleType == None and row[1] not in self.movieTitleTypes + self.seriesTitleTypes)
             or (localTitleType == "localMovie" and row[1] not in self.movieTitleTypes)
-            or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes):
+            or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes)):
             raise SyntaxError("title type " + row[1] + " not acceptable")
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
         if media_obj.startYear != None and media_obj.startYear != int(row[5]):
             raise SyntaxError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
+        media_obj.startYear = int(row[5])
         if row[6] != "\\N":
             media_obj.endYear = int(row[6])
         if len(media_obj.genres) != 0:

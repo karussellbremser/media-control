@@ -98,6 +98,10 @@ class DBControl:
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
                     ON DELETE CASCADE,
+            FOREIGN KEY (foreign_imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
             FOREIGN KEY (connection_type_id)
                 REFERENCES connection_type_enum (connection_type_id)
                     ON UPDATE CASCADE
@@ -114,7 +118,7 @@ class DBControl:
                 self.c.execute("INSERT INTO connection_type_enum VALUES (?, ?)", (i, connection_type))
                 i += 1
 
-    def addSingleMedia(self, thisMedia):
+    def addSingleMediaWoConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
@@ -123,12 +127,19 @@ class DBControl:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             for mediaVersion in thisMedia.mediaVersions:
                 self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
+    
+    def addSingleMediaConnections(self, thisMedia):
+        if not isinstance(thisMedia, Media):
+            raise RuntimeError('no media object')
+        with self.conn:
             for mediaConnection in thisMedia.mediaConnections:
                 self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
             
-    def addMultipleMedia(self, mediaDict):
+    def addMultipleMedia(self, mediaDict): # media and connections must be separated, so that foreign constraints are always fulfilled during db entry
         for x in mediaDict.values():
-            self.addSingleMedia(x)
+            self.addSingleMediaWoConnections(x)
+        for x in mediaDict.values():
+            self.addSingleMediaConnections(x)
             
     def getAllMediaTitles(self):
         with self.conn:
