@@ -13,7 +13,7 @@ for x in mediaList:
 
 scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", 5)
 scrapeimdbonline.downloadCovers(mediaDict, 50)
-mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict, 30)
+mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict)
 
 # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
 mediaDictCopy = mediaDict.copy()
@@ -26,12 +26,16 @@ scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
 mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
 mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 
-db = DBControl(':memory:')
+for x in mediaDict:
+    if x.subdir == None:
+        print(x.originalTitle + " " + x.startYear)
+
+db = DBControl('myMovieDB.db')
 db.createMediaDB()
 
 db.addMultipleMedia(mediaDict)
 
-print(db.getMediaByGenreAND(["Horror", "Comedy"]))
+#print(db.getMediaByGenreAND(["Horror", "Comedy"]))
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
