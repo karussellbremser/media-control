@@ -67,6 +67,8 @@ class ScrapeIMDbOnline:
         resultDict = mediaDict
         count = 0
         
+        print("parsing media connections...")
+        
         for currentMedia in mediaDict.values():
             
             print(str(count+1) + " / " + str(len(mediaDict)) + " " + currentMedia.originalTitle)
@@ -123,7 +125,13 @@ class ScrapeIMDbOnline:
         return resultDict
     
     def isInDevelopment(self, imdb_id): # TBD
-        return True
+        # scrape IMDb media main page
+        page = requests.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/", headers=self.headers)
+        if page.status_code != 200:
+            raise EnvironmentError("no 200 code on page return")
+        if page.text.find('UpcomingBanner__UpcomingTitle-sc-19z09hr') != -1:
+            return True
+        return False
 
 
     def __sleep(self):

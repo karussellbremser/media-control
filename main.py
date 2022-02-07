@@ -13,7 +13,7 @@ for x in mediaList:
 
 scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", 5)
 scrapeimdbonline.downloadCovers(mediaDict, 50)
-mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict, 3)
+mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict, 10)
 
 # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
 mediaDictCopy = mediaDict.copy()
