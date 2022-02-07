@@ -64,8 +64,10 @@ class ScrapeIMDbOffline:
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
-        if localTitleType != None and not ((localTitleType == "localMovie" and row[1] in self.movieTitleTypes) or (localTitleType == "localSeries" and row[1] in self.seriesTitleTypes)):
-            raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
+        if (localTitleType == None and row[1] not in self.movieTitleTypes + self.seriesTitleTypes)
+            or (localTitleType == "localMovie" and row[1] not in self.movieTitleTypes)
+            or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes):
+            raise SyntaxError("title type " + row[1] + " not acceptable")
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
