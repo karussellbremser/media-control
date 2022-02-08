@@ -101,7 +101,7 @@ class DBControl:
             FOREIGN KEY (foreign_imdb_id)
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
-                    ON DELETE CASCADE,
+                    ON DELETE RESTRICT,
             FOREIGN KEY (connection_type_id)
                 REFERENCES connection_type_enum (connection_type_id)
                     ON UPDATE CASCADE
