@@ -54,15 +54,12 @@ class ScrapeIMDbOffline:
                     # illegal title. mark for deletion from dict keys and mediaConnections
                     illegal_ids.append(x.imdb_id)
                     continue
-                warnings.warn("no rating info for " + str(x.imdb_id) + " found. setting to 0")
                 content_dict[x.imdb_id].rating_mul10 = 0
                 content_dict[x.imdb_id].numVotes = 0
             
             if file_type == 1 and x.titleType == None:
-                if self.scrapeimdbonline.isInDevelopment(x.imdb_id):
-                    illegal_ids.append(x.imdb_id)
-                    continue
-                raise SyntaxError("no title type info for " + str(x.imdb_id) + " found")
+                illegal_ids.append(x.imdb_id)
+                continue
             
             if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
                 illegal_ids.append(x.imdb_id)
