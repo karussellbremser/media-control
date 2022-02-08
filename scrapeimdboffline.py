@@ -58,8 +58,11 @@ class ScrapeIMDbOffline:
                 content_dict[x.imdb_id].numVotes = 0
             
             if file_type == 1 and x.titleType == None:
-                illegal_ids.append(x.imdb_id)
-                continue
+                if x.subdir == None:
+                    illegal_ids.append(x.imdb_id)
+                    continue
+                else:
+                    raise EnvironmentError("no title type found for " + str(x.imdb_id))
             
             if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
                 illegal_ids.append(x.imdb_id)
