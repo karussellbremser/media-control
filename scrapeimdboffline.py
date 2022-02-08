@@ -54,8 +54,6 @@ class ScrapeIMDbOffline:
                     # illegal title. mark for deletion from dict keys and mediaConnections
                     illegal_ids.append(x.imdb_id)
                     continue
-                content_dict[x.imdb_id].rating_mul10 = 0
-                content_dict[x.imdb_id].numVotes = 0
             
             if file_type == 1 and x.titleType == None:
                 if x.subdir == None:
@@ -79,11 +77,14 @@ class ScrapeIMDbOffline:
     
     def __insertTitleRatings(self, media_obj, row): # row: imdb_id || rating || numVotes
         
-        rating_mul10 = int(row[1].replace('.',''))
-        if rating_mul10 < 10 or rating_mul10 > 100:
-            raise SyntaxError("rating conversion problem for movie " + row[0])
-        media_obj.rating_mul10 = rating_mul10
-        media_obj.numVotes = int(row[2])
+        if row[1] == "\\N":
+            media_obj.rating_mul10 = None
+        else:
+            rating_mul10 = int(row[1].replace('.',''))
+            if rating_mul10 < 10 or rating_mul10 > 100:
+                raise SyntaxError("rating conversion problem for movie " + row[0])
+            media_obj.rating_mul10 = rating_mul10
+        media_obj.numVotes = int(row[2]) if row[2] != "\\N" else None
         
         return media_obj
     
@@ -93,20 +94,22 @@ class ScrapeIMDbOffline:
         if ((localTitleType == "localMovie" and row[1] not in self.movieTitleTypes)
             or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes)):
             raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
+        if (row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N"):
+            raise SyntaxError("failed basics offline parsing for " + str(media_obj.imdb_id))
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
         if media_obj.startYear != None and media_obj.startYear != int(row[5]):
             raise SyntaxError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
         media_obj.startYear = int(row[5])
-        if row[6] != "\\N":
-            media_obj.endYear = int(row[6])
+        media_obj.endYear = int(row[6]) if row[6] != "\\N" else None
         if len(media_obj.genres) != 0:
             raise SyntaxError("genres not empty for title " + row[0])
         if len(row[8].split(',')) not in range(1, 4):
             raise SyntaxError("illegal genre count for title " + row[0])
         for genre in row[8].split(','):
-            media_obj.genres.append(genre)
+            if genre != "\\N":
+                media_obj.genres.append(genre)
         
         return media_obj
         
