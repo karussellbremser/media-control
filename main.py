@@ -26,7 +26,7 @@ scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
 mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
 mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 
-for x in mediaDict:
+for x in mediaDict.values():
     if x.subdir == None:
         print(x.originalTitle + " " + x.startYear)
 
