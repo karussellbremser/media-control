@@ -112,6 +112,16 @@ class ScrapeIMDbOnline:
                     foreignIMDbID = subtag['href'].rsplit('/', 1)[1]
                     if not re.search("^tt\d{7,8}$", foreignIMDbID):
                         raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
+                    
+                    # check for duplicate imdb connection entries (it happens)
+                    duplicate = False
+                    for x in resultDict[currentMedia.imdb_id].mediaConnections:
+                        if x.foreignIMDbID == int(foreignIMDbID[2:]) and x.connectionType == lastATagID:
+                            duplicate = True
+                            break
+                    if duplicate:
+                        continue
+                    
                     resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), lastATagID))
                 else:
                     raise EnvironmentError("html parsing problem")
@@ -124,7 +134,7 @@ class ScrapeIMDbOnline:
 
         return resultDict
     
-    def isInDevelopment(self, imdb_id): # TBD
+    def isInDevelopment(self, imdb_id):
         # scrape IMDb media main page
         page = requests.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/", headers=self.headers)
         if page.status_code != 200:

@@ -29,6 +29,9 @@ mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 for x in mediaDict.values():
     if x.subdir == None:
         print(x.originalTitle + " " + str(x.startYear))
+#for x in mediaDict.values():
+#    for y in x.mediaConnections:
+#        print(str(x.imdb_id) + " " + str(y))
 
 db = DBControl('myMovieDB.db')
 db.createMediaDB()

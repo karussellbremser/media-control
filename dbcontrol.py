@@ -53,7 +53,7 @@ class DBControl:
             FOREIGN KEY (genre_id)
                 REFERENCES genre_enum (genre_id)
                     ON UPDATE CASCADE
-                    ON DELETE RESTRICT
+                    ON DELETE CASCADE
             )""")
             
             self.c.execute("""CREATE TABLE genre_enum (
