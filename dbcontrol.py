@@ -122,7 +122,15 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir))
+            self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
+            data = self.c.fetchall()
+            if len(data) == 0:
+                self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir))
+            elif data[0][1] == None:
+                self.c.execute("UPDATE media SET titleType_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.imdb_id))
+            else:
+                raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
+            self.c.execute("DELETE FROM genres WHERE imdb_id=?", (thisMedia.imdb_id,)) # delete genre entries for the case of previously existing referenced medium now being newly added
             for genre_name in thisMedia.genres:
                 self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
             for mediaVersion in thisMedia.mediaVersions:
@@ -214,4 +222,15 @@ class DBControl:
             if not connection_type_id or not connection_type_id[0]:
                 raise SyntaxError('unknown connection type ' + connectionType_name)
             return(connection_type_id[0])
-            
+    
+    def determineNewlyAddedMedia(self, mediaList):
+        newlyAddedList = []
+        with self.conn:
+            for medium in mediaList:
+                self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (medium.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
+                data = self.c.fetchall()
+                if len(data) == 0 or data[0][1] == None:
+                    newlyAddedList.append(medium)
+        return newlyAddedList
+    
+    
