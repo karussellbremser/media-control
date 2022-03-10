@@ -1,4 +1,4 @@
-import csv, warnings
+import csv
 from media import Media
 from scrapeimdbonline import ScrapeIMDbOnline
 
@@ -95,7 +95,8 @@ class ScrapeIMDbOffline:
             or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes)):
             raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
         if (row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N"):
-            raise SyntaxError("failed basics offline parsing for " + str(media_obj.imdb_id))
+            media_obj.titleType = "ILLEGAL" # set illegal title type so that object will be removed later
+            return media_obj
         media_obj.titleType = row[1]
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
