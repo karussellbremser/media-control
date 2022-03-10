@@ -44,7 +44,9 @@ for x in mediaDict.values():
 
 db.addMultipleMedia(mediaDict)
 
-print(db.getLocalMediaByGenreAND(["Music"]))
+#print(db.getLocalMediaByGenreAND(["Comedy"]))
+
+print(db.getReferencedOnlyMedia())
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
