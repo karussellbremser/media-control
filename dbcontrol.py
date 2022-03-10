@@ -199,6 +199,21 @@ class DBControl:
             self.c.execute(sqlStatement)
             return(self.c.fetchall())
     
+    def getLocalMediaByGenreAND(self, genreNameList):
+        with self.conn:
+            if len(genreNameList) not in range(1, 4):
+                raise SyntaxError('illegal length of genreNameList: ' + len(genreNameList))
+            sqlStatement = "SELECT localMedia.originalTitle, localMedia.rating_mul10, localMedia.numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) localMedia INNER JOIN genres ON localMedia.imdb_id = genres.imdb_id WHERE genres.genre_id in ("
+            first = True
+            for genreName in genreNameList:
+                if not first:
+                    sqlStatement += ","
+                first = False
+                sqlStatement += str(self.__getGenreIDByGenreName(genreName))
+            sqlStatement += ") GROUP BY genres.imdb_id HAVING count(distinct genres.genre_id)=" + str(len(genreNameList)) + " ORDER BY localMedia.rating_mul10 DESC"
+            self.c.execute(sqlStatement)
+            return(self.c.fetchall())
+    
     def __getGenreIDByGenreName(self, genre_name):
         with self.conn:
             self.c.execute("SELECT genre_id FROM genre_enum WHERE genre_name=?", (genre_name,))
