@@ -257,7 +257,7 @@ class DBControl:
         return newlyAddedDict
     
     def determineLocallyRemovedMedia(self, mediaDict):
-        removedDict = []
+        removedDict = {}
         with self.conn:
             self.c.execute("SELECT imdb_id, originalTitle FROM media WHERE media.subdir IS NOT NULL")
             data = self.c.fetchall()
