@@ -44,7 +44,7 @@ for x in mediaDict.values():
 
 db.addMultipleMedia(mediaDict)
 
-#print(db.getLocalMediaByGenreAND(["Comedy"]))
+#print(db.getLocalMediaByGenreAND(["Action"]))
 
 print(db.getReferencedOnlyMedia())
 

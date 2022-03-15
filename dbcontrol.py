@@ -248,6 +248,11 @@ class DBControl:
                     newlyAddedList.append(medium)
         return newlyAddedList
     
+    def determineLocallyDeletedMedia(self, mediaList):
+        deletedList = []
+        # TBD----------------------------------
+        return deletedList
+    
     def getReferencedOnlyMedia(self):
         with self.conn:
             self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
