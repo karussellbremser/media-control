@@ -5,23 +5,16 @@ from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 
 scrape = ScrapeLocal(r"Y:")
-mediaListOriginal = scrape.scrapeLocalComplete()
+mediaDictOriginal = scrape.scrapeLocalComplete()
 
 db = DBControl('myMovieDB.db')
-newMediaList = db.determineNewlyAddedMedia(mediaListOriginal)
-
-mediaDict = {}
-for x in newMediaList:
-    mediaDict[x.imdb_id] = x
+mediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
 
 scrapeimdbonline = ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", 5)
 scrapeimdbonline.downloadCovers(mediaDict, 50)
 mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict)
 
 # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
-mediaDictOriginal = {}
-for x in mediaListOriginal:
-    mediaDictOriginal[x.imdb_id] = x
 mediaDictCopy = mediaDict.copy()
 for x in mediaDictCopy.values():
     for y in x.mediaConnections:

@@ -238,15 +238,15 @@ class DBControl:
                 raise SyntaxError('unknown connection type ' + connectionType_name)
             return(connection_type_id[0])
     
-    def determineNewlyAddedMedia(self, mediaList):
-        newlyAddedList = []
+    def determineNewlyAddedMedia(self, mediaDict):
+        newlyAddedDict = {}
         with self.conn:
-            for medium in mediaList:
+            for medium in mediaDict.values():
                 self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (medium.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
                 data = self.c.fetchall()
                 if len(data) == 0 or data[0][1] == None:
-                    newlyAddedList.append(medium)
-        return newlyAddedList
+                    newlyAddedDict[medium.imdb_id] = medium
+        return newlyAddedDict
     
     def determineLocallyDeletedMedia(self, mediaList):
         deletedList = []

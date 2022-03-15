@@ -10,16 +10,16 @@ class ScrapeLocal:
     def scrapeLocalComplete(self):
         root, dirs, files = next(os.walk(self.rootdir))
         
-        mediaList = []
+        mediaDict = {}
         
         for subdir in dirs:
             if "!" in subdir or subdir == "#recycle": #skip 'in progress' directories and trash bin
                 continue
             currentMedia = self.__scrapeSingleMedia(subdir)
             if currentMedia != None:
-                mediaList.append(currentMedia)
+                mediaDict[currentMedia.imdb_id] = currentMedia
         
-        return mediaList
+        return mediaDict
             
     def __scrapeSingleMedia(self, subdir):
         root, dirs, files = next(os.walk(self.__complDirPath(subdir)))
