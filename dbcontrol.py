@@ -154,20 +154,52 @@ class DBControl:
             self.removeSingleMedia(x)
     
     def removeSingleMedia(self, mediumToRemove):
-        # TBD
-        #steps:
-        #1. remove all mediaVersions of mediumToRemove
-        #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
-        #3. check whether there are any connections TO mediumToRemove
-        #3a. if yes: only "light-remove" mediumToRemove (remove only subdir)
-        #3b. if no: remove genre and media entries
-        #4. for all x in list referencesToRemove:
-        #4a. if x not in db table media or if subdir NOT EMPTY: continue
-        #4b. check whether there are any connections TO x
-        #4b1. if yes: continue
-        #4b2. if no: remove genre and media entries
+        with self.conn:
+            #1. remove all mediaVersions of mediumToRemove
+            self.c.execute("DELETE FROM mediaVersions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
         
-        return
+            #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
+            self.c.execute("SELECT imdb_id, foreign_imdb_id FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            referencesToRemove = self.c.fetchall()
+            self.c.execute("DELETE FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+        
+            #3. check whether there are any connections TO mediumToRemove
+            self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
+            remainingConnections = self.c.fetchall()
+            
+            #3a. if yes: only "light-remove" mediumToRemove (remove only subdir)
+            if len(remainingConnections) != 0:
+                print("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
+                self.c.execute("UPDATE media SET subdir = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            
+            #3b. if no: remove genre and media entries
+            else:
+                print("Removing " + mediumToRemove.originalTitle + " from DB")
+                self.c.execute("DELETE FROM genres WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            
+            #4. for all x in list referencesToRemove:
+            for x in referencesToRemove:
+            
+                #4a. if x not in db table media or if subdir NOT EMPTY: continue
+                self.c.execute("SELECT imdb_id, originalTitle, subdir FROM media WHERE imdb_id=?", (x[1],))
+                mediumData = self.c.fetchall()
+                if len(mediumData) == 0 or mediumData[0][2] != None:
+                    continue
+                
+                #4b. check whether there are any connections TO x
+                self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (x[1],))
+                remainingConnections = self.c.fetchall()
+                
+                #4b1. if yes: continue
+                if len(remainingConnections) != 0:
+                    continue
+                
+                #4b2. if no: remove genre and media entries
+                else:
+                    print("Removing referenced medium " + mediumData[0][1] + " from DB")
+                    self.c.execute("DELETE FROM genres WHERE imdb_id=?", (x[1],))
+                    self.c.execute("DELETE FROM media WHERE imdb_id=?", (x[1],))
             
     def getAllMediaTitles(self):
         with self.conn:
