@@ -26,6 +26,9 @@ class ScrapeIMDbOffline:
         return self.__parseIMDbOfflineFile(content_dict, 1)
     
     def __parseIMDbOfflineFile(self, content_dict, file_type): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
+        if len(content_dict) == 0:
+            return content_dict
+        
         if file_type == 0:
             filename = self.title_ratings_filename
         elif file_type == 1:
