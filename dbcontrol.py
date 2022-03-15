@@ -155,6 +155,18 @@ class DBControl:
     
     def removeSingleMedia(self, mediumToRemove):
         # TBD
+        #steps:
+        #1. remove all mediaVersions of mediumToRemove
+        #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
+        #3. check whether there are any connections TO mediumToRemove
+        #3a. if yes: only "light-remove" mediumToRemove (remove only subdir)
+        #3b. if no: remove genre and media entries
+        #4. for all x in list referencesToRemove:
+        #4a. if x not in db table media or if subdir NOT EMPTY: continue
+        #4b. check whether there are any connections TO x
+        #4b1. if yes: continue
+        #4b2. if no: remove genre and media entries
+        
         return
             
     def getAllMediaTitles(self):
