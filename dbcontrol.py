@@ -148,6 +148,14 @@ class DBControl:
             self.addSingleMediaWoConnections(x)
         for x in mediaDict.values():
             self.addSingleMediaConnections(x)
+    
+    def removeMultipleMedia(self, removedList):
+        for x in removedList:
+            self.removeSingleMedia(x)
+    
+    def removeSingleMedia(self, mediumToRemove):
+        # TBD
+        return
             
     def getAllMediaTitles(self):
         with self.conn:

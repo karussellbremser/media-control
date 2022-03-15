@@ -26,6 +26,7 @@ mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
 mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 
 removedList = db.determineLocallyRemovedMedia(mediaDictOriginal)
+db.removeMultipleMedia(removedList)
 
 
 for x in mediaDict.values():
@@ -43,9 +44,6 @@ db.addMultipleMedia(mediaDict)
 #print(db.getLocalMediaByGenreAND(["Action"]))
 
 print(db.getReferencedOnlyMedia())
-if len(removedList) != 0:
-    print("\nRemoved Media:")
-    print(removedList)
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
