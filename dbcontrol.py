@@ -248,10 +248,15 @@ class DBControl:
                     newlyAddedDict[medium.imdb_id] = medium
         return newlyAddedDict
     
-    def determineLocallyDeletedMedia(self, mediaList):
-        deletedList = []
-        # TBD----------------------------------
-        return deletedList
+    def determineLocallyRemovedMedia(self, mediaDict):
+        removedList = []
+        with self.conn:
+            self.c.execute("SELECT imdb_id, originalTitle FROM media WHERE media.subdir IS NOT NULL")
+            data = self.c.fetchall()
+            for db_medium in data:
+                if db_medium[0] not in mediaDict:
+                    removedList.append(db_medium)
+        return removedList
     
     def getReferencedOnlyMedia(self):
         with self.conn:

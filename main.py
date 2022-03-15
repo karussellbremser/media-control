@@ -25,6 +25,9 @@ scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
 mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
 mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 
+removedList = db.determineLocallyRemovedMedia(mediaDictOriginal)
+
+
 for x in mediaDict.values():
     if x.subdir == None:
         print(x.originalTitle + " " + str(x.startYear))
@@ -40,6 +43,9 @@ db.addMultipleMedia(mediaDict)
 #print(db.getLocalMediaByGenreAND(["Action"]))
 
 print(db.getReferencedOnlyMedia())
+if len(removedList) != 0:
+    print("\nRemoved Media:")
+    print(removedList)
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
