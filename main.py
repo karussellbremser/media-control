@@ -25,8 +25,8 @@ scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
 mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
 mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
 
-removedList = db.determineLocallyRemovedMedia(mediaDictOriginal)
-db.removeMultipleMedia(removedList)
+removedDict = db.determineLocallyRemovedMedia(mediaDictOriginal)
+db.removeMultipleMedia(removedDict)
 
 
 for x in mediaDict.values():

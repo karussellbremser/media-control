@@ -149,8 +149,8 @@ class DBControl:
         for x in mediaDict.values():
             self.addSingleMediaConnections(x)
     
-    def removeMultipleMedia(self, removedList):
-        for x in removedList:
+    def removeMultipleMedia(self, removedDict):
+        for x in removedDict.values():
             self.removeSingleMedia(x)
     
     def removeSingleMedia(self, mediumToRemove):
@@ -257,14 +257,16 @@ class DBControl:
         return newlyAddedDict
     
     def determineLocallyRemovedMedia(self, mediaDict):
-        removedList = []
+        removedDict = []
         with self.conn:
             self.c.execute("SELECT imdb_id, originalTitle FROM media WHERE media.subdir IS NOT NULL")
             data = self.c.fetchall()
             for db_medium in data:
                 if db_medium[0] not in mediaDict:
-                    removedList.append(db_medium)
-        return removedList
+                    removedMedium = Media(None, None, db_medium[0])
+                    removedMedium.originalTitle = db_medium[1]
+                    removedDict[removedMedium.imdb_id] = removedMedium
+        return removedDict
     
     def getReferencedOnlyMedia(self):
         with self.conn:
