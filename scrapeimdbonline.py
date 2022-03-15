@@ -18,6 +18,11 @@ class ScrapeIMDbOnline:
     
     def downloadCovers(self, mediaDict, maxCount = 0): # maxCount = 0: unlimited cover downloads
         
+        if len(mediaDict) == 0:
+            return
+        
+        print("downloading covers...")
+        
         count = 0
         
         for currentMedia in mediaDict.values():
@@ -63,6 +68,9 @@ class ScrapeIMDbOnline:
             self.__sleep()
 
     def parseMediaConnections(self, mediaDict, maxCount = 0):
+        
+        if len(mediaDict) == 0:
+            return mediaDict
         
         resultDict = mediaDict
         count = 0
