@@ -1,6 +1,7 @@
 import sqlite3
 from media import Media
 from mediaversion import MediaVersion
+from mediaconnection import MediaConnection
 
 class DBControl:
 
@@ -274,6 +275,14 @@ class DBControl:
                 raise SyntaxError('unknown genre ' + genre_name)
             return(genre_id[0])
     
+    def __getGenreNameByGenreID(self, genre_id):
+        with self.conn:
+            self.c.execute("SELECT genre_name FROM genre_enum WHERE genre_id=?", (genre_id,))
+            genre_name = self.c.fetchone()
+            if not genre_name or not genre_name[0]:
+                raise SyntaxError('unknown genre ID ' + str(genre_id))
+            return(genre_name[0])
+    
     def __getTitleTypeIDByTitleTypeName(self, titleType_name):
         with self.conn:
             self.c.execute("SELECT titleType_id FROM titleType_enum WHERE titleType_name=?", (titleType_name,))
@@ -282,6 +291,14 @@ class DBControl:
                 raise SyntaxError('unknown titleType ' + titleType_name)
             return(titleType_id[0])
     
+    def __getTitleTypeNameByTitleTypeID(self, titleType_id):
+        with self.conn:
+            self.c.execute("SELECT titleType_name FROM titleType_enum WHERE titleType_id=?", (titleType_id,))
+            titleType_name = self.c.fetchone()
+            if not titleType_name or not titleType_name[0]:
+                raise SyntaxError('unknown titleType ID ' + str(titleType_id))
+            return(titleType_name[0])
+    
     def __getConnectionTypeIDByConnectionTypeName(self, connectionType_name):
         with self.conn:
             self.c.execute("SELECT connection_type_id FROM connection_type_enum WHERE connection_type_name=?", (connectionType_name,))
@@ -289,6 +306,14 @@ class DBControl:
             if not connection_type_id or not connection_type_id[0]:
                 raise SyntaxError('unknown connection type ' + connectionType_name)
             return(connection_type_id[0])
+    
+    def __getConnectionTypeNameByConnectionTypeID(self, connectionType_id):
+        with self.conn:
+            self.c.execute("SELECT connection_type_name FROM connection_type_enum WHERE connection_type_id=?", (connectionType_id,))
+            connection_type_name = self.c.fetchone()
+            if not connection_type_name or not connection_type_name[0]:
+                raise SyntaxError('unknown connection type ' + str(connectionType_id))
+            return(connection_type_name[0])
     
     def determineNewlyAddedMedia(self, mediaDict):
         newlyAddedDict = {}
@@ -316,5 +341,67 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
             return(self.c.fetchall())
+    
+    def getLocalMovieObjects(self):
+        resultDict = {}
+        with self.conn:
+            self.c.execute("SELECT * FROM media WHERE subdir IS NOT NULL")
+            dbResult = self.c.fetchall()
+            for dbRow in dbResult:
+                resultDict[dbRow[0]] = self.__getMovieObjectFromDBRow(dbRow)
+        return resultDict
+    
+    def __getMovieObjectFromDBRow(self, dbRow):
+        # imdb_id, titleType_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir
+        mediaObject = Media(None, None, dbRow[0])
+        mediaObject.originalTitle = dbRow[2]
+        mediaObject.primaryTitle = dbRow[3]
+        mediaObject.startYear = dbRow[4]
+        mediaObject.endYear = dbRow[5]
+        mediaObject.rating_mul10 = dbRow[6]
+        mediaObject.numVotes = dbRow[7]
+        mediaObject.releaseMonth = dbRow[8]
+        mediaObject.releaseDay = dbRow[9]
+        mediaObject.subdir = dbRow[10]
+        mediaObject.titleType = self.__getTitleTypeNameByTitleTypeID(dbRow[1])
+        mediaObject.genres = self.__getGenreNameList(dbRow[0])
+        mediaObject.mediaVersions = self.__getMediaVersionList(dbRow[0])
+        mediaObject.mediaConnections = self.__getMediaConnectionsList(dbRow[0])
+    
+    def __getGenreNameList(self, imdbID):
+        with self.conn:
+            self.c.execute("SELECT genre_id FROM genres WHERE imdb_id=?", (imdbID,))
+            dbResult = self.c.fetchall()
+            if len(dbResult) == 0:
+                raise SyntaxError('no genre for IMDb ID ' + str(imdbID))
+            genreList = []
+            for genre_id in dbResult:
+                genreList.append(self.__getGenreNameByGenreID(genre_id[0]))
+            return genreList
+    
+    def __getMediaVersionList(self, imdbID):
+        with self.conn:
+            self.c.execute("SELECT * FROM mediaVersions WHERE imdb_id=?", (imdbID,))
+            dbResult = self.c.fetchall()
+            if len(dbResult) == 0:
+                raise SyntaxError('no media versions for IMDb ID ' + str(imdbID))
+            resultList = []
+            for mediaVersionRow in dbResult:
+                resultList.append(MediaVersion(mediaVersionRow[1], mediaVersionRow[2], mediaVersionRow[3]))
+            return resultList
+    
+    def __getMediaConnectionsList(self, imdbID):
+        with self.conn:
+            self.c.execute("SELECT * FROM mediaConnections WHERE imdb_id=?", (imdbID,))
+            dbResult = self.c.fetchall()
+            resultList = []
+            for mediaConnectionRow in dbResult:
+                resultList.append(MediaConnection(mediaConnectionRow[1], self.__getConnectionTypeNameByConnectionTypeID(mediaConnectionRow[2])))
+            return resultList
+    
+    
+    
+    
+    
     
     

@@ -43,7 +43,9 @@ db.addMultipleMedia(mediaDict)
 
 #print(db.getLocalMediaByGenreAND(["Action"]))
 
-print(db.getReferencedOnlyMedia())
+referencedOnlyMedia = db.getReferencedOnlyMedia()
+print("Referenced-only media (" + str(len(referencedOnlyMedia)) + "):")
+print(referencedOnlyMedia)
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
