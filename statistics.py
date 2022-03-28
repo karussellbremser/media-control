@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy
 
 class Statistics:
     
@@ -31,8 +32,8 @@ class Statistics:
                 avgNumVotes.append(dataDict[year][2])
             else:
                 count.append(0)
-                avgRating.append(0)
-                avgNumVotes.append(0)
+                avgRating.append(numpy.nan)
+                avgNumVotes.append(numpy.nan)
         
         lists = [years, count, avgRating, avgNumVotes]
         if not all(len(lists[0]) == len(l) for l in lists[1:]):
@@ -41,18 +42,18 @@ class Statistics:
         
         ax1 = plt.subplot(311, ylabel="media count")
         ax1.margins(x=0, y=0)
-        plt.plot(years, count)
+        plt.plot(years, count, marker='.')
         plt.title("local media statistics")
         plt.xticks(years, rotation=90, fontsize=8)
 
         ax2 = plt.subplot(312, sharex=ax1, ylabel="average rating")
         ax2.margins(x=0, y=0)
-        plt.plot(years, avgRating)
+        plt.plot(years, avgRating, marker='.')
         plt.xticks(years, rotation=90, fontsize=8)
 
         ax3 = plt.subplot(313, sharex=ax1, xlabel="production year", ylabel="average vote count")
         ax3.margins(x=0, y=0)
-        plt.plot(years, avgNumVotes)
+        plt.plot(years, avgNumVotes, marker='.')
         plt.xticks(years, rotation=90, fontsize=8)
         
         plt.show()

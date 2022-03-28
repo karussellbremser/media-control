@@ -339,7 +339,7 @@ class DBControl:
     
     def getReferencedOnlyMedia(self):
         with self.conn:
-            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
+            self.c.execute("SELECT originalTitle, startYear, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
             return(self.c.fetchall())
     
     def getLocalMovieObjects(self):
