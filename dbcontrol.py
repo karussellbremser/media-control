@@ -367,13 +367,12 @@ class DBControl:
         mediaObject.genres = self.__getGenreNameList(dbRow[0])
         mediaObject.mediaVersions = self.__getMediaVersionList(dbRow[0])
         mediaObject.mediaConnections = self.__getMediaConnectionsList(dbRow[0])
+        return mediaObject
     
     def __getGenreNameList(self, imdbID):
         with self.conn:
             self.c.execute("SELECT genre_id FROM genres WHERE imdb_id=?", (imdbID,))
             dbResult = self.c.fetchall()
-            if len(dbResult) == 0:
-                raise SyntaxError('no genre for IMDb ID ' + str(imdbID))
             genreList = []
             for genre_id in dbResult:
                 genreList.append(self.__getGenreNameByGenreID(genre_id[0]))
@@ -383,8 +382,6 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT * FROM mediaVersions WHERE imdb_id=?", (imdbID,))
             dbResult = self.c.fetchall()
-            if len(dbResult) == 0:
-                raise SyntaxError('no media versions for IMDb ID ' + str(imdbID))
             resultList = []
             for mediaVersionRow in dbResult:
                 resultList.append(MediaVersion(mediaVersionRow[1], mediaVersionRow[2], mediaVersionRow[3]))
@@ -399,7 +396,14 @@ class DBControl:
                 resultList.append(MediaConnection(mediaConnectionRow[1], self.__getConnectionTypeNameByConnectionTypeID(mediaConnectionRow[2])))
             return resultList
     
-    
+    def getAllMovieObjects(self):
+        resultDict = {}
+        with self.conn:
+            self.c.execute("SELECT * FROM media")
+            dbResult = self.c.fetchall()
+            for dbRow in dbResult:
+                resultDict[dbRow[0]] = self.__getMovieObjectFromDBRow(dbRow)
+        return resultDict
     
     
     
