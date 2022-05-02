@@ -77,7 +77,13 @@ class ScrapeIMDbOnline:
         
         print("parsing media connections...")
         
+        first = True
         for currentMedia in mediaDict.values():
+            
+            if first:
+                first = False
+            else:
+                self.__sleep()
             
             print(str(count+1) + " / " + str(len(mediaDict)) + " " + currentMedia.originalTitle)
 
@@ -137,8 +143,6 @@ class ScrapeIMDbOnline:
             count += 1
             if count == maxCount:
                 return resultDict
-            
-            self.__sleep()
 
         return resultDict
     

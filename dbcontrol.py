@@ -214,27 +214,32 @@ class DBControl:
     
     def getMediaByYear(self, startYear):
         with self.conn:
-            self.c.execute("SELECT originalTitle FROM media WHERE startYear=?", (startYear,))
+            self.c.execute("SELECT originalTitle FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE startYear=?", (startYear,))
             return(self.c.fetchall())
             
     def getMediaByYearRange(self, yearFrom, yearTo):
         with self.conn:
-            self.c.execute("SELECT originalTitle FROM media WHERE startYear BETWEEN ? AND ?", (yearFrom, yearTo))
+            self.c.execute("SELECT originalTitle FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE startYear BETWEEN ? AND ?", (yearFrom, yearTo))
             return(self.c.fetchall())
     
     def getMediaByRatingRange(self, ratingFrom, ratingTo):
         with self.conn:
-            self.c.execute("SELECT originalTitle FROM media WHERE rating_mul10 BETWEEN ? AND ?", (ratingFrom, ratingTo))
+            self.c.execute("SELECT originalTitle FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 BETWEEN ? AND ?", (ratingFrom, ratingTo))
             return(self.c.fetchall())
     
     def getAllMediaSortedByRating(self):
         with self.conn:
-            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE rating_mul10 ORDER BY rating_mul10 DESC")
+            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 ORDER BY rating_mul10 DESC")
             return(self.c.fetchall())
     
     def getAllMediaSortedByNumVotes(self):
         with self.conn:
-            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM media WHERE rating_mul10 ORDER BY numVotes DESC")
+            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 ORDER BY numVotes DESC")
+            return(self.c.fetchall())
+    
+    def getAllMediaSortedByRating(self):
+        with self.conn:
+            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 ORDER BY startYear DESC")
             return(self.c.fetchall())
     
     def getMediaByGenreAND(self, genreNameList):
