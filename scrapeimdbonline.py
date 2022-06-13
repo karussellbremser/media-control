@@ -37,7 +37,7 @@ class ScrapeIMDbOnline:
                 raise EnvironmentError("no 200 code on page return")
             soup = BeautifulSoup(page.content, 'html.parser')
             
-            cover_search_result = soup.find_all(attrs={"aria-label": re.compile("View ’[^’'\"]+’ Poster")})
+            cover_search_result = soup.find_all(attrs={"aria-label": re.compile("View ’[^’\"]+’ Poster")})
             if len(cover_search_result) != 1:
                 raise EnvironmentError("no unique cover tag found")
             
