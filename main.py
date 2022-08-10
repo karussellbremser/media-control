@@ -12,9 +12,9 @@ def syncLocal(mediaDir, db, coverDir):
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, 5)
-    scrapeimdbonline.downloadCovers(newlyAddedMediaDict, 50)
-    newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict, 2)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, 5, 2)
+    scrapeimdbonline.downloadCovers(newlyAddedMediaDict)
+    newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
     # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
     newlyAddedMediaDictCopy = newlyAddedMediaDict.copy()

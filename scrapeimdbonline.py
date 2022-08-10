@@ -12,11 +12,12 @@ class ScrapeIMDbOnline:
     
     # TBD: restrict online parsing to locally available movies and no TV episodes
     
-    def __init__(self, cover_directory, delay = 0):
+    def __init__(self, cover_directory, delay = 0, maxCount = 0):
         self.cover_directory = cover_directory
         self.delay = delay
+        self.maxCount = maxCount
     
-    def downloadCovers(self, mediaDict, maxCount = 0): # maxCount = 0: unlimited cover downloads
+    def downloadCovers(self, mediaDict):
         
         if len(mediaDict) == 0:
             return
@@ -62,12 +63,12 @@ class ScrapeIMDbOnline:
             open(self.cover_directory + "\\" + currentMedia.getIDString() + ".jpg", 'wb').write(coverFile.content)
             
             count += 1
-            if count == maxCount:
+            if count == self.maxCount:
                 return
             
             self.__sleep()
 
-    def parseMediaConnections(self, mediaDict, maxCount = 0):
+    def parseMediaConnections(self, mediaDict):
         
         if len(mediaDict) == 0:
             return mediaDict
@@ -144,7 +145,7 @@ class ScrapeIMDbOnline:
                     raise EnvironmentError("html parsing problem")
             
             count += 1
-            if count == maxCount:
+            if count == self.maxCount:
                 return resultDict
 
         return resultDict
