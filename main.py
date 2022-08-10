@@ -9,40 +9,35 @@ def syncLocal(mediaDir, db, coverDir):
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
-    mediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
+    newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
+    newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, 5)
-    scrapeimdbonline.downloadCovers(mediaDict, 50)
-    mediaDict = scrapeimdbonline.parseMediaConnections(mediaDict)
+    scrapeimdbonline.downloadCovers(newlyAddedMediaDict, 50)
+    newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict, 2)
 
     # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
-    mediaDictCopy = mediaDict.copy()
-    for x in mediaDictCopy.values():
+    newlyAddedMediaDictCopy = newlyAddedMediaDict.copy()
+    for x in newlyAddedMediaDictCopy.values():
         for y in x.mediaConnections:
-            if y.foreignIMDbID not in mediaDictOriginal:
-                mediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
+            if y.foreignIMDbID not in mediaDictOriginal or (y.foreignIMDbID in newlyAddedMediaDictOriginal and y.foreignIMDbID not in newlyAddedMediaDictCopy):
+                newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
 
     scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
-    mediaDict = scrapeimdboffline.parseTitleRatings(mediaDict)
-    mediaDict = scrapeimdboffline.parseTitleBasics(mediaDict)
+    newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
+    newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
 
     removedDict = db.determineLocallyRemovedMedia(mediaDictOriginal)
     db.removeMultipleMedia(removedDict)
 
-
-    for x in mediaDict.values():
+    for x in newlyAddedMediaDict.values():
         if x.subdir == None:
             print(x.originalTitle + " " + str(x.startYear))
-    #for x in mediaDict.values():
-    #    for y in x.mediaConnections:
-    #        print(str(x.imdb_id) + " " + str(y))
 
+    db.addMultipleMedia(newlyAddedMediaDict)
 
-    #db.createMediaDB()
-
-    db.addMultipleMedia(mediaDict)
-
-db = DBControl('myMovieDB.db')
+db = DBControl(':memory:')
+db.createMediaDB()
 referencedInitial = len(db.getReferencedOnlyMedia())
 syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers")
 

@@ -72,7 +72,7 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return mediaDict
         
-        resultDict = mediaDict
+        resultDict = {}
         count = 0
         
         print("parsing media connections...")
@@ -86,6 +86,9 @@ class ScrapeIMDbOnline:
                 self.__sleep()
             
             print(str(count+1) + " / " + str(len(mediaDict)) + " " + currentMedia.originalTitle)
+            
+            # enter medium into result dict
+            resultDict[currentMedia.imdb_id] = currentMedia
 
             # scrape IMDb media movie connections page
             page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections", headers=self.headers)

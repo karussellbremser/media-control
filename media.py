@@ -35,7 +35,11 @@ class Media:
         self.mediaConnections = []
     
     def __str__(self):
-        return str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.genres)
+        return_str = str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.genres)
+        if (len(self.mediaConnections) > 0): return_str += " mediaConnections:"
+        for x in self.mediaConnections:
+            return_str += str(" " + str(x))
+        return return_str
     
     def getIDString(self):
         return "tt" + str(self.imdb_id).zfill(7)
