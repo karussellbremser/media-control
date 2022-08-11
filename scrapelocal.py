@@ -151,7 +151,7 @@ class ScrapeLocal:
             return resultDict
     
     def __checkSrcDict(self, subdir, srcDict):
-        singleMatch = "((dvd|br|uhd)-(\d+|[a-z]{3})(-corrected)?(-bl)?(-(downmixed|core))?|(WEB-DL|WEBRip)(-(AMZN|NF|BCORE|HULU|TUBI|iT|DSNP|VMEO|YT|JOYN|HMAX))?|TVRip)"
+        singleMatch = "((dvd|br|uhd)-\d+(-corrected)?(-bl)?(-(downmixed|core))?|(WEB-DL|WEBRip)(-(AMZN|NF|BCORE|HULU|TUBI|iT|DSNP|VMEO|YT|JOYN|HMAX))?|TVRip)"
         doubleMatch = singleMatch + "-" + singleMatch
         tripleMatch = doubleMatch + "-" + singleMatch
         for x in srcDict.values():
