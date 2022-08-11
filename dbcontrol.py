@@ -11,6 +11,11 @@ class DBControl:
     
     connection_type_list = ["follows", "followed_by", "remake_of", "remade_as", "spin_off", "spin_off_from", "version_of"]
     
+    source_type_list = ["dvd", "br", "uhd", "web-dl", "webrip", "tvrip"]
+    source_web_provider_list = ["AMZN", "NF", "BCORE", "HULU", "TUBI", "iT", "DSNP", "VMEO", "YT", "JOYN", "HMAX"]
+    source_video_operation_list = ["bl"]
+    source_audio_operation_list = ["downmixed", "core"]
+    
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
@@ -117,6 +122,46 @@ class DBControl:
             i = 1
             for connection_type in self.connection_type_list:
                 self.c.execute("INSERT INTO connection_type_enum VALUES (?, ?)", (i, connection_type))
+                i += 1
+            
+            self.c.execute("""CREATE TABLE source_type_enum (
+            source_type_id integer NOT NULL,
+            source_type_name text NOT NULL UNIQUE,
+            PRIMARY KEY (source_type_id)
+            )""")
+            i = 1
+            for source_type in self.source_type_list:
+                self.c.execute("INSERT INTO source_type_enum VALUES (?, ?)", (i, source_type))
+                i += 1
+            
+            self.c.execute("""CREATE TABLE source_web_provider_enum (
+            source_web_provider_id integer NOT NULL,
+            source_web_provider_name text NOT NULL UNIQUE,
+            PRIMARY KEY (source_web_provider_id)
+            )""")
+            i = 1
+            for source_web_provider in self.source_web_provider_list:
+                self.c.execute("INSERT INTO source_web_provider_enum VALUES (?, ?)", (i, source_web_provider))
+                i += 1
+            
+            self.c.execute("""CREATE TABLE source_video_operation_enum (
+            source_video_operation_id integer NOT NULL,
+            source_video_operation_name text NOT NULL UNIQUE,
+            PRIMARY KEY (source_video_operation_id)
+            )""")
+            i = 1
+            for source_video_operation in self.source_video_operation_list:
+                self.c.execute("INSERT INTO source_video_operation_enum VALUES (?, ?)", (i, source_video_operation))
+                i += 1
+            
+            self.c.execute("""CREATE TABLE source_audio_operation_enum (
+            source_audio_operation_id integer NOT NULL,
+            source_audio_operation_name text NOT NULL UNIQUE,
+            PRIMARY KEY (source_audio_operation_id)
+            )""")
+            i = 1
+            for source_audio_operation in self.source_audio_operation_list:
+                self.c.execute("INSERT INTO source_audio_operation_enum VALUES (?, ?)", (i, source_audio_operation))
                 i += 1
 
     def addSingleMediaWoConnections(self, thisMedia):
