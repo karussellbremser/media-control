@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, re
 from media import Media
 from mediaversion import MediaVersion
 
@@ -37,6 +37,8 @@ class ScrapeLocal:
         mkv_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
         
         src_dict = self.__parseDictFile(subdir, sources_file)
+        self.__checkSrcDict(subdir, src_dict)
+        
         if versions_exists:
             versions_dict = self.__parseDictFile(subdir, "versions.txt")
         
@@ -147,6 +149,14 @@ class ScrapeLocal:
                     raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
                 resultDict[lineSplit[0]] = lineSplit[1]
             return resultDict
+    
+    def __checkSrcDict(self, subdir, srcDict):
+        singleMatch = "((dvd|br|uhd)-(\d+|ger)(-(corrected|downmixed|core|bl))?|(WEB-DL|WEBRip)(-(AMZN|NF|BCORE|HULU|TUBI|iT|DSNP|VMEO|YT|JOYN|HMAX))?|TVRip)"
+        doubleMatch = singleMatch + "-" + singleMatch
+        tripleMatch = doubleMatch + "-" + singleMatch
+        for x in srcDict.values():
+            if not re.search("^(src-" + singleMatch + "|src-((dynhdr)?hybrid|fanres)-" + doubleMatch + "|src-hybrid-dynhdrhybrid-" + tripleMatch + ")$", x):
+                raise SyntaxError("Illegal src string '" + x + "' in subdirectory " + subdir)
         
         
         
