@@ -59,7 +59,7 @@ class DBControl:
             FOREIGN KEY (genre_id)
                 REFERENCES genre_enum (genre_id)
                     ON UPDATE CASCADE
-                    ON DELETE CASCADE
+                    ON DELETE RESTRICT
             )""")
             
             self.c.execute("""CREATE TABLE genre_enum (
@@ -85,14 +85,63 @@ class DBControl:
             self.c.execute("""CREATE TABLE mediaVersions (
             imdb_id integer NOT NULL,
             filename text NOT NULL,
-            source text NOT NULL,
             version text,
+            
+            video_source_type_id integer NOT NULL,
+            video_source_disc_id integer,
+            video_source_disc_corrected integer,
+            video_source_web_provider_id integer,
+            video_source_operation_id integer,
+            
+            audio_source_type_id integer NOT NULL,
+            audio_source_disc_id integer,
+            audio_source_disc_corrected integer,
+            audio_source_web_provider_id integer,
+            audio_source_operation_id integer,
+            
+            dynhdr_source_type_id integer NOT NULL,
+            dynhdr_source_disc_id integer,
+            dynhdr_source_disc_corrected integer,
+            dynhdr_source_web_provider_id integer,
+            
             PRIMARY KEY (imdb_id, version),
             UNIQUE (imdb_id, filename),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
-                    ON DELETE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (video_source_type_id)
+                REFERENCES source_type_enum (source_type_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (video_source_web_provider_id)
+                REFERENCES source_web_provider_enum (source_web_provider_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (video_source_operation_id)
+                REFERENCES source_video_operation_enum (source_video_operation_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (audio_source_type_id)
+                REFERENCES source_type_enum (source_type_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (audio_source_web_provider_id)
+                REFERENCES source_web_provider_enum (source_web_provider_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (audio_source_operation_id)
+                REFERENCES source_audio_operation_enum (source_audio_operation_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (dynhdr_source_type_id)
+                REFERENCES source_type_enum (source_type_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (dynhdr_source_web_provider_id)
+                REFERENCES source_web_provider_enum (source_web_provider_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
             
             self.c.execute("""CREATE TABLE mediaConnections (

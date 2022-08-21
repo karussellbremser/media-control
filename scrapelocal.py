@@ -1,6 +1,7 @@
 import sys, os, re
 from media import Media
 from mediaversion import MediaVersion
+from mediasource import MediaSource
 
 class ScrapeLocal:
 
@@ -37,16 +38,15 @@ class ScrapeLocal:
         mkv_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
         
         src_dict = self.__parseDictFile(subdir, sources_file)
-        self.__checkSrcDict(subdir, src_dict)
         
         if versions_exists:
             versions_dict = self.__parseDictFile(subdir, "versions.txt")
         
         for mkv_file in mkv_files:
             if mkv_file in src_dict:
-                src = src_dict[mkv_file]
+                video_source, audio_source, dynhdr_source = self.__parseSrcString(subdir, src_dict[mkv_file])
             elif "OTHER" in src_dict:
-                src = src_dict["OTHER"]
+                video_source, audio_source, dynhdr_source = self.__parseSrcString(subdir, src_dict["OTHER"])
             else:
                 raise SyntaxError('Bad source file in subdirectory ' + subdir)
             
@@ -59,7 +59,7 @@ class ScrapeLocal:
             else:
                 raise SyntaxError('Bad versions file in subdirectory ' + subdir)
             
-            currentMovie.mediaVersions.append(MediaVersion(mkv_file, src, version))
+            currentMovie.mediaVersions.append(MediaVersion(mkv_file, video_source, audio_source, dynhdr_source, version))
             
         
         return currentMovie
@@ -150,14 +150,57 @@ class ScrapeLocal:
                 resultDict[lineSplit[0]] = lineSplit[1]
             return resultDict
     
-    def __checkSrcDict(self, subdir, srcDict):
-        singleMatch = "((dvd|br|uhd)-\d+(-corrected)?(-bl)?(-(downmixed|core))?|(WEB-DL|WEBRip)(-(AMZN|NF|BCORE|HULU|TUBI|iT|DSNP|VMEO|YT|JOYN|HMAX))?|TVRip)"
+    def __parseSrcString(self, subdir, srcString):
+        
+        singleMatch_rigid = "((dvd|br|uhd)-(\d+)(-corrected)?(-bl)?(-(downmixed|core))?|(WEB-DL|WEBRip)(-(AMZN|NF|BCORE|HULU|TUBI|iT|DSNP|VMEO|YT|JOYN|HMAX))?|TVRip)"
+        singleMatch_forGroups = "(dvd|br|uhd|WEB-DL|WEBRip|TVRip)(-(\d+))?(-corrected)?(-(AMZN|NF|BCORE|HULU|TUBI|iT|DSNP|VMEO|YT|JOYN|HMAX))?(-(bl))?(-(downmixed|core))?"
+        
+        # case 1: only single source
+        if re.search("^src-" + singleMatch_rigid + "$", srcString):
+            resultSingle = re.search("^src-" + singleMatch_forGroups + "$", srcString)
+            video_source = MediaSource(resultSingle.group(1), int(resultSingle.group(3)), False if resultSingle.group(4) == None else True, resultSingle.group(6), resultSingle.group(8), resultSingle.group(10))
+            audio_source = MediaSource(resultSingle.group(1), int(resultSingle.group(3)), False if resultSingle.group(4) == None else True, resultSingle.group(6), resultSingle.group(8), resultSingle.group(10))
+            dynhdr_source = None
+        
+        # case 2: (audio) hybrid
+        if re.search("^src-" + singleMatch_rigid + "$", srcString):
+            resultSingle = re.search("^src-" + singleMatch_forGroups + "$", srcString)
+            video_source = MediaSource(resultSingle.group(1), int(resultSingle.group(3)), False if resultSingle.group(4) == None else True, resultSingle.group(6), resultSingle.group(8), resultSingle.group(10))
+            audio_source = MediaSource(resultSingle.group(1), int(resultSingle.group(3)), False if resultSingle.group(4) == None else True, resultSingle.group(6), resultSingle.group(8), resultSingle.group(10))
+            dynhdr_source = None
+        
+        ## !!!TODO!!!: in order to fully support fanres, change db layout to separate table(s) for sources. multiple sources for src type (video, audio, dynhdr) -> fanres
+        
+        
+        
+        
+        
+        
         doubleMatch = singleMatch + "-" + singleMatch
         tripleMatch = doubleMatch + "-" + singleMatch
-        for x in srcDict.values():
-            if not re.search("^(src-" + singleMatch + "|src-((dynhdr)?hybrid|fanres)-" + doubleMatch + "|src-hybrid-dynhdrhybrid-" + tripleMatch + ")$", x):
-                raise SyntaxError("Illegal src string '" + x + "' in subdirectory " + subdir)
-        
+        if not re.search("^(src-" + singleMatch + "|src-((dynhdr)?hybrid|fanres)-" + doubleMatch + "|src-hybrid-dynhdrhybrid-" + tripleMatch + ")$", srcString):
+            raise SyntaxError("Illegal src string '" + srcString + "' in subdirectory " + subdir)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
         
         
     
