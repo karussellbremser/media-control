@@ -12,7 +12,7 @@ def syncLocal(mediaDir, db, coverDir):
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, 5, 2)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, 5, 50)
     scrapeimdbonline.downloadCovers(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
@@ -36,8 +36,8 @@ def syncLocal(mediaDir, db, coverDir):
 
     db.addMultipleMedia(newlyAddedMediaDict)
 
-db = DBControl(':memory:')
-db.createMediaDB()
+db = DBControl('myMovieDB.db')
+#db.createMediaDB()
 referencedInitial = len(db.getReferencedOnlyMedia())
 syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers")
 

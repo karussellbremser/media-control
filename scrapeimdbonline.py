@@ -155,8 +155,16 @@ class ScrapeIMDbOnline:
         page = requests.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/", headers=self.headers)
         if page.status_code != 200:
             raise EnvironmentError("no 200 code on page return")
-        if page.text.find('UpcomingBanner__UpcomingTitle-sc-19z09hr') != -1:
+        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">In Development</div>') != -1:
             return True
+        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">In Production</div>') != -1:
+            return True
+        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Post-production</div>') != -1:
+            return True
+        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Pre-production</div>') != -1:
+            return True
+        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">') != -1:
+            print("WARNING: unknown production status for IMDb ID " + str(imdb_id))
         return False
 
 
