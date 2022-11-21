@@ -6,7 +6,7 @@ from mediaconnection import MediaConnection
 
 class ScrapeIMDbOnline:
 
-    headers = {"Accept-Language": "en-US,en;q=0.5"}
+    headers = {"Accept-Language": "en-US,en;q=0.5", 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36'}
     
     ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into", "edited_from"]
     
@@ -35,7 +35,7 @@ class ScrapeIMDbOnline:
             # scrape IMDb media main page
             page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/", headers=self.headers)
             if page.status_code != 200:
-                raise EnvironmentError("no 200 code on page return")
+                raise EnvironmentError("no 200 code on page return (received status code " + str(page.status_code) + " for IMDb ID " + currentMedia.getIDString() + ")")
             soup = BeautifulSoup(page.content, 'html.parser')
             
             cover_search_result = soup.find_all(attrs={"aria-label": re.compile("View ’[^’\"]+’ Poster")})
