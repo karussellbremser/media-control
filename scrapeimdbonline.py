@@ -163,6 +163,8 @@ class ScrapeIMDbOnline:
             return True
         if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Pre-production</div>') != -1:
             return True
+        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Coming soon</div>') != -1:
+            return True
         if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">') != -1:
             print("WARNING: unknown production status for IMDb ID " + str(imdb_id))
         return False
