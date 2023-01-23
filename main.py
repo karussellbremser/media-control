@@ -45,7 +45,7 @@ syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers
 
 referencedOnlyMedia = db.getReferencedOnlyMedia()
 print("Referenced-only media:")
-print(referencedOnlyMedia)
+#print(referencedOnlyMedia)
 print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
 #print(db.getMediaByRatingRange(80, 100))

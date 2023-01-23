@@ -7,7 +7,7 @@ class DBControl:
 
     genre_list = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi", "Short", "Sport", "Talk-Show", "Thriller", "War", "Western", "Adult"]
     
-    titleType_list = ["movie", "video", "short", "tvMovie"]
+    titleType_list = ["movie", "video", "short", "tvMovie", "tvSpecial"]
     
     connection_type_list = ["follows", "followed_by", "remake_of", "remade_as", "spin_off", "spin_off_from", "version_of"]
     
