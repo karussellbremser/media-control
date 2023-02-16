@@ -9,8 +9,6 @@ class DBControl:
     
     titleType_list = ["movie", "video", "short", "tvMovie", "tvSpecial"]
     
-    connection_type_list = ["follows", "followed_by", "remake_of", "remade_as", "spin_off", "spin_off_from", "version_of"]
-    
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
@@ -115,7 +113,7 @@ class DBControl:
             PRIMARY KEY (connection_type_id)
             )""")
             i = 1
-            for connection_type in self.connection_type_list:
+            for connection_type in MediaConnection.connectionTypeList:
                 self.c.execute("INSERT INTO connection_type_enum VALUES (?, ?)", (i, connection_type))
                 i += 1
 
