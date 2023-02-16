@@ -97,52 +97,50 @@ class ScrapeIMDbOnline:
                 raise EnvironmentError("no 200 code on page return")
             soup = BeautifulSoup(page.content, 'html.parser')
 
-            # look for content element
-            content = soup.find_all(attrs={"id": "connections_content"})
-            if len(content) != 1:
-                raise EnvironmentError("no unique connections_content tag found")
-
-            # get direct child list element
-            lists = content[0].find_all(attrs={"class": "list"}, recursive=False)
-            if len(lists) != 1:
-                raise EnvironmentError("no unique child list element found")
-            contentList = lists[0]
-            
-            # check for no_content
-            if contentList.has_attr('id') and contentList['id'] == "no_content":
-                continue
-            
-            # iterate over list elements
-            lastATagID = ""
-            for tag in contentList.children:
-                if tag == '\n':
+            for connectionType in MediaConnection.connectionTypeList:
+                content = soup.find_all(attrs={"href": "#"+connectionType})
+                if len(content) > 1:
+                    raise EnvironmentError("multiple results for connection type " + connectionType)
+                if len(content) == 0:
                     continue
-                elif tag.name == "a":
-                    lastATagID = tag['id']
-                elif lastATagID in self.ignoredConnections:
-                    continue
-                elif tag.name == "h4":
-                    continue
-                elif tag.name == "div":
-                    subtag = next(tag.children)
-                    if subtag.name != "a" or lastATagID == "":
-                        raise EnvironmentError("html parsing problem")
-                    foreignIMDbID = subtag['href'].rsplit('/', 1)[1]
+                
+                elementList = content[0].parent.next_sibling.contents[0]
+                if elementList.contents[-1].name != "li":
+                    raise EnvironmentError("TODO: list needs to be expanded")
+                
+                for element in elementList.children:
+                    if element.contents[0].name != "div":
+                        raise EnvironmentError("connection scraping error")
+                    if element.contents[0].contents[0].name != "ul":
+                        raise EnvironmentError("connection scraping error")
+                    if element.contents[0].contents[0].contents[0].name != "div":
+                        raise EnvironmentError("connection scraping error")
+                    if element.contents[0].contents[0].contents[0].contents[0].name != "div":
+                        raise EnvironmentError("connection scraping error")
+                    if element.contents[0].contents[0].contents[0].contents[0].contents[0].name != "p":
+                        raise EnvironmentError("connection scraping error")
+                    if element.contents[0].contents[0].contents[0].contents[0].contents[0].contents[0].name != "a":
+                        raise EnvironmentError("connection scraping error")
+                    
+                    targetUrl = element.contents[0].contents[0].contents[0].contents[0].contents[0].contents[0]['href']
+                    if targetUrl[0:7] != "/title/":
+                        raise EnvironmentError("connection scraping error")
+                    targetUrl = targetUrl[7:]
+                    foreignIMDbID = targetUrl.split('?')[0]
+                    
                     if not re.search("^tt\d{7,8}$", foreignIMDbID):
                         raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
                     
                     # check for duplicate imdb connection entries (it happens)
                     duplicate = False
                     for x in resultDict[currentMedia.imdb_id].mediaConnections:
-                        if x.foreignIMDbID == int(foreignIMDbID[2:]) and x.connectionType == lastATagID:
+                        if x.foreignIMDbID == int(foreignIMDbID[2:]) and x.connectionType == connectionType:
                             duplicate = True
                             break
                     if duplicate:
                         continue
                     
-                    resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), lastATagID))
-                else:
-                    raise EnvironmentError("html parsing problem")
+                    resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), connectionType))
             
             count += 1
             if count == self.maxCount:
