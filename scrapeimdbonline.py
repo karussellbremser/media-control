@@ -1,6 +1,7 @@
 import requests, re, time, random, math
 from bs4 import BeautifulSoup
 import os.path
+from selenium import webdriver
 from media import Media
 from mediaconnection import MediaConnection
 
@@ -106,7 +107,29 @@ class ScrapeIMDbOnline:
                 
                 elementList = content[0].parent.next_sibling.contents[0]
                 if elementList.contents[-1].name != "li":
-                    raise EnvironmentError("TODO: list needs to be expanded")
+                    path_to_chromedriver = 'C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\schromedriver_win32'
+                    browser = webdriver.Chrome(executable_path = path_to_chromedriver)
+                    browser.maximize_window()
+                    url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
+                    browser.implicitly_wait(10)
+                    browser.get(url)
+                    time.sleep(3)
+                    element = browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
+                    element.location_once_scrolled_into_view
+                    time.sleep(1)
+                    element.click()
+                    time.sleep(2)
+                    soup = BeautifulSoup(browser.page_source, 'html.parser')
+                    #raise EnvironmentError("TODO: list needs to be expanded")
+                    
+                    content = soup.find_all(attrs={"href": "#"+connectionType})
+                    if len(content) > 1:
+                        raise EnvironmentError("multiple results for connection type " + connectionType)
+                    if len(content) == 0:
+                        continue
+                    elementList = content[0].parent.next_sibling.contents[0]
+                    if elementList.contents[-1].name != "li":
+                        raise EnvironmentError("och noe " + connectionType)
                 
                 for element in elementList.children:
                     if element.contents[0].name != "div":
