@@ -112,6 +112,7 @@ class ScrapeIMDbOnline:
                 if elementList.contents[-1].name != "li": # check whether page needs to be dynamically expanded or not
                     count_dyn = 0
                     
+                    # prepare browser for dynamic scraping
                     chrome_options = Options()
                     user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
                     chrome_options.add_argument(f'user-agent={user_agent}')
@@ -123,19 +124,19 @@ class ScrapeIMDbOnline:
                     browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
                     browser.maximize_window()
                     browser.implicitly_wait(10)
+                    browser.get(url)
+                    time.sleep(3)
                     
                     while True:
                         count_dyn += 1
                         if count_dyn > 5:
                             raise EnvironmentError("excessively long loop for page expanding for connection type " + connectionType)
                         
-                        browser.get(url)
-                        time.sleep(3)
                         element = browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
                         element.location_once_scrolled_into_view
                         time.sleep(1)
                         element.click()
-                        time.sleep(2)
+                        time.sleep(3)
                         soup = BeautifulSoup(browser.page_source, 'html.parser')
                         
                         content = soup.find_all(attrs={"href": "#"+connectionType})
