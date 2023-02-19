@@ -2,6 +2,7 @@ import requests, re, time, random, math
 from bs4 import BeautifulSoup
 import os.path
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from media import Media
 from mediaconnection import MediaConnection
 
@@ -13,8 +14,9 @@ class ScrapeIMDbOnline:
     
     # TBD: restrict online parsing to locally available movies and no TV episodes
     
-    def __init__(self, cover_directory, delay = 0, maxCount = 0):
+    def __init__(self, cover_directory, webdriver_path, delay = 0, maxCount = 0):
         self.cover_directory = cover_directory
+        self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
     
@@ -93,7 +95,8 @@ class ScrapeIMDbOnline:
             resultDict[currentMedia.imdb_id] = currentMedia
 
             # scrape IMDb media movie connections page
-            page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections", headers=self.headers)
+            url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
+            page = requests.get(url, headers=self.headers)
             if page.status_code != 200:
                 raise EnvironmentError("no 200 code on page return")
             soup = BeautifulSoup(page.content, 'html.parser')
@@ -104,32 +107,42 @@ class ScrapeIMDbOnline:
                     raise EnvironmentError("multiple results for connection type " + connectionType)
                 if len(content) == 0:
                     continue
-                
                 elementList = content[0].parent.next_sibling.contents[0]
-                if elementList.contents[-1].name != "li":
-                    path_to_chromedriver = 'C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\schromedriver_win32'
-                    browser = webdriver.Chrome(executable_path = path_to_chromedriver)
-                    browser.maximize_window()
-                    url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
-                    browser.implicitly_wait(10)
-                    browser.get(url)
-                    time.sleep(3)
-                    element = browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
-                    element.location_once_scrolled_into_view
-                    time.sleep(1)
-                    element.click()
-                    time.sleep(2)
-                    soup = BeautifulSoup(browser.page_source, 'html.parser')
-                    #raise EnvironmentError("TODO: list needs to be expanded")
-                    
-                    content = soup.find_all(attrs={"href": "#"+connectionType})
-                    if len(content) > 1:
-                        raise EnvironmentError("multiple results for connection type " + connectionType)
-                    if len(content) == 0:
-                        continue
-                    elementList = content[0].parent.next_sibling.contents[0]
-                    if elementList.contents[-1].name != "li":
-                        raise EnvironmentError("och noe " + connectionType)
+                
+                count = 0
+                while True:
+                    if elementList.contents[-1].name == "li": # check whether page needs to be dynamically expanded or not
+                        break # page does not need to be expanded
+                    else: # page needs to be expanded
+                        count += 1
+                        if count > 5:
+                            raise EnvironmentError("excessively long loop for page expanding for connection type " + connectionType)
+                        
+                        chrome_options = Options()
+                        user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
+                        chrome_options.add_argument(f'user-agent={user_agent}')
+                        chrome_options.add_argument('--no-sandbox')
+                        chrome_options.add_argument('--window-size=1920,1080')
+                        chrome_options.add_argument('--headless')
+                        chrome_options.add_argument('--allow-running-insecure-content')
+                        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+                        browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+                        browser.maximize_window()
+                        browser.implicitly_wait(10)
+                        browser.get(url)
+                        time.sleep(3)
+                        element = browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
+                        element.location_once_scrolled_into_view
+                        time.sleep(1)
+                        element.click()
+                        time.sleep(2)
+                        soup = BeautifulSoup(browser.page_source, 'html.parser')
+                        browser.quit()
+                        
+                        content = soup.find_all(attrs={"href": "#"+connectionType})
+                        if len(content) != 1:
+                            raise EnvironmentError("false results for connection type " + connectionType)
+                        elementList = content[0].parent.next_sibling.contents[0]
                 
                 for element in elementList.children:
                     if element.contents[0].name != "div":

@@ -5,14 +5,14 @@ from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from statistics import Statistics
 
-def syncLocal(mediaDir, db, coverDir):
+def syncLocal(mediaDir, db, coverDir, webdriverPath):
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, 5, 50)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, webdriverPath, 5, 50)
     scrapeimdbonline.downloadCovers(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
@@ -39,7 +39,7 @@ def syncLocal(mediaDir, db, coverDir):
 db = DBControl('myMovieDB.db')
 #db.createMediaDB()
 referencedInitial = len(db.getReferencedOnlyMedia())
-syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers")
+syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\schromedriver_win32")
 
 #print(db.getLocalMediaByGenreAND(["Horror"]))
 
