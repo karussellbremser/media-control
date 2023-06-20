@@ -144,7 +144,7 @@ class ScrapeIMDbOnline:
                             raise EnvironmentError("false results for connection type " + connectionType)
                         elementList = content[0].parent.next_sibling.contents[0]
                         
-                        if elementList.contents[-1].name == "li": # check whether page needs to expanded further
+                        if elementList.contents[-1].name == "li": # check whether page needs to be expanded further
                             browser.quit()
                             break
                 
@@ -193,17 +193,9 @@ class ScrapeIMDbOnline:
         page = requests.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/", headers=self.headers)
         if page.status_code != 200:
             raise EnvironmentError("no 200 code on page return")
-        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">In Development</div>') != -1:
+        if re.search('<div data-testid="tm-box-up-title" class="[^\"]+">(In Development|In Production|Post-production|Pre-production|Coming soon)</div>', page.text):
             return True
-        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">In Production</div>') != -1:
-            return True
-        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Post-production</div>') != -1:
-            return True
-        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Pre-production</div>') != -1:
-            return True
-        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">Coming soon</div>') != -1:
-            return True
-        if page.text.find('<div data-testid="tm-box-up-title" class="sc-5766672e-1 fsIZKM">') != -1:
+        if re.search('<div data-testid="tm-box-up-title" class="[^\"]+">', page.text):
             print("WARNING: unknown production status for IMDb ID " + str(imdb_id))
         return False
 
