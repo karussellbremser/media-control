@@ -39,9 +39,9 @@ def syncLocal(mediaDir, db, coverDir, webdriverPath):
 db = DBControl('myMovieDB.db')
 #db.createMediaDB()
 referencedInitial = len(db.getReferencedOnlyMedia())
-syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\schromedriver_win32")
+syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
 
-#print(db.getLocalMediaByGenreAND(["Horror"]))
+#print(*db.getLocalMediaByGenreAND(["Horror"]), sep="\n")
 
 referencedOnlyMedia = db.getReferencedOnlyMedia()
 print("Referenced-only media:")
