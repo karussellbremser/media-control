@@ -168,6 +168,9 @@ class ScrapeIMDbOnline:
                     targetUrl = targetUrl[7:]
                     foreignIMDbID = targetUrl.split('?')[0]
                     
+                    if foreignIMDbID[-1] == "/":
+                        foreignIMDbID = foreignIMDbID[:-1]
+                    
                     if not re.search("^tt\d{7,8}$", foreignIMDbID):
                         raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
                     
