@@ -140,7 +140,7 @@ class ScrapeLocal:
             # main loop for all dict files with > 1 line
             resultDict = {}
             for line in lines:
-                if line.count(':') != 1 or line == '': # ':' must only be present as separator between key and value and line must not be empty
+                if line.count(':') == 0 or line == '': # ':' must be present as separator between key and value (first instance only counts as separator) and line must not be empty
                     raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
                 lineSplit = line.split(':', 1)
                 if lineSplit[0] in resultDict: # no key must be present twice
