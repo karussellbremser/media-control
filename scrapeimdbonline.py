@@ -118,6 +118,7 @@ class ScrapeIMDbOnline:
                     chrome_options.add_argument(f'user-agent={user_agent}')
                     chrome_options.add_argument('--no-sandbox')
                     chrome_options.add_argument('--window-size=1920,1080')
+                    chrome_options.add_argument("--start-maximized")
                     chrome_options.add_argument('--headless')
                     chrome_options.add_argument('--allow-running-insecure-content')
                     chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
@@ -135,7 +136,7 @@ class ScrapeIMDbOnline:
                         element = browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
                         element.location_once_scrolled_into_view
                         time.sleep(1)
-                        element.click()
+                        browser.execute_script("arguments[0].click();", element)
                         time.sleep(3)
                         soup = BeautifulSoup(browser.page_source, 'html.parser')
                         
