@@ -9,7 +9,7 @@ class ScrapeIMDbOffline:
     title_ratings_filename = "title.ratings.tsv"
     title_basics_filename = "title.basics.tsv"
     
-    movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial"]
+    movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
     seriesTitleTypes = [] # TBD
     
     def __init__(self, scrapeimdbonline, dataset_directory):
