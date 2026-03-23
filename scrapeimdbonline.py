@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import os.path
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from media import Media
 from mediaconnection import MediaConnection
 
@@ -36,27 +37,48 @@ class ScrapeIMDbOnline:
                 continue
             
             # scrape IMDb media main page
-            page = requests.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/", headers=self.headers)
-            if page.status_code != 200:
-                raise EnvironmentError("no 200 code on page return (received status code " + str(page.status_code) + " for IMDb ID " + currentMedia.getIDString() + ")")
-            soup = BeautifulSoup(page.content, 'html.parser')
+            chrome_options = Options()
+            user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
+            chrome_options.add_argument(f'user-agent={user_agent}')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--allow-running-insecure-content')
+            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+            browser.maximize_window()
+            browser.implicitly_wait(10)
+            browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
+            time.sleep(4)
             
-            cover_search_result = soup.find_all(attrs={"aria-label": re.compile("View ’[^’\"]+’ Poster")})
-            if len(cover_search_result) != 1:
+            pattern = re.compile("View ’[^’\"]+’ Poster")
+            
+            matches = browser.execute_script("""
+                const re = /^View ’[^’"]+’ Poster$/;
+
+                return Array.from(document.querySelectorAll('[aria-label]'))
+                    .filter(el => re.test(el.getAttribute('aria-label') || ''))
+                    .map(el => el.getAttribute('href'));
+            """)
+
+            if len(matches) != 1:
                 raise EnvironmentError("no unique cover tag found")
-            
+
             # scrape cover page
-            page = requests.get("https://www.imdb.com" + cover_search_result[0]['href'], headers=self.headers)
-            if page.status_code != 200:
-                raise EnvironmentError("no 200 code on page return")
-            soup = BeautifulSoup(page.content, 'html.parser')
+            browser.get("https://www.imdb.com" + matches[0])
+            time.sleep(4)
             
-            cover_search_result = soup.find_all(attrs={"property": "og:image"})
-            if len(cover_search_result) != 1:
+            matches = browser.execute_script("""
+                return Array.from(document.querySelectorAll('[property]'))
+                    .filter(el => (el.getAttribute('property') || '') === "og:image")
+                    .map(el => el.getAttribute('content'));
+            """)
+
+            if len(matches) != 1:
                 raise EnvironmentError("no unique cover tag found")
             
-            cover_direct_link = cover_search_result[0]['content']
-            link_parts = cover_direct_link.rsplit('.', 2)
+            link_parts = matches[0].rsplit('.', 2)
             if len(link_parts) != 3 or link_parts[2] != "jpg":
                 raise EnvironmentError("cover link not properly formatted: " + currentMedia.getIDString() + " - " + cover_direct_link)
             cover_direct_link = link_parts[0] + "._V1_.jpg"
