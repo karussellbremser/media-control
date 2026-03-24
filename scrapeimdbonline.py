@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 import os.path
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 from media import Media
 from mediaconnection import MediaConnection
 
@@ -74,6 +73,8 @@ class ScrapeIMDbOnline:
                     .filter(el => (el.getAttribute('property') || '') === "og:image")
                     .map(el => el.getAttribute('content'));
             """)
+            
+            browser.quit()
 
             if len(matches) != 1:
                 raise EnvironmentError("no unique cover tag found")
@@ -118,10 +119,26 @@ class ScrapeIMDbOnline:
 
             # scrape IMDb media movie connections page
             url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
-            page = requests.get(url, headers=self.headers)
-            if page.status_code != 200:
-                raise EnvironmentError("no 200 code on page return")
-            soup = BeautifulSoup(page.content, 'html.parser')
+            #page = requests.get(url, headers=self.headers)
+            #if page.status_code != 200:
+            #    raise EnvironmentError("no 200 code on page return")
+            #soup = BeautifulSoup(page.content, 'html.parser')
+            
+            chrome_options = Options()
+            user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
+            chrome_options.add_argument(f'user-agent={user_agent}')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument("--start-maximized")
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--allow-running-insecure-content')
+            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+            browser.maximize_window()
+            browser.implicitly_wait(10)
+            browser.get(url)
+            time.sleep(4)
+            soup = BeautifulSoup(browser.page_source, 'html.parser')
 
             for connectionType in MediaConnection.connectionTypeList:
                 content = soup.find_all(attrs={"href": "#"+connectionType})
@@ -148,7 +165,7 @@ class ScrapeIMDbOnline:
                     browser.maximize_window()
                     browser.implicitly_wait(10)
                     browser.get(url)
-                    time.sleep(3)
+                    time.sleep(4)
                     
                     while True:
                         count_dyn += 1
