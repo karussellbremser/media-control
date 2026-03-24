@@ -51,8 +51,6 @@ class ScrapeIMDbOnline:
             browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
             time.sleep(4)
             
-            pattern = re.compile("View ’[^’\"]+’ Poster")
-            
             matches = browser.execute_script("""
                 const re = /^View ’[^’"]+’ Poster$/;
 
@@ -119,10 +117,6 @@ class ScrapeIMDbOnline:
 
             # scrape IMDb media movie connections page
             url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
-            #page = requests.get(url, headers=self.headers)
-            #if page.status_code != 200:
-            #    raise EnvironmentError("no 200 code on page return")
-            #soup = BeautifulSoup(page.content, 'html.parser')
             
             chrome_options = Options()
             user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
