@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		sortSelect.value = 'year';
 
 		currentOrder = 'desc';
-		orderButton.textContent = '↓ Desc';
+		orderButton.textContent = '↓ Descending';
 
 		yearFrom.value = '';
 		yearTo.value = '';
@@ -133,10 +133,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	orderButton.addEventListener('click', () => {
         if (currentOrder === 'desc') {
             currentOrder = 'asc';
-            orderButton.textContent = '↑ Asc';
+            orderButton.textContent = '↑ Ascending';
         } else {
             currentOrder = 'desc';
-            orderButton.textContent = '↓ Desc';
+            orderButton.textContent = '↓ Descending';
         }
         resetAndSearch(input.value);
     });
