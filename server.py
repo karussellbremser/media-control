@@ -18,6 +18,7 @@ def query_media(search_query, sort_by, order,
         FROM genres g_all
         JOIN genre_enum ge ON g_all.genre_id = ge.genre_id
         WHERE g_all.imdb_id = m.imdb_id
+        ORDER BY ge.genre_name
     ) as tags
     FROM media m
     """
