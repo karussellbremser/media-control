@@ -7,7 +7,8 @@ def query_media(search_query, sort_by, order,
                 year_from, year_to,
                 rating_from, rating_to,
                 votes_from, votes_to,
-                selected_genres):
+                selected_genres,
+                limit, offset):
     conn = sqlite3.connect('myMovieDB.db')
     cursor = conn.cursor()
     
@@ -15,9 +16,9 @@ def query_media(search_query, sort_by, order,
     SELECT m.originalTitle, m.startYear, m.rating_mul10, m.numVotes,
     (
         SELECT GROUP_CONCAT(ge.genre_name, ', ')
-        FROM genres g_all
-        JOIN genre_enum ge ON g_all.genre_id = ge.genre_id
-        WHERE g_all.imdb_id = m.imdb_id
+        FROM genres g_show
+        JOIN genre_enum ge ON g_show.genre_id = ge.genre_id
+        WHERE g_show.imdb_id = m.imdb_id
         ORDER BY ge.genre_name
     ) as tags
     FROM media m
@@ -88,7 +89,12 @@ def query_media(search_query, sort_by, order,
         direction = "DESC"
     
     sql += " ORDER BY COALESCE(" + column + ", 0) " + order
-
+    
+    # pagination
+    sql += " LIMIT ? OFFSET ?"
+    params.append(limit)
+    params.append(offset)
+    
     cursor.execute(sql, params)
     media = cursor.fetchall()
     conn.close()
@@ -110,6 +116,10 @@ def search():
     args = request.args
     selected_genres = args.getlist('genres[]')
     
+    page = int(args.get('page', 1))
+    limit = 50
+    offset = (page - 1) * limit
+    
     media = query_media(
         args.get('q', ''),
         args.get('sort', 'year'),
@@ -120,7 +130,9 @@ def search():
         args.get('rating_to'),
         args.get('votes_from'),
         args.get('votes_to'),
-        selected_genres
+        selected_genres,
+        limit,
+        offset
     )
     return jsonify(media)
 

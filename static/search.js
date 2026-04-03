@@ -16,6 +16,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	let debounceTimer;
 	let currentOrder = 'desc';
 	
+	let currentPage = 1;
+	let isLoading = false;
+	let allLoaded = false;
+	
 	function formatNumVotes(num) {
 		if (num < 1000) {
 			return num.toString();
@@ -27,8 +31,18 @@ document.addEventListener('DOMContentLoaded', () => {
 			return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
 		}
 	}
+	
+	function resetAndSearch() {
+		currentPage = 1;
+		allLoaded = false;
+		fetchResults(input.value, false);
+	}
 
-    function fetchResults(query) {
+    function fetchResults(query, append=false) {
+		if (isLoading || allLoaded) return;
+
+		isLoading = true;
+		
 		const params = new URLSearchParams({
             q: query,
             sort: sortSelect.value,
@@ -38,7 +52,8 @@ document.addEventListener('DOMContentLoaded', () => {
             rating_from: ratingFrom.value,
             rating_to: ratingTo.value,
             votes_from: votesFrom.value,
-            votes_to: votesTo.value
+            votes_to: votesTo.value,
+			page: currentPage
         });
 		
 		genreCheckboxes.forEach(cb => {
@@ -50,9 +65,12 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch(`/search?${params.toString()}`)
             .then(response => response.json())
             .then(data => {
-                results.innerHTML = '';
+                if (!append) {
+					results.innerHTML = '';
+				}
+				
                 if (data.length === 0) {
-                    results.innerHTML = '<p>No media found.</p>';
+                    allLoaded = true;
                 } else {
                     data.forEach(([originalTitle, startYear, rating_mul10, numVotes, genres]) => {
                         const titleElem = document.createElement('h2');
@@ -70,14 +88,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         results.appendChild(ratingsElem);
 						results.appendChild(genresElem)
                     });
+					
+					currentPage++;
                 }
+				
+				isLoading = false;
             });
     }
 	
 	function debounceSearch(query) {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-            fetchResults(query);
+            resetAndSearch(query);
         }, 300); // wait 300ms after last input
     }
 	
@@ -89,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentOrder = 'desc';
             orderButton.textContent = '↓ Desc';
         }
-        fetchResults(input.value);
+        resetAndSearch(input.value);
     });
 
     input.addEventListener('input', () => {
@@ -97,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 	
 	sortSelect.addEventListener('change', () => {
-        fetchResults(input.value);
+        resetAndSearch(input.value);
     });
 	
     [yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => {
@@ -105,7 +127,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 	
 	genreCheckboxes.forEach(cb => {
-		cb.addEventListener('change', () => fetchResults(input.value));
+		cb.addEventListener('change', () => resetAndSearch(input.value));
+	});
+	
+	window.addEventListener('scroll', () => {
+		if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {
+			fetchResults(input.value, true);
+		}
 	});
 	
 	// initially: show everything
