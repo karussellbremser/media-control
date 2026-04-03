@@ -5,6 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from media import Media
 from mediaconnection import MediaConnection
+from PIL import Image
 
 class ScrapeIMDbOnline:
 
@@ -12,10 +13,14 @@ class ScrapeIMDbOnline:
     
     ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into", "edited_from"]
     
+    TARGET_WIDTH = 380
+    TARGET_HEIGHT = 562
+    
     # TBD: restrict online parsing to locally available movies and no TV episodes
     
-    def __init__(self, cover_directory, webdriver_path, delay = 0, maxCount = 0):
+    def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0):
         self.cover_directory = cover_directory
+        self.thumbnail_directory = thumbnail_directory
         self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
@@ -91,6 +96,57 @@ class ScrapeIMDbOnline:
                 return
             
             self.__sleep()
+    
+    def make_thumbnail(self, in_path, out_path):
+        with Image.open(in_path) as img:
+            img = img.convert("RGB")  # important for WebP
+
+            src_w, src_h = img.size
+            target_ratio = self.TARGET_WIDTH / self.TARGET_HEIGHT
+            src_ratio = src_w / src_h
+
+            # Schritt 1: Skalieren (ohne Verzerren)
+            if src_ratio > target_ratio:
+                # Bild ist zu breit → Höhe anpassen
+                new_height = self.TARGET_HEIGHT
+                new_width = int(new_height * src_ratio)
+            else:
+                # Bild ist zu hoch → Breite anpassen
+                new_width = self.TARGET_WIDTH
+                new_height = int(new_width / src_ratio)
+
+            img = img.resize((new_width, new_height), Image.LANCZOS)
+
+            # Schritt 2: Center Crop
+            left = (new_width - self.TARGET_WIDTH) / 2
+            top = (new_height - self.TARGET_HEIGHT) / 2
+            right = left + self.TARGET_WIDTH
+            bottom = top + self.TARGET_HEIGHT
+
+            img = img.crop((left, top, right, bottom))
+
+            # Schritt 3: Als WebP speichern
+            img.save(out_path, "WEBP", quality=90, method=6)
+    
+    def generateThumbnails(self):
+        # generate every missing thumbnail
+        for filename in os.listdir(self.cover_directory):
+            if not filename.lower().endswith(".jpg"):
+                continue
+
+            in_path = os.path.join(self.cover_directory, filename)
+
+            out_filename = os.path.splitext(filename)[0] + ".webp"
+            out_path = os.path.join(self.thumbnail_directory, out_filename)
+
+            if os.path.exists(out_path):
+                continue
+
+            try:
+                self.make_thumbnail(in_path, out_path)
+                print("Saved:", out_filename)
+            except Exception as e:
+                print("Error:", filename, e)
 
     def parseMediaConnections(self, mediaDict):
         

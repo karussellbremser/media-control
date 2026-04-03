@@ -5,15 +5,16 @@ from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from statistics import Statistics
 
-def syncLocal(mediaDir, db, coverDir, webdriverPath):
+def syncLocal(mediaDir, db, coverDir, thumbnailDir, webdriverPath):
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, webdriverPath, 5, 50)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, 5, 50)
     scrapeimdbonline.downloadCovers(newlyAddedMediaDict)
+    scrapeimdbonline.generateThumbnails()
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
     # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
@@ -39,7 +40,7 @@ def syncLocal(mediaDir, db, coverDir, webdriverPath):
 db = DBControl('myMovieDB.db')
 #db.createMediaDB()
 referencedInitial = len(db.getReferencedOnlyMedia())
-syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
+syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
 
 #print(*db.getLocalMediaByGenreAND(["Horror"]), sep="\n")
 
