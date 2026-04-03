@@ -1,4 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
+	const resetButton = document.getElementById('resetButton');
+	
     const input = document.getElementById('searchInput');
     const results = document.getElementById('results');
 	const sortSelect = document.getElementById('sortSelect');
@@ -30,6 +32,29 @@ document.addEventListener('DOMContentLoaded', () => {
 		} else {
 			return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
 		}
+	}
+	
+	function resetFilters() {
+		input.value = '';
+
+		sortSelect.value = 'year';
+
+		currentOrder = 'desc';
+		orderButton.textContent = '↓';
+
+		yearFrom.value = '';
+		yearTo.value = '';
+		ratingFrom.value = '';
+		ratingTo.value = '';
+		votesFrom.value = '';
+		votesTo.value = '';
+
+		genreCheckboxes.forEach(cb => cb.checked = false);
+
+		currentPage = 1;
+		allLoaded = false;
+
+		fetchResults('', false);
 	}
 	
 	function resetAndSearch() {
@@ -102,6 +127,8 @@ document.addEventListener('DOMContentLoaded', () => {
             resetAndSearch(query);
         }, 300); // wait 300ms after last input
     }
+	
+	resetButton.addEventListener('click', resetFilters);
 	
 	orderButton.addEventListener('click', () => {
         if (currentOrder === 'desc') {

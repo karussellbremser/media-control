@@ -58,6 +58,12 @@
 			display: grid;
 			grid-template-columns: 1fr 1fr;
 		}
+		
+		#resetButton {
+			margin-top: 10px;
+			background-color: #ddd;
+			cursor: pointer;
+		}
     </style>
 </head>
 <body>
@@ -65,6 +71,8 @@
 
     <!-- left side -->
     <div class="sidebar">
+		<button id="resetButton">RESET</button>
+		
 		<h2>Search</h2>
 		
 		<input type="text" id="searchInput" placeholder="Search titles">
@@ -80,6 +88,16 @@
 		
 		<button id="orderButton">↓ Desc</button>
 		
+		<h3>Genres</h3>
+		<div class="genre-list">
+		{% for genre_id, genre_name in genres %}
+			<label>
+				<input type="checkbox" class="genreCheckbox" value="{{ genre_id }}">
+				<span>{{ genre_name }}</span>
+			</label>
+		{% endfor %}
+		</div>
+		
 		<h3>Year</h3>
 		<input type="number" id="yearFrom" placeholder="from">
 		<input type="number" id="yearTo" placeholder="to">
@@ -91,16 +109,6 @@
 		<h3># of IMDb Votes:</h3>
 		<input type="number" id="votesFrom" placeholder="from">
 		<input type="number" id="votesTo" placeholder="to">
-		
-		<h3>Genres</h3>
-		<div class="genre-list">
-		{% for genre_id, genre_name in genres %}
-			<label>
-				<input type="checkbox" class="genreCheckbox" value="{{ genre_id }}">
-				<span>{{ genre_name }}</span>
-			</label>
-		{% endfor %}
-		</div>
 	</div>
 
 	<!-- right side -->
