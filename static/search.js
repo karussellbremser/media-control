@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		sortSelect.value = 'year';
 
 		currentOrder = 'desc';
-		orderButton.textContent = '↓';
+		orderButton.textContent = '↓ Desc';
 
 		yearFrom.value = '';
 		yearTo.value = '';
