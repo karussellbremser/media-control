@@ -13,7 +13,7 @@ def query_media(search_query, sort_by, order,
     cursor = conn.cursor()
     
     sql = """
-    SELECT m.originalTitle, m.startYear, m.rating_mul10, m.numVotes,
+    SELECT m.imdb_id, m.originalTitle, m.startYear, m.rating_mul10, m.numVotes,
     (
         SELECT GROUP_CONCAT(ge.genre_name, ', ')
         FROM genres g_show

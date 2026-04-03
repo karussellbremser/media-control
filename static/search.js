@@ -97,9 +97,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.length === 0) {
                     allLoaded = true;
                 } else {
-                    data.forEach(([originalTitle, startYear, rating_mul10, numVotes, genres]) => {
+                    data.forEach(([imdb_id, originalTitle, startYear, rating_mul10, numVotes, genres]) => {
                         const titleElem = document.createElement('h2');
-                        titleElem.textContent = originalTitle + " (" + startYear + ")";
+						const linkElem = document.createElement('a');
+						linkElem.classList.add("titleLink");
+                        linkElem.textContent = originalTitle + " (" + startYear + ")";
+						linkElem.href = "https://www.imdb.com/title/tt" + String(imdb_id).padStart(7, "0") + "/";
+						linkElem.target = "_blank";
+						linkElem.rel = "noopener noreferrer";
+						titleElem.appendChild(linkElem);
 
                         const ratingsElem = document.createElement('div');
 						const safeRating = rating_mul10 ? (rating_mul10 / 10).toFixed(1) : '—';
