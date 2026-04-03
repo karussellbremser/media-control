@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Movies</title>
+	<script src="/static/search.js" defer></script>
+</head>
+<body>
+    <h1>Movies</h1>
+	
+	<input type="text" id="searchInput" placeholder="Search titles">
+	
+	Sort by:
+	
+	<select id="sortSelect">
+		<option value="year" selected>release year</option>
+		<option value="title">title</option>
+        <option value="rating">IMDb rating</option>
+        <option value="votes"># of IMDb votes</option>
+    </select>
+	
+	<button id="orderButton">↓ Desc</button>
+	
+	<h3>Filter</h3>
+
+    Year:
+    <input type="number" id="yearFrom" placeholder="from">
+    <input type="number" id="yearTo" placeholder="to">
+
+    IMDb Rating:
+    <input type="number" step="0.1" id="ratingFrom" placeholder="from">
+    <input type="number" step="0.1" id="ratingTo" placeholder="to">
+
+    # of IMDb Votes:
+    <input type="number" id="votesFrom" placeholder="from">
+    <input type="number" id="votesTo" placeholder="to">
+	
+	<h3>Genres</h3>
+
+	<div id="genreFilters">
+    {% for genre_id, genre_name in genres %}
+        <label>
+            <input type="checkbox" class="genreCheckbox" value="{{ genre_id }}">
+            {{ genre_name }}
+        </label>
+    {% endfor %}
+	</div>
+
+    <hr>
+
+    <div id="results">
+        <!-- results appear here -->
+    </div>
+</body>
+</html>
