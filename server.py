@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import sqlite3
 
 server = Flask(__name__)
@@ -135,6 +135,10 @@ def search():
         offset
     )
     return jsonify(media)
+
+@server.route('/cover_small/<filename>')
+def cover_small(filename):
+    return send_from_directory('covers_small', filename)
 
 if __name__ == '__main__':
     server.run(debug=True)

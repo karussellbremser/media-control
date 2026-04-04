@@ -98,6 +98,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     allLoaded = true;
                 } else {
                     data.forEach(([imdb_id, originalTitle, startYear, rating_mul10, numVotes, genres]) => {
+						const img = document.createElement('img');
+
+						const paddedId = String(imdb_id).padStart(7, '0');
+						img.src = `/cover_small/tt${paddedId}.webp`;
+
+						img.alt = originalTitle;
+						img.loading = "lazy";
+						img.classList.add("coverImage");
+						
                         const titleElem = document.createElement('h2');
 						const linkElem = document.createElement('a');
 						linkElem.classList.add("titleLink");
@@ -115,9 +124,21 @@ document.addEventListener('DOMContentLoaded', () => {
 						const genresElem = document.createElement('div');
 						genresElem.textContent = `${genres ?? '—'}`;
 
-                        results.appendChild(titleElem);
-                        results.appendChild(ratingsElem);
-						results.appendChild(genresElem)
+						
+						const wrapper = document.createElement('div');
+						wrapper.classList.add("resultItem");
+
+						wrapper.appendChild(img);
+
+						const textBlock = document.createElement('div');
+						textBlock.appendChild(titleElem);
+						textBlock.appendChild(ratingsElem);
+						textBlock.appendChild(genresElem);
+
+						wrapper.appendChild(textBlock);
+
+						results.appendChild(wrapper);
+						results.appendChild(document.createElement('hr'));
                     });
 					
 					currentPage++;
