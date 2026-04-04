@@ -15,6 +15,30 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 	const genreCheckboxes = document.querySelectorAll('.genreCheckbox');
 	
+	let viewMode = "list";
+
+	const listViewBtn = document.getElementById('listViewBtn');
+	const gridViewBtn = document.getElementById('gridViewBtn');
+	listViewBtn.classList.add("activeView");
+
+	listViewBtn.addEventListener('click', () => {
+		viewMode = "list";
+		
+		listViewBtn.classList.add("activeView");
+		gridViewBtn.classList.remove("activeView");
+		
+		resetAndSearch();
+	});
+
+	gridViewBtn.addEventListener('click', () => {
+		viewMode = "grid";
+		
+		gridViewBtn.classList.add("activeView");
+		listViewBtn.classList.remove("activeView");
+		
+		resetAndSearch();
+	});
+	
 	let debounceTimer;
 	let currentOrder = 'desc';
 	
@@ -92,6 +116,12 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (!append) {
 					results.innerHTML = '';
+					
+					if (viewMode === "grid") {
+						results.classList.add("gridView");
+					} else {
+						results.classList.remove("gridView");
+					}
 				}
 				
                 if (data.length === 0) {
@@ -109,13 +139,10 @@ document.addEventListener('DOMContentLoaded', () => {
 						
                         const titleElem = document.createElement('h2');
 						const linkElem = document.createElement('a');
-						linkElem.classList.add("titleLink");
-                        linkElem.textContent = originalTitle + " (" + startYear + ")";
 						linkElem.href = "https://www.imdb.com/title/tt" + String(imdb_id).padStart(7, "0") + "/";
 						linkElem.target = "_blank";
 						linkElem.rel = "noopener noreferrer";
-						titleElem.appendChild(linkElem);
-
+						
                         const ratingsElem = document.createElement('div');
 						const safeRating = rating_mul10 ? (rating_mul10 / 10).toFixed(1) : '—';
 						const safeVotes = numVotes ? formatNumVotes(numVotes) : '—';
@@ -124,21 +151,34 @@ document.addEventListener('DOMContentLoaded', () => {
 						const genresElem = document.createElement('div');
 						genresElem.textContent = `${genres ?? '—'}`;
 
-						
-						const wrapper = document.createElement('div');
-						wrapper.classList.add("resultItem");
+						if (viewMode === "list") {
+							linkElem.classList.add("titleLink");
+							linkElem.textContent = originalTitle + " (" + startYear + ")";
+							titleElem.appendChild(linkElem);
+							
+							const wrapper = document.createElement('div');
+							wrapper.classList.add("resultItem");
 
-						wrapper.appendChild(img);
+							wrapper.appendChild(img);
 
-						const textBlock = document.createElement('div');
-						textBlock.appendChild(titleElem);
-						textBlock.appendChild(ratingsElem);
-						textBlock.appendChild(genresElem);
+							const textBlock = document.createElement('div');
+							textBlock.appendChild(titleElem);
+							textBlock.appendChild(ratingsElem);
+							textBlock.appendChild(genresElem);
 
-						wrapper.appendChild(textBlock);
+							wrapper.appendChild(textBlock);
 
-						results.appendChild(wrapper);
-						results.appendChild(document.createElement('hr'));
+							results.appendChild(wrapper);
+							results.appendChild(document.createElement('hr'));
+						} else {
+							const gridItem = document.createElement('div');
+							gridItem.classList.add("gridItem");
+
+							linkElem.appendChild(img);
+
+							gridItem.appendChild(linkElem);
+							results.appendChild(gridItem);
+						}
                     });
 					
 					currentPage++;

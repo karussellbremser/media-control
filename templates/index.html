@@ -7,8 +7,21 @@
 	<style>
         body {
             margin: 0;
-            font-family: Arial, sans-serif;
+            font-family: "Segoe UI", Roboto, Arial, sans-serif;
+			background-color: #dcdcdc;
         }
+		
+		button {
+			padding: 6px;
+			border-radius: 5px;
+			border: 1px solid #bbb;
+			background-color: #e6e6e6;
+			cursor: pointer;
+		}
+
+		button:hover {
+			background-color: #d0d0d0;
+		}
 
         .container {
             display: flex;
@@ -18,7 +31,7 @@
             width: 300px;
             height: 100vh;
             overflow-y: auto;
-            background-color: #f0f0f0;
+            background-color: #dcdcdc;
             padding: 15px;
             box-sizing: border-box;
             position: fixed;
@@ -30,6 +43,7 @@
             margin-left: 320px;
             padding: 20px;
             width: calc(100% - 320px);
+			background-color: #dcdcdc;
         }
 
         input, select, button {
@@ -98,6 +112,39 @@
 		.resultItem div {
 			flex: 1;
 		}
+		
+		.gridView {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, 250px);
+			gap: 15px;
+		}
+
+		.gridItem img {
+			width: 250px;
+			height: 370px;
+			object-fit: cover;
+			border-radius: 6px;
+			background-color: #ddd;
+		}
+
+		.gridItem {
+			text-align: center;
+		}
+		
+		.gridItem img:hover {
+			transform: scale(1.05);
+			transition: transform 0.2s;
+		}
+		
+		#listViewBtn, #gridViewBtn {
+			width: 48%;
+			display: inline-block;
+		}
+
+		.activeView {
+			background-color: #b0b0b0;
+			font-weight: bold;
+		}
     </style>
 </head>
 <body>
@@ -105,7 +152,11 @@
 
     <!-- left side -->
     <div class="sidebar">
-		<button id="resetButton">RESET</button>
+		<button id="resetButton">RESET FILTERS</button>
+		
+		<h3>View</h3>
+		<button id="listViewBtn">List</button>
+		<button id="gridViewBtn">Coverwall</button>
 		
 		<h2>Search</h2>
 		
