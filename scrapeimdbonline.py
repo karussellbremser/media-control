@@ -97,7 +97,7 @@ class ScrapeIMDbOnline:
             
             self.__sleep()
     
-    def __make_thumbnail(self, in_path, out_path):
+    def __makeThumbnail(self, in_path, out_path):
         with Image.open(in_path) as img:
             img = img.convert("RGB")  # important for WebP
 
@@ -147,7 +147,7 @@ class ScrapeIMDbOnline:
                     os.remove(out_path)
 
             try:
-                self.__make_thumbnail(in_path, out_path)
+                self.__makeThumbnail(in_path, out_path)
             except Exception as e:
                 print("Error:", filename, e)
 
