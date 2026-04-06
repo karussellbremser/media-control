@@ -200,6 +200,11 @@ class DBControl:
                     self.c.execute("DELETE FROM genres WHERE imdb_id=?", (x[1],))
                     self.c.execute("DELETE FROM media WHERE imdb_id=?", (x[1],))
             
+    def refreshRatings(self, mediaDict):
+        with self.conn:
+            for imdbID, media in mediaDict.items():
+                self.c.execute("UPDATE media SET rating_mul10=?, numVotes=? WHERE imdb_id=?", (media.rating_mul10, media.numVotes, imdbID))
+    
     def getAllMediaTitles(self):
         with self.conn:
             self.c.execute("SELECT originalTitle FROM media")
@@ -209,6 +214,13 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT imdb_id FROM media")
             return(self.c.fetchall())
+            
+    def getDictWithImdbIDs(self):
+        dbResult = self.getAllMediaIDs()
+        resultDict = {}
+        for entry in dbResult:
+            resultDict[entry[0]] = Media(None, None, entry[0])
+        return(resultDict)
     
     def getMediaByYear(self, startYear):
         with self.conn:

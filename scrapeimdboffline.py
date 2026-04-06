@@ -44,12 +44,15 @@ class ScrapeIMDbOffline:
         return
     
     def parseTitleRatings(self, content_dict):
-        return self.__parseIMDbOfflineFile(content_dict, 0)
+        return self.__parseIMDbOfflineFile(content_dict, 0, True)
+    
+    def refreshTitleRatings(self, content_dict):
+        return self.__parseIMDbOfflineFile(content_dict, 0, False)
     
     def parseTitleBasics(self, content_dict):
-        return self.__parseIMDbOfflineFile(content_dict, 1)
+        return self.__parseIMDbOfflineFile(content_dict, 1, True)
     
-    def __parseIMDbOfflineFile(self, content_dict, file_type): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
+    def __parseIMDbOfflineFile(self, content_dict, file_type, remove_illegal): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
         if len(content_dict) == 0:
             return content_dict
         
@@ -73,32 +76,33 @@ class ScrapeIMDbOffline:
                     else:
                         raise SyntaxError("unknown filetype")
         
-        # make sure that all items have been touched; mark ones that are illegal for deletion
-        illegal_ids = []
-        for x in content_dict.values():
-            if file_type == 0 and x.numVotes == None:
-                if x.subdir == None and self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
-                    # illegal title. mark for deletion from dict keys and mediaConnections
+        if (remove_illegal):
+            # make sure that all items have been touched; mark ones that are illegal for deletion
+            illegal_ids = []
+            for x in content_dict.values():
+                if file_type == 0 and x.numVotes == None:
+                    if x.subdir == None and self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
+                        # illegal title. mark for deletion from dict keys and mediaConnections
+                        illegal_ids.append(x.imdb_id)
+                        continue
+                
+                if file_type == 1 and x.titleType == None:
+                    if x.subdir == None:
+                        illegal_ids.append(x.imdb_id)
+                        continue
+                    else:
+                        raise EnvironmentError("no title type found for " + str(x.imdb_id))
+                
+                if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
                     illegal_ids.append(x.imdb_id)
-                    continue
             
-            if file_type == 1 and x.titleType == None:
-                if x.subdir == None:
-                    illegal_ids.append(x.imdb_id)
-                    continue
-                else:
-                    raise EnvironmentError("no title type found for " + str(x.imdb_id))
+            # remove illegal media from dict
+            for x in illegal_ids:
+                content_dict.pop(x)
             
-            if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
-                illegal_ids.append(x.imdb_id)
-        
-        # remove illegal media from dict
-        for x in illegal_ids:
-            content_dict.pop(x)
-        
-        # remove references to illegal media
-        for x in content_dict.values():
-            content_dict[x.imdb_id].mediaConnections = [y for y in x.mediaConnections if not y.foreignIMDbID in illegal_ids]
+            # remove references to illegal media
+            for x in content_dict.values():
+                content_dict[x.imdb_id].mediaConnections = [y for y in x.mediaConnections if not y.foreignIMDbID in illegal_ids]
         
         return content_dict
     

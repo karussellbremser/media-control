@@ -46,9 +46,18 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     print("Referenced-only media:")
     print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
+def refreshTitleRatings():
+    print("Refreshing ratings...")
+    db = DBControl('myMovieDB.db')
+    
+    imdbOnlyDict = db.getDictWithImdbIDs()
+    imdbOnlyDict = ScrapeIMDbOffline(ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe", 5, 50), r"C:\imdb_datasets").refreshTitleRatings(imdbOnlyDict)
+    
+    db.refreshRatings(imdbOnlyDict)
+
 args = sys.argv[1:]
-options = "hstu"
-long_options = ["help", "sync", "stats", "update"]
+options = "hstur"
+long_options = ["help", "sync", "stats", "update", "refresh"]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
@@ -63,5 +72,7 @@ try:
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
             ScrapeIMDbOffline(ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe", 5, 50), r"C:\imdb_datasets").updateDatasets()
+        elif currentArg in ("-r", "--refresh"):
+            refreshTitleRatings()
 except getopt.error as err:
     print(str(err))
