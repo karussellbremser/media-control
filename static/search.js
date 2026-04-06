@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		} else if (num < 10000) {
 			return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
 		} else if (num < 1000000) {
-			return Math.floor(num / 1000) + 'k';
+			return Math.round(num / 1000) + 'k';
 		} else {
 			return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
 		}
