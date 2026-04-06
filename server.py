@@ -141,4 +141,4 @@ def cover_small(filename):
     return send_from_directory('covers_small', filename)
 
 if __name__ == '__main__':
-    server.run(debug=True)
+    server.run(host="0.0.0.0")

@@ -13,7 +13,7 @@ def syncLocal(mediaDir, db, coverDir, thumbnailDir, webdriverPath):
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, 5, 50)
-    scrapeimdbonline.downloadCovers(newlyAddedMediaDict)
+    scrapeimdbonline.downloadCovers(mediaDictOriginal) # download all missing covers, regardless of whether they are newly added
     scrapeimdbonline.generateThumbnails()
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
