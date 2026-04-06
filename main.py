@@ -47,16 +47,20 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
 args = sys.argv[1:]
-options = "hs"
-long_options = ["help", "sync"]
+options = "hst"
+long_options = ["help", "sync", "stats"]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Showing Help")
+            print("Usage:\n-h | --help: Show this help.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.")
         elif currentArg in ("-s", "--sync"):
             syncLocal(r"Y:", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
+        elif currentArg in ("-t", "--stats"):
+            stat = Statistics(DBControl('myMovieDB.db'))
+            stat.printYearlyAverages()
+            stat.analyzeMediaConnections()
 except getopt.error as err:
     print(str(err))
 
@@ -67,8 +71,6 @@ except getopt.error as err:
 #print(db.getAllMediaSortedByNumVotes())
 #print(db.getAllMediaSortedByRating())
 
-# stat = Statistics(db)
-# stat.printYearlyAverages()
-# stat.analyzeMediaConnections()
+
 
 
