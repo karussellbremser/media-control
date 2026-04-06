@@ -91,17 +91,13 @@ class ScrapeIMDbOnline:
             coverFile = requests.get(cover_direct_link, allow_redirects=True)
             open(self.cover_directory + "\\" + currentMedia.getIDString() + ".jpg", 'wb').write(coverFile.content)
             
-            # if a thumbnail exists at this point, it is from an old cover version. delete it, it will be freshly regenerated later on
-            if os.path.isfile(self.thumbnail_directory + "\\" + currentMedia.getIDString() + ".webp"):
-                os.remove(self.thumbnail_directory + "\\" + currentMedia.getIDString() + ".webp")
-            
             count += 1
             if count == self.maxCount:
                 return
             
             self.__sleep()
     
-    def make_thumbnail(self, in_path, out_path):
+    def __make_thumbnail(self, in_path, out_path):
         with Image.open(in_path) as img:
             img = img.convert("RGB")  # important for WebP
 
@@ -132,8 +128,9 @@ class ScrapeIMDbOnline:
             # Schritt 3: Als WebP speichern
             img.save(out_path, "WEBP", quality=90, method=6)
     
-    def generateThumbnails(self):
-        # generate every missing thumbnail
+    def generateThumbnails(self): # generate every missing thumbnail
+        print("generating thumbnails...")
+        
         for filename in os.listdir(self.cover_directory):
             if not filename.lower().endswith(".jpg"):
                 continue
@@ -144,11 +141,13 @@ class ScrapeIMDbOnline:
             out_path = os.path.join(self.thumbnail_directory, out_filename)
 
             if os.path.exists(out_path):
-                continue
+                if os.path.getmtime(in_path) <= os.path.getmtime(out_path):
+                    continue
+                else:
+                    os.remove(out_path)
 
             try:
-                self.make_thumbnail(in_path, out_path)
-                print("Saved:", out_filename)
+                self.__make_thumbnail(in_path, out_path)
             except Exception as e:
                 print("Error:", filename, e)
 
