@@ -4,8 +4,13 @@ from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from statistics import Statistics
+import getopt, sys
 
-def syncLocal(mediaDir, db, coverDir, thumbnailDir, webdriverPath):
+def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
+    db = DBControl('myMovieDB.db')
+    
+    referencedInitial = len(db.getReferencedOnlyMedia())
+    
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
@@ -36,18 +41,27 @@ def syncLocal(mediaDir, db, coverDir, thumbnailDir, webdriverPath):
             print(x.originalTitle + " " + str(x.startYear))
 
     db.addMultipleMedia(newlyAddedMediaDict)
+    
+    referencedOnlyMedia = db.getReferencedOnlyMedia()
+    print("Referenced-only media:")
+    print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
-db = DBControl('myMovieDB.db')
-#db.createMediaDB()
-referencedInitial = len(db.getReferencedOnlyMedia())
-syncLocal(r"Y:", db, r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
+args = sys.argv[1:]
+options = "hs"
+long_options = ["help", "sync"]
+
+try:
+    arguments, values = getopt.getopt(args, options, long_options)
+    for currentArg, currentVal in arguments:
+        if currentArg in ("-h", "--help"):
+            print("Showing Help")
+        elif currentArg in ("-s", "--sync"):
+            syncLocal(r"Y:", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
+except getopt.error as err:
+    print(str(err))
+
 
 #print(*db.getLocalMediaByGenreAND(["Horror"]), sep="\n")
-
-referencedOnlyMedia = db.getReferencedOnlyMedia()
-print("Referenced-only media:")
-#print(referencedOnlyMedia)
-print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
 #print(db.getMediaByRatingRange(80, 100))
 #print(db.getAllMediaSortedByNumVotes())
