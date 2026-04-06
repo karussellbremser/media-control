@@ -47,19 +47,21 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
 args = sys.argv[1:]
-options = "hst"
-long_options = ["help", "sync", "stats"]
+options = "hstu"
+long_options = ["help", "sync", "stats", "update"]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.")
+            print("Usage:\n-h | --help: Show this help.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.")
         elif currentArg in ("-s", "--sync"):
             syncLocal(r"Y:", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
         elif currentArg in ("-t", "--stats"):
             stat = Statistics(DBControl('myMovieDB.db'))
             stat.printYearlyAverages()
             stat.analyzeMediaConnections()
+        elif currentArg in ("-u", "--update"):
+            ScrapeIMDbOffline(ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe", 5, 50), r"C:\imdb_datasets").updateDatasets()
 except getopt.error as err:
     print(str(err))

@@ -1,4 +1,4 @@
-import csv
+import csv, requests, gzip, shutil, os
 from media import Media
 from scrapeimdbonline import ScrapeIMDbOnline
 
@@ -16,7 +16,42 @@ class ScrapeIMDbOffline:
         self.dataset_directory = dataset_directory
         self.scrapeimdbonline = scrapeimdbonline
     
-    def updateDatasets(self): #TBD
+    def updateDatasets(self):
+        print("Updating IMDb offline datasets...")
+        
+        # update Title Basics
+        pathTitleBasics = os.path.join(self.dataset_directory, "title.basics.tsv")
+        pathTitleBasicsBkp = os.path.join(self.dataset_directory, "title.basics.tsv_bkp")
+        renamed = False
+        if os.path.exists(pathTitleBasics):
+            os.rename(pathTitleBasics, pathTitleBasicsBkp)
+            renamed = True
+        
+        with requests.get("https://datasets.imdbws.com/title.basics.tsv.gz", stream=True) as titleBasics:
+            titleBasics.raise_for_status()
+            with gzip.GzipFile(fileobj=titleBasics.raw) as gz:
+                with open(pathTitleBasics, "wb") as f_out:
+                    shutil.copyfileobj(gz, f_out)
+        
+        if renamed:
+            os.remove(pathTitleBasicsBkp)
+        
+        # update Title Ratings
+        pathTitleRatings = os.path.join(self.dataset_directory, "title.ratings.tsv")
+        pathTitleRatingsBkp = os.path.join(self.dataset_directory, "title.ratings.tsv_bkp")
+        renamed = False
+        if os.path.exists(pathTitleRatings):
+            os.rename(pathTitleRatings, pathTitleRatingsBkp)
+            renamed = True
+        
+        with requests.get("https://datasets.imdbws.com/title.ratings.tsv.gz", stream=True) as titleBasics:
+            titleBasics.raise_for_status()
+            with gzip.GzipFile(fileobj=titleBasics.raw) as gz:
+                with open(pathTitleRatings, "wb") as f_out:
+                    shutil.copyfileobj(gz, f_out)
+        
+        if renamed:
+            os.remove(pathTitleRatingsBkp)
         return
     
     def parseTitleRatings(self, content_dict):

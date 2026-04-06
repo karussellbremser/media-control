@@ -37,7 +37,7 @@ class ScrapeIMDbOnline:
         for currentMedia in mediaDict.values():
         
             # check if file exists, in this case skip this media
-            if os.path.isfile(self.cover_directory + "\\" + currentMedia.getIDString() + ".jpg"):
+            if os.path.isfile(os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")):
                 continue
             
             # scrape IMDb media main page
@@ -89,7 +89,7 @@ class ScrapeIMDbOnline:
             
             # download cover
             coverFile = requests.get(cover_direct_link, allow_redirects=True)
-            open(self.cover_directory + "\\" + currentMedia.getIDString() + ".jpg", 'wb').write(coverFile.content)
+            open(os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg"), 'wb').write(coverFile.content)
             
             count += 1
             if count == self.maxCount:
