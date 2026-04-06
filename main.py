@@ -63,14 +63,3 @@ try:
             stat.analyzeMediaConnections()
 except getopt.error as err:
     print(str(err))
-
-
-#print(*db.getLocalMediaByGenreAND(["Horror"]), sep="\n")
-
-#print(db.getMediaByRatingRange(80, 100))
-#print(db.getAllMediaSortedByNumVotes())
-#print(db.getAllMediaSortedByRating())
-
-
-
-
