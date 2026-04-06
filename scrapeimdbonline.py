@@ -91,6 +91,10 @@ class ScrapeIMDbOnline:
             coverFile = requests.get(cover_direct_link, allow_redirects=True)
             open(self.cover_directory + "\\" + currentMedia.getIDString() + ".jpg", 'wb').write(coverFile.content)
             
+            # if a thumbnail exists at this point, it is from an old cover version. delete it, it will be freshly regenerated later on
+            if os.path.isfile(self.thumbnail_directory + "\\" + currentMedia.getIDString() + ".webp"):
+                os.remove(self.thumbnail_directory + "\\" + currentMedia.getIDString() + ".webp")
+            
             count += 1
             if count == self.maxCount:
                 return
