@@ -66,10 +66,10 @@ class ScrapeLocal:
         return
     
     def __complDirPath(self, subdir):
-        return(self.rootdir + '\\' + subdir)
+        return(os.path.join(self.rootdir, subdir))
     
     def __complFilePath(self, subdir, file):
-        return(self.__complDirPath(subdir) + '\\' + file)
+        return(os.path.join(self.__complDirPath(subdir), file))
         
     def __checkMovieFilenames(self, subdir, files): # returns mkv_files, sources_file, versions_exists
         # rules:

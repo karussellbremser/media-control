@@ -60,7 +60,7 @@ class ScrapeIMDbOffline:
         else:
             raise SyntaxError("unknown filetype")
         
-        with open(self.dataset_directory + '\\' + filename, "r", encoding="utf8") as f:
+        with open(os.path.join(self.dataset_directory, filename), "r", encoding="utf8") as f:
             c = csv.reader(f, delimiter="\t")
             next(c, None) # read from second line
             for row in c:
