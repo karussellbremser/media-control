@@ -36,10 +36,10 @@ class ScrapeIMDbOffline:
         print("Updating IMDb offline datasets...")
         
         # update Title Basics
-        self.__updateDataset(os.path.join(self.dataset_directory, "title.basics.tsv"), "https://datasets.imdbws.com/title.basics.tsv.gz")
+        self.__updateDataset(os.path.join(self.dataset_directory, self.title_basics_filename), "https://datasets.imdbws.com/title.basics.tsv.gz")
         
         # update Title Ratings
-        self.__updateDataset(os.path.join(self.dataset_directory, "title.ratings.tsv"), "https://datasets.imdbws.com/title.ratings.tsv.gz")
+        self.__updateDataset(os.path.join(self.dataset_directory, self.title_ratings_filename), "https://datasets.imdbws.com/title.ratings.tsv.gz")
         
         return
     
