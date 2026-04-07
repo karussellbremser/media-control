@@ -286,13 +286,51 @@ class ScrapeIMDbOnline:
     
     def isInDevelopment(self, imdb_id):
         # scrape IMDb media main page
-        page = requests.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/", headers=self.headers)
-        if page.status_code != 200:
-            raise EnvironmentError("no 200 code on page return")
-        if re.search('<div data-testid="tm-box-up-title" class="[^\"]+">(In Development|In Production|Post-production|Pre-production|Coming soon|Completed)</div>', page.text):
+        chrome_options = Options()
+        user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
+        chrome_options.add_argument(f'user-agent={user_agent}')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument("--start-maximized")
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--allow-running-insecure-content')
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+        browser.maximize_window()
+        browser.implicitly_wait(10)
+        browser.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
+        time.sleep(4)
+        soup = BeautifulSoup(browser.page_source, 'html.parser')
+        
+        
+        expectedValues = {
+            "In Development",
+            "In Production",
+            "Post-production",
+            "Pre-production",
+            "Coming soon",
+            "Completed"
+        }
+
+        divs = soup.find_all("div", attrs={"data-testid": "tm-box-up-title"})
+
+        foundExpected = False
+        foundOther = False
+
+        for div in divs:
+            text = div.get_text(strip=True)
+            if text in expectedValues:
+                foundExpected = True
+            else:
+                foundOther = True
+        
+        browser.quit()
+
+        if foundExpected:
             return True
-        if re.search('<div data-testid="tm-box-up-title" class="[^\"]+">', page.text):
+        if foundOther:
             print("WARNING: unknown production status for IMDb ID " + str(imdb_id))
+        
         return False
 
 
