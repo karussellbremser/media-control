@@ -180,7 +180,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 							const overlay = document.createElement('div');
 							overlay.classList.add("overlay");
-							overlay.textContent = `Year: ${safeYear} | ⭐ ${safeRating} | Votes: ${safeVotes}`;
+							
+							const line1 = document.createElement('div');
+							line1.textContent = `${safeYear} | ⭐ ${safeRating}`;
+
+							const line2 = document.createElement('div');
+							line2.textContent = `Votes: ${safeVotes}`;
+
+							overlay.appendChild(line1);
+							overlay.appendChild(line2);
 
 							imgWrapper.appendChild(img);
 							imgWrapper.appendChild(overlay);
