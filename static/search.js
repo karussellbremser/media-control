@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
 						linkElem.rel = "noopener noreferrer";
 						
                         const ratingsElem = document.createElement('div');
+						const safeYear = startYear ?? '—';
 						const safeRating = rating_mul10 ? (rating_mul10 / 10).toFixed(1) : '—';
 						const safeVotes = numVotes ? formatNumVotes(numVotes) : '—';
                         ratingsElem.textContent = safeRating + " (" + safeVotes + " votes)";
@@ -153,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 						if (viewMode === "list") {
 							linkElem.classList.add("titleLink");
-							linkElem.textContent = originalTitle + " (" + startYear + ")";
+							linkElem.textContent = originalTitle + " (" + safeYear + ")";
 							titleElem.appendChild(linkElem);
 							
 							const wrapper = document.createElement('div');
@@ -174,9 +175,19 @@ document.addEventListener('DOMContentLoaded', () => {
 							const gridItem = document.createElement('div');
 							gridItem.classList.add("gridItem");
 
-							linkElem.appendChild(img);
+							const imgWrapper = document.createElement('div');
+							imgWrapper.classList.add("imgWrapper");
 
+							const overlay = document.createElement('div');
+							overlay.classList.add("overlay");
+							overlay.textContent = `Year: ${safeYear} | ⭐ ${safeRating} | Votes: ${safeVotes}`;
+
+							imgWrapper.appendChild(img);
+							imgWrapper.appendChild(overlay);
+
+							linkElem.appendChild(imgWrapper);
 							gridItem.appendChild(linkElem);
+
 							results.appendChild(gridItem);
 						}
                     });
