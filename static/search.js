@@ -58,6 +58,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	}
 	
+	const toggleBtn = document.getElementById('toggleSidebarBtn');
+	const sidebar = document.querySelector('.sidebar');
+	const content = document.querySelector('.content');
+
+	let sidebarCollapsed = false;
+
+	toggleBtn.addEventListener('click', () => {
+		sidebarCollapsed = !sidebarCollapsed;
+
+		sidebar.classList.toggle('collapsed');
+		content.classList.toggle('collapsed');
+
+		// Pfeil ändern
+		toggleBtn.textContent = sidebarCollapsed ? '>>' : '<<';
+	});
+	
 	function resetFilters() {
 		input.value = '';
 
