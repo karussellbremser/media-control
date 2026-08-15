@@ -192,6 +192,9 @@ class ScrapeIMDbOnline:
             browser.get(url)
             time.sleep(4)
             soup = BeautifulSoup(browser.page_source, 'html.parser')
+            
+            if len(soup.find_all("h1", string="Connections")) != 1:
+                raise EnvironmentError("connection page did not load properly")
 
             for connectionType in MediaConnection.connectionTypeList:
                 content = soup.find_all(attrs={"href": "#"+connectionType})
