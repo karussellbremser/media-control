@@ -30,6 +30,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                 newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
 
     scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
+    del scrapeimdbonline
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
 

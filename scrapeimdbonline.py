@@ -24,6 +24,25 @@ class ScrapeIMDbOnline:
         self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
+        
+        # instantiate chrome browser
+        chrome_options = Options()
+        user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
+        chrome_options.add_argument(f'user-agent={user_agent}')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument("--start-maximized")
+        #chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--allow-running-insecure-content')
+        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        self.browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+        self.browser.maximize_window()
+        self.browser.implicitly_wait(10)
+        self.browser.get("https://www.imdb.com/")
+        time.sleep(20)
+    
+    def __del__(self):
+        self.browser.quit()
     
     def downloadCovers(self, mediaDict):
         
@@ -41,22 +60,10 @@ class ScrapeIMDbOnline:
                 continue
             
             # scrape IMDb media main page
-            chrome_options = Options()
-            user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
-            chrome_options.add_argument(f'user-agent={user_agent}')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--window-size=1920,1080')
-            chrome_options.add_argument("--start-maximized")
-            chrome_options.add_argument('--headless')
-            chrome_options.add_argument('--allow-running-insecure-content')
-            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-            browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
-            browser.maximize_window()
-            browser.implicitly_wait(10)
-            browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
+            self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
             time.sleep(4)
             
-            matches = browser.execute_script("""
+            matches = self.browser.execute_script("""
                 const re = /^View ’[^’"]+’ Poster$/;
 
                 return Array.from(document.querySelectorAll('[aria-label]'))
@@ -68,16 +75,14 @@ class ScrapeIMDbOnline:
                 raise EnvironmentError("no unique cover tag found")
 
             # scrape cover page
-            browser.get("https://www.imdb.com" + matches[0])
+            self.browser.get("https://www.imdb.com" + matches[0])
             time.sleep(4)
             
-            matches = browser.execute_script("""
+            matches = self.browser.execute_script("""
                 return Array.from(document.querySelectorAll('[property]'))
                     .filter(el => (el.getAttribute('property') || '') === "og:image")
                     .map(el => el.getAttribute('content'));
             """)
-            
-            browser.quit()
 
             if len(matches) != 1:
                 raise EnvironmentError("no unique cover tag found")
@@ -177,21 +182,9 @@ class ScrapeIMDbOnline:
             # scrape IMDb media movie connections page
             url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
             
-            chrome_options = Options()
-            user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
-            chrome_options.add_argument(f'user-agent={user_agent}')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--window-size=1920,1080')
-            chrome_options.add_argument("--start-maximized")
-            chrome_options.add_argument('--headless')
-            chrome_options.add_argument('--allow-running-insecure-content')
-            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-            browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
-            browser.maximize_window()
-            browser.implicitly_wait(10)
-            browser.get(url)
+            self.browser.get(url)
             time.sleep(4)
-            soup = BeautifulSoup(browser.page_source, 'html.parser')
+            soup = BeautifulSoup(self.browser.page_source, 'html.parser')
             
             if len(soup.find_all("h1", string="Connections")) != 1:
                 raise EnvironmentError("connection page did not load properly")
@@ -207,33 +200,19 @@ class ScrapeIMDbOnline:
                 if elementList.contents[-1].name != "li": # check whether page needs to be dynamically expanded or not
                     count_dyn = 0
                     
-                    # prepare browser for dynamic scraping
-                    chrome_options = Options()
-                    user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
-                    chrome_options.add_argument(f'user-agent={user_agent}')
-                    chrome_options.add_argument('--no-sandbox')
-                    chrome_options.add_argument('--window-size=1920,1080')
-                    chrome_options.add_argument("--start-maximized")
-                    chrome_options.add_argument('--headless')
-                    chrome_options.add_argument('--allow-running-insecure-content')
-                    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-                    browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
-                    browser.maximize_window()
-                    browser.implicitly_wait(10)
-                    browser.get(url)
-                    time.sleep(4)
+                    # dynamic scraping
                     
                     while True:
                         count_dyn += 1
                         if count_dyn > 5:
                             raise EnvironmentError("excessively long loop for page expanding for connection type " + connectionType)
                         
-                        element = browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
+                        element = self.browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
                         element.location_once_scrolled_into_view
                         time.sleep(1)
-                        browser.execute_script("arguments[0].click();", element)
+                        self.browser.execute_script("arguments[0].click();", element)
                         time.sleep(3)
-                        soup = BeautifulSoup(browser.page_source, 'html.parser')
+                        soup = BeautifulSoup(self.browser.page_source, 'html.parser')
                         
                         content = soup.find_all(attrs={"href": "#"+connectionType})
                         if len(content) != 1:
@@ -241,7 +220,6 @@ class ScrapeIMDbOnline:
                         elementList = content[0].parent.next_sibling.contents[0]
                         
                         if elementList.contents[-1].name == "li": # check whether page needs to be expanded further
-                            browser.quit()
                             break
                 
                 for element in elementList.children:
@@ -289,21 +267,9 @@ class ScrapeIMDbOnline:
     
     def isInDevelopment(self, imdb_id):
         # scrape IMDb media main page
-        chrome_options = Options()
-        user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
-        chrome_options.add_argument(f'user-agent={user_agent}')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument("--start-maximized")
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--allow-running-insecure-content')
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
-        browser.maximize_window()
-        browser.implicitly_wait(10)
-        browser.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
+        self.browser.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
         time.sleep(4)
-        soup = BeautifulSoup(browser.page_source, 'html.parser')
+        soup = BeautifulSoup(self.browser.page_source, 'html.parser')
         
         
         expectedValues = {
@@ -326,8 +292,6 @@ class ScrapeIMDbOnline:
                 foundExpected = True
             else:
                 foundOther = True
-        
-        browser.quit()
 
         if foundExpected:
             return True
