@@ -11,8 +11,6 @@ class ScrapeIMDbOnline:
 
     headers = {"Accept-Language": "en-US,en;q=0.5", 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36'}
     
-    ignoredConnections = ["references", "referenced_in", "features", "featured_in", "spoofs", "spoofed_in", "edited_into", "edited_from"]
-    
     TARGET_WIDTH = 380
     TARGET_HEIGHT = 562
     
