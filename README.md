@@ -17,7 +17,7 @@ Series scraping is not yet implemented; only movies are currently handled.
 ## Requirements
 
 - Python 3
-- `pip install flask requests beautifulsoup4 selenium pillow matplotlib numpy`
+- `pip install -r requirements.txt`
 - A Selenium-compatible driver (e.g. [chromedriver](https://chromedriver.chromium.org/)) matching your installed browser
 - IMDb's [offline dataset files](https://datasets.imdbws.com/) downloaded locally (for `title.basics` / `title.ratings`)
 
