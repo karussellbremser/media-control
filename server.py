@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import sqlite3
+import config
 
 server = Flask(__name__)
 
@@ -9,9 +10,9 @@ def query_media(search_query, sort_by, order,
                 votes_from, votes_to,
                 selected_genres,
                 limit, offset):
-    conn = sqlite3.connect('myMovieDB.db')
+    conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
-    
+
     sql = """
     SELECT m.imdb_id, m.originalTitle, m.startYear, m.rating_mul10, m.numVotes,
     (
@@ -102,7 +103,7 @@ def query_media(search_query, sort_by, order,
 
 @server.route('/')
 def index():
-    conn = sqlite3.connect('myMovieDB.db')
+    conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("SELECT genre_id, genre_name FROM genre_enum ORDER BY genre_name")
@@ -138,7 +139,7 @@ def search():
 
 @server.route('/cover_small/<filename>')
 def cover_small(filename):
-    return send_from_directory('covers_small', filename)
+    return send_from_directory(config.COVERS_SMALL_DIR, filename)
 
 if __name__ == '__main__':
-    server.run(host="0.0.0.0")
+    server.run(host=config.SERVER_HOST, port=config.SERVER_PORT)

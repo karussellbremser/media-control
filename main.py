@@ -4,20 +4,21 @@ from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from statistics import Statistics
+import config
 import getopt, sys
 
 def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
-    db = DBControl('myMovieDB.db')
-    
+    db = DBControl(config.DB_PATH)
+
     referencedInitial = len(db.getReferencedOnlyMedia())
-    
+
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, 5, 50)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT)
     scrapeimdbonline.downloadCovers(mediaDictOriginal) # download all missing covers, regardless of whether they are newly added
     scrapeimdbonline.generateThumbnails()
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
@@ -29,7 +30,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             if y.foreignIMDbID not in mediaDictOriginal or (y.foreignIMDbID in newlyAddedMediaDictOriginal and y.foreignIMDbID not in newlyAddedMediaDictCopy):
                 newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
 
-    scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, r"C:\imdb_datasets")
+    scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
     del scrapeimdbonline
@@ -49,11 +50,11 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
 def refreshTitleRatings():
     print("Refreshing ratings...")
-    db = DBControl('myMovieDB.db')
-    
+    db = DBControl(config.DB_PATH)
+
     imdbOnlyDict = db.getDictWithImdbIDs()
-    imdbOnlyDict = ScrapeIMDbOffline(ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe", 5, 50), r"C:\imdb_datasets").refreshTitleRatings(imdbOnlyDict)
-    
+    imdbOnlyDict = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT), config.IMDB_DATASETS_DIR).refreshTitleRatings(imdbOnlyDict)
+
     db.refreshRatings(imdbOnlyDict)
 
 args = sys.argv[1:]
@@ -66,13 +67,13 @@ try:
         if currentArg in ("-h", "--help"):
             print("Usage:\n-h | --help: Show this help.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.")
         elif currentArg in ("-s", "--sync"):
-            syncLocal(r"Y:", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe")
+            syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH)
         elif currentArg in ("-t", "--stats"):
-            stat = Statistics(DBControl('myMovieDB.db'))
+            stat = Statistics(DBControl(config.DB_PATH))
             stat.printYearlyAverages()
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
-            ScrapeIMDbOffline(ScrapeIMDbOnline(r"C:\Users\Sebastian\Desktop\scripting\media-control\covers", r"C:\Users\Sebastian\Desktop\scripting\media-control\covers_small", "C:\\Users\\Sebastian\\Desktop\\scripting\\media-control\\tools\\chromedriver-win32\\chromedriver.exe", 5, 50), r"C:\imdb_datasets").updateDatasets()
+            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT), config.IMDB_DATASETS_DIR).updateDatasets()
         elif currentArg in ("-r", "--refresh"):
             refreshTitleRatings()
 except getopt.error as err:
