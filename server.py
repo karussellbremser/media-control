@@ -89,7 +89,7 @@ def query_media(search_query, sort_by, order,
     else:
         direction = "DESC"
     
-    sql += " ORDER BY COALESCE(" + column + ", 0) " + order
+    sql += " ORDER BY COALESCE(" + column + ", 0) " + direction
     
     # pagination
     sql += " LIMIT ? OFFSET ?"
