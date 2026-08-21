@@ -1,7 +1,13 @@
 import re
 
 class Media:
-    
+
+    # accepted IMDb titleType values for locally-scraped movies/series respectively, used by both
+    # scrapeimdboffline.py and scrapeimdbonline.py to validate a scraped type against how a title
+    # was locally parsed
+    movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
+    seriesTitleTypes = [] # TBD
+
     def __init__(self, subdir, isSeries, imdbIDInt = None): # this function has become ugly, but python does not offer constructor overloading...
         if subdir != None:
             thisMedia = subdir.rsplit('_', 2)

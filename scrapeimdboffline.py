@@ -8,10 +8,7 @@ class ScrapeIMDbOffline:
     
     title_ratings_filename = "title.ratings.tsv"
     title_basics_filename = "title.basics.tsv"
-    
-    movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
-    seriesTitleTypes = [] # TBD
-    
+
     def __init__(self, scrapeimdbonline, dataset_directory):
         self.dataset_directory = dataset_directory
         self.scrapeimdbonline = scrapeimdbonline
@@ -96,7 +93,7 @@ class ScrapeIMDbOffline:
                         x.needsOnlineFallback = True
                         continue
 
-                if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
+                if file_type == 1 and x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes:
                     # found in the dataset, but not an acceptable title type (e.g. a TV episode ending up in the movie library)
                     illegal_ids.append(x.imdb_id)
             
@@ -126,8 +123,8 @@ class ScrapeIMDbOffline:
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
-        if ((localTitleType == "localMovie" and row[1] not in self.movieTitleTypes)
-            or (localTitleType == "localSeries" and row[1] not in self.seriesTitleTypes)):
+        if ((localTitleType == "localMovie" and row[1] not in Media.movieTitleTypes)
+            or (localTitleType == "localSeries" and row[1] not in Media.seriesTitleTypes)):
             raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
         if (row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N"):
             media_obj.titleType = "ILLEGAL" # set illegal title type so that object will be removed later

@@ -14,6 +14,17 @@ class ScrapeIMDbOnline:
     TARGET_WIDTH = 380
     TARGET_HEIGHT = 562
 
+    # maps the type label IMDb shows in <title> (e.g. "Roundhay Garden Scene (Short 1888) - IMDb")
+    # to our internal titleType strings; a plain movie shows no label at all
+    titleTypeLabels = {
+        "": "movie",
+        "Short": "short",
+        "Video": "video",
+        "TV Movie": "tvMovie",
+        "TV Special": "tvSpecial",
+        "TV Short": "tvShort",
+    }
+
     # TBD: restrict online parsing to locally available movies and no TV episodes
 
     def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0):
@@ -117,6 +128,137 @@ class ScrapeIMDbOnline:
                 return newInterestRegistrations
 
         return newInterestRegistrations
+
+    def fillMissingBasics(self, mediaDict):
+        """For locally-owned titles missing from the offline IMDb datasets (flagged via
+        needsOnlineFallback), scrapes titleType, primaryTitle, originalTitle, startYear
+        (cross-checked against the already-known local value), endYear, rating and vote
+        count from the title's main page. The locally-parsed folder name is not trusted as
+        a source for originalTitle; it's scraped from the page's separate "Original title:"
+        line when shown, or set equal to primaryTitle when it isn't (i.e. they're the same).
+        Vote counts abbreviated by IMDb (e.g. "7.7K") are accepted as an approximation
+        (printed to stdout when this happens) rather than an exact figure, since that's
+        all that's available once a title crosses IMDb's abbreviation threshold. Raises
+        on anything else unexpected."""
+
+        if len(mediaDict) == 0:
+            return
+
+        print("filling missing basics for titles absent from the offline dataset...")
+
+        first = True
+        for currentMedia in mediaDict.values():
+            if first:
+                first = False
+            else:
+                self.__sleep()
+
+            self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
+            time.sleep(4)
+
+            # title type, from the document title's "(<type> <year>) - IMDb" suffix
+            localTitleType = currentMedia.titleType # "localMovie" or "localSeries", set during local scraping
+
+            docTitle = self.browser.execute_script("return document.title;")
+            match = re.search(r"\(([^()]*?)\d{4}(?:–\d{4})?\)\s*-\s*IMDb$", docTitle or "")
+            if not match:
+                raise EnvironmentError("could not parse title type/year from document title: " + str(docTitle))
+            typeLabel = match.group(1).strip()
+            if typeLabel not in self.titleTypeLabels:
+                raise EnvironmentError("unknown title type label '" + typeLabel + "' for " + currentMedia.getIDString())
+            scrapedTitleType = self.titleTypeLabels[typeLabel]
+
+            if ((localTitleType == "localMovie" and scrapedTitleType not in Media.movieTitleTypes)
+                or (localTitleType == "localSeries" and scrapedTitleType not in Media.seriesTitleTypes)):
+                raise SyntaxError("title type " + scrapedTitleType + " not acceptable for local parsing result " + localTitleType)
+
+            currentMedia.titleType = scrapedTitleType
+
+            # primary title
+            primaryTitle = self.browser.execute_script("""
+                const el = document.querySelector('[data-testid="hero__pageTitle"]');
+                return el ? el.innerText.trim() : null;
+            """)
+            if not primaryTitle:
+                raise EnvironmentError("could not find primary title for " + currentMedia.getIDString())
+            currentMedia.primaryTitle = primaryTitle
+
+            # original title: only shown separately from the primary title when they differ
+            # (e.g. https://www.imdb.com/title/tt36459128/); falls back to the primary title
+            # otherwise. The locally-parsed folder name is not used as a source here.
+            origTitleMatches = self.browser.execute_script("""
+                const hero = document.querySelector('[data-testid="hero-parent"]');
+                if (!hero) return null;
+                return Array.from(hero.querySelectorAll('div'))
+                    .filter(el => el.children.length === 0 && el.textContent.trim().startsWith('Original title:'))
+                    .map(el => el.innerText.trim());
+            """)
+            if origTitleMatches is None:
+                raise EnvironmentError("hero section not found for " + currentMedia.getIDString())
+            if len(origTitleMatches) > 1:
+                raise EnvironmentError("multiple 'Original title:' elements found for " + currentMedia.getIDString())
+            if len(origTitleMatches) == 1:
+                originalTitle = origTitleMatches[0][len("Original title:"):].strip()
+                if not originalTitle:
+                    raise EnvironmentError("empty original title for " + currentMedia.getIDString())
+                currentMedia.originalTitle = originalTitle
+            else:
+                currentMedia.originalTitle = primaryTitle
+
+            # release year, cross-checked against the already-known (locally-parsed) year
+            yearLinks = self.browser.execute_script("""
+                const hero = document.querySelector('[data-testid="hero-parent"]');
+                if (!hero) return null;
+                return Array.from(hero.querySelectorAll('a[href*="/releaseinfo"]')).map(a => a.innerText.trim());
+            """)
+            if yearLinks is None or len(yearLinks) != 1 or not re.fullmatch(r"\d{4}", yearLinks[0]):
+                raise EnvironmentError("could not uniquely determine release year for " + currentMedia.getIDString() + ": " + str(yearLinks))
+            scrapedYear = int(yearLinks[0])
+            if currentMedia.startYear is not None and currentMedia.startYear != scrapedYear:
+                raise SyntaxError("startYear mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.startYear) + " vs scraped=" + str(scrapedYear))
+            currentMedia.startYear = scrapedYear
+            currentMedia.endYear = None # movies only; series are not supported
+
+            # rating and vote count
+            scoreText = self.browser.execute_script("""
+                const el = document.querySelector('[data-testid="hero-rating-bar__aggregate-rating__score"]');
+                return el ? el.innerText.trim() : null;
+            """)
+            voteText = self.browser.execute_script("""
+                const el = document.querySelector('[data-testid="rating-histogram-vote-count"]');
+                return el ? el.innerText.trim() : null;
+            """)
+
+            if scoreText is None and voteText is None:
+                currentMedia.rating_mul10 = None
+                currentMedia.numVotes = None
+            elif scoreText is not None and voteText is not None:
+                scoreMatch = re.fullmatch(r"(\d+\.\d)\s*/\s*10", scoreText.replace("\n", ""))
+                if not scoreMatch:
+                    raise EnvironmentError("could not parse rating score '" + scoreText + "' for " + currentMedia.getIDString())
+                rating_mul10 = int(scoreMatch.group(1).replace('.', ''))
+                if rating_mul10 < 10 or rating_mul10 > 100:
+                    raise EnvironmentError("rating conversion problem for " + currentMedia.getIDString())
+                currentMedia.rating_mul10 = rating_mul10
+
+                voteMatch = re.fullmatch(r"(\d+(?:\.\d+)?)(K|M)?", voteText)
+                if not voteMatch:
+                    raise EnvironmentError("could not parse vote count '" + voteText + "' for " + currentMedia.getIDString())
+                voteValue = float(voteMatch.group(1))
+                voteSuffix = voteMatch.group(2)
+                if voteSuffix == "K":
+                    currentMedia.numVotes = round(voteValue * 1_000)
+                elif voteSuffix == "M":
+                    currentMedia.numVotes = round(voteValue * 1_000_000)
+                else:
+                    currentMedia.numVotes = round(voteValue)
+
+                if voteSuffix is not None:
+                    print("INFO: vote count for " + currentMedia.getIDString() + " is approximate (" + voteText + " ~= " + str(currentMedia.numVotes) + ")")
+            else:
+                raise EnvironmentError("inconsistent rating state for " + currentMedia.getIDString() + ": score=" + str(scoreText) + " votes=" + str(voteText))
+
+            currentMedia.needsOnlineFallback = False
 
     def __downloadCoverFromLoadedMainPage(self, currentMedia, coverPath):
         """Downloads the highest-quality cover available, assuming the browser is currently
