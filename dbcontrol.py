@@ -170,6 +170,11 @@ class DBControl:
             self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
             remainingConnections = self.c.fetchall()
 
+            # capture mediumToRemove's current interests before they're removed, so any subgenre
+            # left with no remaining attachments afterward can be pruned from interest_enum
+            self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            affectedInterestIDs = [row[0] for row in self.c.fetchall()]
+
             #3a. if yes: only "light-remove" mediumToRemove (remove subdir and interests, since interests are only valid for locally-owned media)
             if len(remainingConnections) != 0:
                 print("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
@@ -180,6 +185,8 @@ class DBControl:
             else:
                 print("Removing " + mediumToRemove.originalTitle + " from DB")
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+
+            self.__pruneOrphanedSubinterests(affectedInterestIDs)
 
             #4. for all x in list referencesToRemove:
             for x in referencesToRemove:
@@ -236,6 +243,18 @@ class DBControl:
         """Insert a newly-discovered interest (genre or subgenre) into interest_enum if not already known."""
         with self.conn:
             self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
+
+    def __pruneOrphanedSubinterests(self, imdb_interest_ids):
+        """Removes any of the given interests from interest_enum if they are subgenres (i.e. have
+        a parent) and are no longer attached to any medium. Top-level genres are kept regardless,
+        even if currently unused."""
+        for imdb_interest_id in imdb_interest_ids:
+            self.c.execute("""
+                DELETE FROM interest_enum
+                WHERE imdb_interest_id = ?
+                AND parent_imdb_interest_id IS NOT NULL
+                AND NOT EXISTS (SELECT 1 FROM media_interests WHERE imdb_interest_id = ?)
+            """, (imdb_interest_id, imdb_interest_id))
 
     def __getTitleTypeIDByTitleTypeName(self, titleType_name):
         with self.conn:
