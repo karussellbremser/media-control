@@ -5,8 +5,6 @@ from mediaconnection import MediaConnection
 
 class DBControl:
 
-    titleType_list = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
-
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
@@ -96,7 +94,7 @@ class DBControl:
             PRIMARY KEY (titleType_id)
             )""")
             i = 1
-            for titleType in self.titleType_list:
+            for titleType in Media.movieTitleTypes + Media.seriesTitleTypes:
                 self.c.execute("INSERT INTO titleType_enum VALUES (?, ?)", (i, titleType))
                 i += 1
 
