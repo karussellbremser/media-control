@@ -162,6 +162,8 @@ class ScrapeIMDbOnline:
             else:
                 self.__sleep()
 
+            print("Filling missing basics online for " + currentMedia.getIDString() + " (not found in offline dataset)")
+
             self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
             time.sleep(4)
 
