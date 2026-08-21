@@ -88,7 +88,7 @@ class DBControl:
             # English has no IMDb interest id of its own (confirmed absent from IMDb's full interest
             # directory) since it's the unmarked default -- 0 is used as a reserved id here, since
             # real IMDb interest ids (in\d+) are always 1 or greater and can never collide with it
-            self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", (0, "English", "Content primarily in the English language."))
+            self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", (0, "English", "English-language cinema encompasses a vast and influential body of filmmaking, from Hollywood's genre-defining blockbusters to British drama and independent voices across the English-speaking world. It has driven major innovations in visual effects, narrative structure, and global distribution, shaping how audiences everywhere experience film. Its reach and influence remain unmatched, setting trends that ripple through the international film industry."))
 
             self.c.execute("""CREATE TABLE titleType_enum (
             titleType_id integer NOT NULL,
