@@ -34,11 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	let viewMode = "list";
+	let viewMode = "grid";
 
 	const listViewBtn = document.getElementById('listViewBtn');
 	const gridViewBtn = document.getElementById('gridViewBtn');
-	listViewBtn.classList.add("activeView");
+	gridViewBtn.classList.add("activeView");
 
 	listViewBtn.addEventListener('click', () => {
 		viewMode = "list";
