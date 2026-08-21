@@ -5,6 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from media import Media
 from mediaconnection import MediaConnection
+from imdbinterestid import parseInterestID, formatInterestID
 from PIL import Image
 
 class ScrapeIMDbOnline:
@@ -332,12 +333,12 @@ class ScrapeIMDbOnline:
             match = re.search(r"^/interest/(in\d+)/", chip.get("href") or "")
             if not match:
                 raise EnvironmentError("interest chip href not properly formatted: " + str(chip.get("href")))
-            chip_id = match.group(1)
+            chip_id = parseInterestID(match.group(1))
             name = (chip.get("text") or "").strip()
             if name == "":
-                raise EnvironmentError("interest chip has empty name: " + chip_id)
+                raise EnvironmentError("interest chip has empty name: " + str(chip_id))
             if chip_id in seenIDs:
-                raise EnvironmentError("duplicate interest chip on page: " + chip_id)
+                raise EnvironmentError("duplicate interest chip on page: " + str(chip_id))
             seenIDs.add(chip_id)
             result.append((chip_id, name))
 
@@ -368,7 +369,7 @@ class ScrapeIMDbOnline:
         languageName = None
 
         def classify(interest_id, name):
-            self.browser.get("https://www.imdb.com/interest/" + interest_id + "/")
+            self.browser.get("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
             time.sleep(4)
 
             typeText = self.browser.execute_script("""
@@ -376,7 +377,7 @@ class ScrapeIMDbOnline:
                 return el ? el.innerText.trim() : null;
             """)
             if typeText not in ("Genre", "Subgenre", "Language"):
-                raise EnvironmentError("unexpected interest type '" + str(typeText) + "' for " + interest_id + " (" + name + ")")
+                raise EnvironmentError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
 
             categoryTexts = self.browser.execute_script("""
                 const header = document.querySelector('[data-testid="interest-hero-header"]');
@@ -384,7 +385,7 @@ class ScrapeIMDbOnline:
                 return Array.from(header.querySelectorAll('[data-testid="hero-breadcrumb-category"]')).map(a => a.innerText.trim());
             """)
             if categoryTexts is None:
-                raise EnvironmentError("interest hero header not found for " + interest_id)
+                raise EnvironmentError("interest hero header not found for " + str(interest_id))
 
             description = self.browser.execute_script("""
                 const box = document.querySelector('[data-testid="interest-description-and-chips"]');
@@ -393,16 +394,16 @@ class ScrapeIMDbOnline:
                 return descEls.length === 1 ? descEls[0].innerText.trim() : null;
             """)
             if not description:
-                raise EnvironmentError("could not find description text for interest " + interest_id + " (" + name + ")")
+                raise EnvironmentError("could not find description text for interest " + str(interest_id) + " (" + name + ")")
 
             if typeText in ("Genre", "Language"):
                 if len(categoryTexts) != 0:
-                    raise EnvironmentError(typeText + "-type interest unexpectedly has a parent category: " + interest_id)
+                    raise EnvironmentError(typeText + "-type interest unexpectedly has a parent category: " + str(interest_id))
                 return (typeText, None, description)
             else:
                 distinctParents = set(categoryTexts)
                 if len(distinctParents) != 1:
-                    raise EnvironmentError("could not determine a single parent category for subgenre " + interest_id + ": " + str(distinctParents))
+                    raise EnvironmentError("could not determine a single parent category for subgenre " + str(interest_id) + ": " + str(distinctParents))
                 return ("Subgenre", next(iter(distinctParents)), description)
 
         for chip_id, chip_name in chips:
@@ -434,7 +435,7 @@ class ScrapeIMDbOnline:
 
             candidates = self.__getGlobalInterestNameMap().get(parentName)
             if not candidates or len(candidates) != 1:
-                raise EnvironmentError("parent genre '" + parentName + "' for subgenre " + chip_id + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
+                raise EnvironmentError("parent genre '" + parentName + "' for subgenre " + str(chip_id) + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
             parent_id = next(iter(candidates))
 
             if parent_id not in knownInterestIDs:
@@ -476,7 +477,7 @@ class ScrapeIMDbOnline:
             match = re.search(r"^/interest/(in\d+)/", link.get("href") or "")
             if not match:
                 raise EnvironmentError("interest directory entry href not properly formatted: " + str(link.get("href")))
-            nameMap.setdefault(link["text"], set()).add(match.group(1))
+            nameMap.setdefault(link["text"], set()).add(parseInterestID(match.group(1)))
 
         self.__interestNameMap = nameMap
         return nameMap

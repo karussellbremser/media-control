@@ -41,10 +41,11 @@ class DBControl:
             )""")
 
             # media_interests holds both standard genres and IMDb "interests" (subgenres), differentiated in interest_enum
-            # only populated for locally-owned media (subdir NOT NULL); referenced-only media have no entries here
+            # only populated for locally-owned media (subdir NOT NULL); referenced-only media have no entries here.
+            # imdb_interest_id is stored as the integer form of IMDb's "inXXXXXXX" id (see imdbinterestid.py)
             self.c.execute("""CREATE TABLE media_interests (
             imdb_id integer NOT NULL,
-            imdb_interest_id text NOT NULL,
+            imdb_interest_id integer NOT NULL,
             PRIMARY KEY (imdb_id, imdb_interest_id),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
@@ -56,14 +57,14 @@ class DBControl:
                     ON DELETE CASCADE
             )""")
 
-            # keyed by IMDb's own interest id (e.g. "in0000076"). parent_imdb_interest_id is NULL for standard
-            # genres and always set for subgenre "interests". populated dynamically as new interests are discovered
-            # during online scraping, not pre-seeded.
+            # keyed by the integer form of IMDb's own interest id (e.g. "in0000076" -> 76).
+            # parent_imdb_interest_id is NULL for standard genres and always set for subgenre "interests".
+            # populated dynamically as new interests are discovered during online scraping, not pre-seeded.
             self.c.execute("""CREATE TABLE interest_enum (
-            imdb_interest_id text NOT NULL,
+            imdb_interest_id integer NOT NULL,
             name text NOT NULL,
             description text NOT NULL,
-            parent_imdb_interest_id text,
+            parent_imdb_interest_id integer,
             PRIMARY KEY (imdb_interest_id),
             FOREIGN KEY (parent_imdb_interest_id)
                 REFERENCES interest_enum (imdb_interest_id)
@@ -72,18 +73,18 @@ class DBControl:
             )""")
 
             # standalone lookup/cache of IMDb interests that turned out to be languages rather than
-            # genres/subgenres (e.g. "German"), keyed by IMDb's interest id, used only to avoid
-            # re-classifying an already-known language. Not referenced by media.language via FK.
+            # genres/subgenres (e.g. "German"), keyed by the integer form of IMDb's interest id, used
+            # only to avoid re-classifying an already-known language. Not referenced by media.language via FK.
             self.c.execute("""CREATE TABLE language_enum (
-            imdb_interest_id text NOT NULL,
+            imdb_interest_id integer NOT NULL,
             name text NOT NULL UNIQUE,
             description text NOT NULL,
             PRIMARY KEY (imdb_interest_id)
             )""")
             # English has no IMDb interest id of its own (confirmed absent from IMDb's full interest
-            # directory) since it's the unmarked default -- "0" is used as a reserved id here, since
-            # real IMDb interest ids are always of the form "in\d+" and can never collide with it
-            self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", ("0", "English", "Content primarily in the English language."))
+            # directory) since it's the unmarked default -- 0 is used as a reserved id here, since
+            # real IMDb interest ids (in\d+) are always 1 or greater and can never collide with it
+            self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", (0, "English", "Content primarily in the English language."))
 
             self.c.execute("""CREATE TABLE titleType_enum (
             titleType_id integer NOT NULL,

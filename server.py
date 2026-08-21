@@ -136,7 +136,7 @@ def index():
 @server.route('/search')
 def search():
     args = request.args
-    selected_interest_ids = args.getlist('genres[]') + args.getlist('interests[]')
+    selected_interest_ids = [int(x) for x in args.getlist('genres[]') + args.getlist('interests[]')]
 
     page = int(args.get('page', 1))
     limit = 50

@@ -36,7 +36,7 @@ class Media:
         self.releaseMonth = None # only entered manually when necessary
         self.releaseDay = None # only entered manually when necessary
         self.subdir = subdir
-        self.interests = [] # list of IMDb interest ids (in0000076, ...), covering both standard genres and subgenres
+        self.interests = [] # list of IMDb interest ids as integers (e.g. 76 for "in0000076"), covering both standard genres and subgenres
         self.language = "English" # overwritten if a language-type interest is attached (no label = English)
         self.mediaVersions = []
         self.mediaConnections = []
