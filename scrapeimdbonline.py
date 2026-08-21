@@ -90,7 +90,7 @@ class ScrapeIMDbOnline:
 
         knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
         mutated in place as new ones are discovered. A title with no language-type interest
-        attached keeps Media's default of "English". Returns (newInterestRegistrations,
+        attached keeps Media's default language_id of 0 (English). Returns (newInterestRegistrations,
         newLanguageRegistrations): newInterestRegistrations is a list of (imdb_interest_id, name,
         description, parent_imdb_interest_id) tuples in dependency order (a subgenre's parent
         genre always appears before the subgenre itself); newLanguageRegistrations is a list of
@@ -125,10 +125,10 @@ class ScrapeIMDbOnline:
             if not os.path.isfile(coverPath):
                 self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageName = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs)
+            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs)
             currentMedia.interests = attachedInterestIDs
-            if languageName is not None:
-                currentMedia.language = languageName
+            if languageID is not None:
+                currentMedia.language_id = languageID
             newInterestRegistrations.extend(newInterestRegs)
             newLanguageRegistrations.extend(newLanguageRegs)
 
@@ -354,11 +354,11 @@ class ScrapeIMDbOnline:
         mutated in place.
 
         Returns (attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations,
-        languageName): attachedInterestIDs are the genre/subgenre ids actually attached to this
+        languageID): attachedInterestIDs are the genre/subgenre ids actually attached to this
         title (for media_interests -- language ids are never included); newInterestRegistrations
         is a list of (imdb_interest_id, name, description, parent_imdb_interest_id) tuples;
         newLanguageRegistrations is a list of (imdb_interest_id, name, description) tuples;
-        languageName is this title's language name if a language chip was found, else None.
+        languageID is this title's language_id if a language chip was found, else None.
 
         Raises on any unexpected structure (unknown type, missing description, missing/ambiguous
         parent, more than two genre/subgenre taxonomy levels, more than one language attached)."""
@@ -366,7 +366,7 @@ class ScrapeIMDbOnline:
         attachedInterestIDs = []
         newInterestRegistrations = []
         newLanguageRegistrations = []
-        languageName = None
+        languageID = None
 
         def classify(interest_id, name):
             self.browser.get("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
@@ -412,9 +412,9 @@ class ScrapeIMDbOnline:
                 continue
 
             if chip_id in knownLanguageIDs:
-                if languageName is not None:
+                if languageID is not None:
                     raise EnvironmentError("multiple language interests attached to the same title")
-                languageName = chip_name
+                languageID = chip_id
                 continue
 
             typeText, parentName, description = classify(chip_id, chip_name)
@@ -426,11 +426,11 @@ class ScrapeIMDbOnline:
                 continue
 
             if typeText == "Language":
-                if languageName is not None:
+                if languageID is not None:
                     raise EnvironmentError("multiple language interests attached to the same title")
                 newLanguageRegistrations.append((chip_id, chip_name, description))
                 knownLanguageIDs.add(chip_id)
-                languageName = chip_name
+                languageID = chip_id
                 continue
 
             candidates = self.__getGlobalInterestNameMap().get(parentName)
@@ -449,7 +449,7 @@ class ScrapeIMDbOnline:
             knownInterestIDs.add(chip_id)
             attachedInterestIDs.append(chip_id)
 
-        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageName
+        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageID
 
     def __getGlobalInterestNameMap(self):
         """Lazily fetches and caches IMDb's full interest directory (/interest/all/) as a
