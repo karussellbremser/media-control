@@ -205,11 +205,6 @@ class DBControl:
             for imdbID, media in mediaDict.items():
                 self.c.execute("UPDATE media SET rating_mul10=?, numVotes=? WHERE imdb_id=?", (media.rating_mul10, media.numVotes, imdbID))
     
-    def getAllMediaTitles(self):
-        with self.conn:
-            self.c.execute("SELECT originalTitle FROM media")
-            return(self.c.fetchall())
-        
     def getAllMediaIDs(self):
         with self.conn:
             self.c.execute("SELECT imdb_id FROM media")
@@ -221,66 +216,6 @@ class DBControl:
         for entry in dbResult:
             resultDict[entry[0]] = Media(None, None, entry[0])
         return(resultDict)
-    
-    def getMediaByYear(self, startYear):
-        with self.conn:
-            self.c.execute("SELECT originalTitle FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE startYear=?", (startYear,))
-            return(self.c.fetchall())
-            
-    def getMediaByYearRange(self, yearFrom, yearTo):
-        with self.conn:
-            self.c.execute("SELECT originalTitle FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE startYear BETWEEN ? AND ?", (yearFrom, yearTo))
-            return(self.c.fetchall())
-    
-    def getMediaByRatingRange(self, ratingFrom, ratingTo):
-        with self.conn:
-            self.c.execute("SELECT originalTitle FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 BETWEEN ? AND ?", (ratingFrom, ratingTo))
-            return(self.c.fetchall())
-    
-    def getAllMediaSortedByRating(self):
-        with self.conn:
-            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 ORDER BY rating_mul10 DESC")
-            return(self.c.fetchall())
-    
-    def getAllMediaSortedByNumVotes(self):
-        with self.conn:
-            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 ORDER BY numVotes DESC")
-            return(self.c.fetchall())
-    
-    def getAllMediaSortedByRating(self):
-        with self.conn:
-            self.c.execute("SELECT originalTitle, rating_mul10, numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) WHERE rating_mul10 ORDER BY startYear DESC")
-            return(self.c.fetchall())
-    
-    def getMediaByGenreAND(self, genreNameList):
-        with self.conn:
-            if len(genreNameList) not in range(1, 4):
-                raise SyntaxError('illegal length of genreNameList: ' + len(genreNameList))
-            sqlStatement = "SELECT media.originalTitle, media.rating_mul10, media.numVotes FROM media INNER JOIN genres ON media.imdb_id = genres.imdb_id WHERE genres.genre_id in ("
-            first = True
-            for genreName in genreNameList:
-                if not first:
-                    sqlStatement += ","
-                first = False
-                sqlStatement += str(self.__getGenreIDByGenreName(genreName))
-            sqlStatement += ") GROUP BY genres.imdb_id HAVING count(distinct genres.genre_id)=" + str(len(genreNameList)) + " ORDER BY media.rating_mul10 DESC"
-            self.c.execute(sqlStatement)
-            return(self.c.fetchall())
-    
-    def getLocalMediaByGenreAND(self, genreNameList):
-        with self.conn:
-            if len(genreNameList) not in range(1, 4):
-                raise SyntaxError('illegal length of genreNameList: ' + len(genreNameList))
-            sqlStatement = "SELECT localMedia.originalTitle, localMedia.rating_mul10, localMedia.numVotes FROM (SELECT * FROM media WHERE media.subdir IS NOT NULL) localMedia INNER JOIN genres ON localMedia.imdb_id = genres.imdb_id WHERE genres.genre_id in ("
-            first = True
-            for genreName in genreNameList:
-                if not first:
-                    sqlStatement += ","
-                first = False
-                sqlStatement += str(self.__getGenreIDByGenreName(genreName))
-            sqlStatement += ") GROUP BY genres.imdb_id HAVING count(distinct genres.genre_id)=" + str(len(genreNameList)) + " ORDER BY localMedia.rating_mul10 DESC"
-            self.c.execute(sqlStatement)
-            return(self.c.fetchall())
     
     def __getGenreIDByGenreName(self, genre_name):
         with self.conn:
@@ -356,15 +291,6 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT originalTitle, startYear, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
             return(self.c.fetchall())
-    
-    def getLocalMovieObjects(self):
-        resultDict = {}
-        with self.conn:
-            self.c.execute("SELECT * FROM media WHERE subdir IS NOT NULL")
-            dbResult = self.c.fetchall()
-            for dbRow in dbResult:
-                resultDict[dbRow[0]] = self.__getMovieObjectFromDBRow(dbRow)
-        return resultDict
     
     def __getMovieObjectFromDBRow(self, dbRow):
         # imdb_id, titleType_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir
