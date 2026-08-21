@@ -22,15 +22,19 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT)
 
-    # 3. scrape main pages of newly added media: download covers if missing, scrape interests
+    # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language
     knownInterestIDs = db.getAllKnownInterestIDs()
-    newInterestRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs)
+    knownLanguageIDs = db.getAllKnownLanguageIDs()
+    newInterestRegistrations, newLanguageRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs, knownLanguageIDs)
     for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
         if parent_imdb_interest_id is None:
             print("New genre added to interest enum: " + name + " (" + imdb_interest_id + ")")
         else:
             print("New subgenre added to interest enum: " + name + " (" + imdb_interest_id + "), parent: " + parent_imdb_interest_id)
         db.ensureInterestExists(imdb_interest_id, name, description, parent_imdb_interest_id)
+    for imdb_interest_id, name, description in newLanguageRegistrations:
+        print("New language added to language enum: " + name + " (" + imdb_interest_id + ")")
+        db.ensureLanguageExists(imdb_interest_id, name, description)
 
     # 4. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)

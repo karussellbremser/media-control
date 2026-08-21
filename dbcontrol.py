@@ -32,6 +32,7 @@ class DBControl:
             releaseMonth integer,
             releaseDay integer,
             subdir text UNIQUE,
+            language text NOT NULL DEFAULT 'English',
             PRIMARY KEY (imdb_id),
             FOREIGN KEY (titleType_id)
                 REFERENCES titleType_enum (titleType_id)
@@ -69,6 +70,20 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
+
+            # standalone lookup/cache of IMDb interests that turned out to be languages rather than
+            # genres/subgenres (e.g. "German"), keyed by IMDb's interest id, used only to avoid
+            # re-classifying an already-known language. Not referenced by media.language via FK.
+            self.c.execute("""CREATE TABLE language_enum (
+            imdb_interest_id text NOT NULL,
+            name text NOT NULL UNIQUE,
+            description text NOT NULL,
+            PRIMARY KEY (imdb_interest_id)
+            )""")
+            # English has no IMDb interest id of its own (confirmed absent from IMDb's full interest
+            # directory) since it's the unmarked default -- "0" is used as a reserved id here, since
+            # real IMDb interest ids are always of the form "in\d+" and can never collide with it
+            self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", ("0", "English", "Content primarily in the English language."))
 
             self.c.execute("""CREATE TABLE titleType_enum (
             titleType_id integer NOT NULL,
@@ -129,9 +144,9 @@ class DBControl:
             self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
             data = self.c.fetchall()
             if len(data) == 0:
-                self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir))
+                self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language))
             elif data[0][1] == None:
-                self.c.execute("UPDATE media SET titleType_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.imdb_id))
+                self.c.execute("UPDATE media SET titleType_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language, thisMedia.imdb_id))
             else:
                 raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
             for imdb_interest_id in thisMedia.interests:
@@ -244,6 +259,17 @@ class DBControl:
         with self.conn:
             self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
 
+    def getAllKnownLanguageIDs(self):
+        """Set of all IMDb interest ids already known to be languages (in language_enum)."""
+        with self.conn:
+            self.c.execute("SELECT imdb_interest_id FROM language_enum")
+            return set(row[0] for row in self.c.fetchall())
+
+    def ensureLanguageExists(self, imdb_interest_id, name, description):
+        """Insert a newly-discovered language interest into language_enum if not already known."""
+        with self.conn:
+            self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
+
     def __pruneOrphanedSubinterests(self, imdb_interest_ids):
         """Removes any of the given interests from interest_enum if they are subgenres (i.e. have
         a parent) and are no longer attached to any medium. Top-level genres are kept regardless,
@@ -316,7 +342,7 @@ class DBControl:
             return(self.c.fetchall())
 
     def __getMovieObjectFromDBRow(self, dbRow):
-        # imdb_id, titleType_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir
+        # imdb_id, titleType_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir, language
         mediaObject = Media(None, None, dbRow[0])
         mediaObject.originalTitle = dbRow[2]
         mediaObject.primaryTitle = dbRow[3]
@@ -327,6 +353,7 @@ class DBControl:
         mediaObject.releaseMonth = dbRow[8]
         mediaObject.releaseDay = dbRow[9]
         mediaObject.subdir = dbRow[10]
+        mediaObject.language = dbRow[11]
         mediaObject.titleType = self.__getTitleTypeNameByTitleTypeID(dbRow[1])
         mediaObject.interests = self.__getInterestIDList(dbRow[0])
         mediaObject.mediaVersions = self.__getMediaVersionList(dbRow[0])

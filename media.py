@@ -37,6 +37,7 @@ class Media:
         self.releaseDay = None # only entered manually when necessary
         self.subdir = subdir
         self.interests = [] # list of IMDb interest ids (in0000076, ...), covering both standard genres and subgenres
+        self.language = "English" # overwritten if a language-type interest is attached (no label = English)
         self.mediaVersions = []
         self.mediaConnections = []
         self.needsOnlineFallback = False # set when locally-owned media is missing from the IMDb offline datasets
