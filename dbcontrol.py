@@ -5,10 +5,8 @@ from mediaconnection import MediaConnection
 
 class DBControl:
 
-    genre_list = ["Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi", "Short", "Sport", "Talk-Show", "Thriller", "War", "Western", "Adult"]
-    
     titleType_list = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
-    
+
     def __init__(self, dbLocation):
         """Initialize db class variables"""
         self.conn = sqlite3.connect(dbLocation)
@@ -18,7 +16,7 @@ class DBControl:
     def close(self):
         """close sqlite3 connection"""
         self.conn.close()
-    
+
     def createMediaDB(self):
         with self.conn:
             # media table holds both media present in library and those only linked by IMDb connections. differentiator if medium is actually present is subdir not being NULL
@@ -40,31 +38,37 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
-            
-            self.c.execute("""CREATE TABLE genres (
+
+            # media_interests holds both standard genres and IMDb "interests" (subgenres), differentiated in interest_enum
+            # only populated for locally-owned media (subdir NOT NULL); referenced-only media have no entries here
+            self.c.execute("""CREATE TABLE media_interests (
             imdb_id integer NOT NULL,
-            genre_id integer NOT NULL,
-            PRIMARY KEY (imdb_id, genre_id),
+            imdb_interest_id text NOT NULL,
+            PRIMARY KEY (imdb_id, imdb_interest_id),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
                     ON DELETE CASCADE,
-            FOREIGN KEY (genre_id)
-                REFERENCES genre_enum (genre_id)
+            FOREIGN KEY (imdb_interest_id)
+                REFERENCES interest_enum (imdb_interest_id)
                     ON UPDATE CASCADE
                     ON DELETE CASCADE
             )""")
-            
-            self.c.execute("""CREATE TABLE genre_enum (
-            genre_id integer NOT NULL,
-            genre_name text NOT NULL UNIQUE,
-            PRIMARY KEY (genre_id)
+
+            # keyed by IMDb's own interest id (e.g. "in0000076"). parent_imdb_interest_id is NULL for standard
+            # genres and always set for subgenre "interests". populated dynamically as new interests are discovered
+            # during online scraping, not pre-seeded.
+            self.c.execute("""CREATE TABLE interest_enum (
+            imdb_interest_id text NOT NULL,
+            name text NOT NULL,
+            parent_imdb_interest_id text,
+            PRIMARY KEY (imdb_interest_id),
+            FOREIGN KEY (parent_imdb_interest_id)
+                REFERENCES interest_enum (imdb_interest_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
-            i = 1
-            for genre in self.genre_list:
-                self.c.execute("INSERT INTO genre_enum VALUES (?, ?)", (i, genre))
-                i += 1
-                
+
             self.c.execute("""CREATE TABLE titleType_enum (
             titleType_id integer NOT NULL,
             titleType_name text NOT NULL UNIQUE,
@@ -74,7 +78,7 @@ class DBControl:
             for titleType in self.titleType_list:
                 self.c.execute("INSERT INTO titleType_enum VALUES (?, ?)", (i, titleType))
                 i += 1
-            
+
             self.c.execute("""CREATE TABLE mediaVersions (
             imdb_id integer NOT NULL,
             filename text NOT NULL,
@@ -87,7 +91,7 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE CASCADE
             )""")
-            
+
             self.c.execute("""CREATE TABLE mediaConnections (
             imdb_id integer NOT NULL,
             foreign_imdb_id integer NOT NULL,
@@ -106,7 +110,7 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
-            
+
             self.c.execute("""CREATE TABLE connection_type_enum (
             connection_type_id integer NOT NULL,
             connection_type_name text NOT NULL UNIQUE,
@@ -129,110 +133,110 @@ class DBControl:
                 self.c.execute("UPDATE media SET titleType_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.imdb_id))
             else:
                 raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
-            self.c.execute("DELETE FROM genres WHERE imdb_id=?", (thisMedia.imdb_id,)) # delete genre entries for the case of previously existing referenced medium now being newly added
-            for genre_name in thisMedia.genres:
-                self.c.execute("INSERT INTO genres VALUES (?, ?)", (thisMedia.imdb_id, self.__getGenreIDByGenreName(genre_name)))
+            self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (thisMedia.imdb_id,)) # delete interest entries for the case of previously existing referenced medium now being newly added
+            for imdb_interest_id in thisMedia.interests:
+                self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
             for mediaVersion in thisMedia.mediaVersions:
                 self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
-    
+
     def addSingleMediaConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise RuntimeError('no media object')
         with self.conn:
             for mediaConnection in thisMedia.mediaConnections:
                 self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
-            
+
     def addMultipleMedia(self, mediaDict): # media and connections must be separated, so that foreign constraints are always fulfilled during db entry
         for x in mediaDict.values():
             self.addSingleMediaWoConnections(x)
         for x in mediaDict.values():
             self.addSingleMediaConnections(x)
-    
+
     def removeMultipleMedia(self, removedDict):
         for x in removedDict.values():
             self.removeSingleMedia(x)
-    
+
     def removeSingleMedia(self, mediumToRemove):
         with self.conn:
             #1. remove all mediaVersions of mediumToRemove
             self.c.execute("DELETE FROM mediaVersions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-        
+
             #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
             self.c.execute("SELECT imdb_id, foreign_imdb_id FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             referencesToRemove = self.c.fetchall()
             self.c.execute("DELETE FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-        
+
             #3. check whether there are any connections TO mediumToRemove
             self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
             remainingConnections = self.c.fetchall()
-            
-            #3a. if yes: only "light-remove" mediumToRemove (remove only subdir)
+
+            #3a. if yes: only "light-remove" mediumToRemove (remove subdir and interests, since interests are only valid for locally-owned media)
             if len(remainingConnections) != 0:
                 print("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
                 self.c.execute("UPDATE media SET subdir = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-            
-            #3b. if no: remove genre and media entries
+                self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+
+            #3b. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
             else:
                 print("Removing " + mediumToRemove.originalTitle + " from DB")
-                self.c.execute("DELETE FROM genres WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-            
+
             #4. for all x in list referencesToRemove:
             for x in referencesToRemove:
-            
+
                 #4a. if x not in db table media or if subdir NOT EMPTY: continue
                 self.c.execute("SELECT imdb_id, originalTitle, subdir FROM media WHERE imdb_id=?", (x[1],))
                 mediumData = self.c.fetchall()
                 if len(mediumData) == 0 or mediumData[0][2] != None:
                     continue
-                
+
                 #4b. check whether there are any connections TO x
                 self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (x[1],))
                 remainingConnections = self.c.fetchall()
-                
+
                 #4b1. if yes: continue
                 if len(remainingConnections) != 0:
                     continue
-                
-                #4b2. if no: remove genre and media entries
+
+                #4b2. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
                 else:
                     print("Removing referenced medium " + mediumData[0][1] + " from DB")
-                    self.c.execute("DELETE FROM genres WHERE imdb_id=?", (x[1],))
                     self.c.execute("DELETE FROM media WHERE imdb_id=?", (x[1],))
-            
+
     def refreshRatings(self, mediaDict):
         with self.conn:
             for imdbID, media in mediaDict.items():
                 self.c.execute("UPDATE media SET rating_mul10=?, numVotes=? WHERE imdb_id=?", (media.rating_mul10, media.numVotes, imdbID))
-    
+
     def getAllMediaIDs(self):
         with self.conn:
             self.c.execute("SELECT imdb_id FROM media")
             return(self.c.fetchall())
-            
+
     def getDictWithImdbIDs(self):
         dbResult = self.getAllMediaIDs()
         resultDict = {}
         for entry in dbResult:
             resultDict[entry[0]] = Media(None, None, entry[0])
         return(resultDict)
-    
-    def __getGenreIDByGenreName(self, genre_name):
+
+    def getAllKnownInterestIDs(self):
+        """Set of all IMDb interest ids already present in interest_enum (both genres and subgenres)."""
         with self.conn:
-            self.c.execute("SELECT genre_id FROM genre_enum WHERE genre_name=?", (genre_name,))
-            genre_id = self.c.fetchone()
-            if not genre_id or not genre_id[0]:
-                raise SyntaxError('unknown genre ' + genre_name)
-            return(genre_id[0])
-    
-    def __getGenreNameByGenreID(self, genre_id):
+            self.c.execute("SELECT imdb_interest_id FROM interest_enum")
+            return set(row[0] for row in self.c.fetchall())
+
+    def getMediaIDsWithInterests(self):
+        """Set of imdb_ids that already have at least one media_interests row."""
         with self.conn:
-            self.c.execute("SELECT genre_name FROM genre_enum WHERE genre_id=?", (genre_id,))
-            genre_name = self.c.fetchone()
-            if not genre_name or not genre_name[0]:
-                raise SyntaxError('unknown genre ID ' + str(genre_id))
-            return(genre_name[0])
-    
+            self.c.execute("SELECT DISTINCT imdb_id FROM media_interests")
+            return set(row[0] for row in self.c.fetchall())
+
+    def ensureInterestExists(self, imdb_interest_id, name, parent_imdb_interest_id=None):
+        """Insert a newly-discovered interest (genre or subgenre) into interest_enum if not already known."""
+        with self.conn:
+            self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?)", (imdb_interest_id, name, parent_imdb_interest_id))
+
     def __getTitleTypeIDByTitleTypeName(self, titleType_name):
         with self.conn:
             self.c.execute("SELECT titleType_id FROM titleType_enum WHERE titleType_name=?", (titleType_name,))
@@ -240,7 +244,7 @@ class DBControl:
             if not titleType_id or not titleType_id[0]:
                 raise SyntaxError('unknown titleType ' + titleType_name)
             return(titleType_id[0])
-    
+
     def __getTitleTypeNameByTitleTypeID(self, titleType_id):
         with self.conn:
             self.c.execute("SELECT titleType_name FROM titleType_enum WHERE titleType_id=?", (titleType_id,))
@@ -248,7 +252,7 @@ class DBControl:
             if not titleType_name or not titleType_name[0]:
                 raise SyntaxError('unknown titleType ID ' + str(titleType_id))
             return(titleType_name[0])
-    
+
     def __getConnectionTypeIDByConnectionTypeName(self, connectionType_name):
         with self.conn:
             self.c.execute("SELECT connection_type_id FROM connection_type_enum WHERE connection_type_name=?", (connectionType_name,))
@@ -256,7 +260,7 @@ class DBControl:
             if not connection_type_id or not connection_type_id[0]:
                 raise SyntaxError('unknown connection type ' + connectionType_name)
             return(connection_type_id[0])
-    
+
     def __getConnectionTypeNameByConnectionTypeID(self, connectionType_id):
         with self.conn:
             self.c.execute("SELECT connection_type_name FROM connection_type_enum WHERE connection_type_id=?", (connectionType_id,))
@@ -264,7 +268,7 @@ class DBControl:
             if not connection_type_name or not connection_type_name[0]:
                 raise SyntaxError('unknown connection type ' + str(connectionType_id))
             return(connection_type_name[0])
-    
+
     def determineNewlyAddedMedia(self, mediaDict):
         newlyAddedDict = {}
         with self.conn:
@@ -274,7 +278,7 @@ class DBControl:
                 if len(data) == 0 or data[0][1] == None:
                     newlyAddedDict[medium.imdb_id] = medium
         return newlyAddedDict
-    
+
     def determineLocallyRemovedMedia(self, mediaDict):
         removedDict = {}
         with self.conn:
@@ -286,12 +290,12 @@ class DBControl:
                     removedMedium.originalTitle = db_medium[1]
                     removedDict[removedMedium.imdb_id] = removedMedium
         return removedDict
-    
+
     def getReferencedOnlyMedia(self):
         with self.conn:
             self.c.execute("SELECT originalTitle, startYear, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
             return(self.c.fetchall())
-    
+
     def __getMovieObjectFromDBRow(self, dbRow):
         # imdb_id, titleType_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir
         mediaObject = Media(None, None, dbRow[0])
@@ -305,20 +309,16 @@ class DBControl:
         mediaObject.releaseDay = dbRow[9]
         mediaObject.subdir = dbRow[10]
         mediaObject.titleType = self.__getTitleTypeNameByTitleTypeID(dbRow[1])
-        mediaObject.genres = self.__getGenreNameList(dbRow[0])
+        mediaObject.interests = self.__getInterestIDList(dbRow[0])
         mediaObject.mediaVersions = self.__getMediaVersionList(dbRow[0])
         mediaObject.mediaConnections = self.__getMediaConnectionsList(dbRow[0])
         return mediaObject
-    
-    def __getGenreNameList(self, imdbID):
+
+    def __getInterestIDList(self, imdbID):
         with self.conn:
-            self.c.execute("SELECT genre_id FROM genres WHERE imdb_id=?", (imdbID,))
-            dbResult = self.c.fetchall()
-            genreList = []
-            for genre_id in dbResult:
-                genreList.append(self.__getGenreNameByGenreID(genre_id[0]))
-            return genreList
-    
+            self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdbID,))
+            return [row[0] for row in self.c.fetchall()]
+
     def __getMediaVersionList(self, imdbID):
         with self.conn:
             self.c.execute("SELECT * FROM mediaVersions WHERE imdb_id=?", (imdbID,))
@@ -327,7 +327,7 @@ class DBControl:
             for mediaVersionRow in dbResult:
                 resultList.append(MediaVersion(mediaVersionRow[1], mediaVersionRow[2], mediaVersionRow[3]))
             return resultList
-    
+
     def __getMediaConnectionsList(self, imdbID):
         with self.conn:
             self.c.execute("SELECT * FROM mediaConnections WHERE imdb_id=?", (imdbID,))
@@ -336,7 +336,7 @@ class DBControl:
             for mediaConnectionRow in dbResult:
                 resultList.append(MediaConnection(mediaConnectionRow[1], self.__getConnectionTypeNameByConnectionTypeID(mediaConnectionRow[2])))
             return resultList
-    
+
     def getAllMovieObjects(self):
         resultDict = {}
         with self.conn:
@@ -345,8 +345,3 @@ class DBControl:
             for dbRow in dbResult:
                 resultDict[dbRow[0]] = self.__getMovieObjectFromDBRow(dbRow)
         return resultDict
-    
-    
-    
-    
-    

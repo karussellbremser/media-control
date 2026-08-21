@@ -41,6 +41,7 @@ Then edit `config.ini` with your own paths:
 ## Usage
 
 ```bash
+python main.py --createdb # create a new, empty database at the configured db_path (run once, before first sync)
 python main.py --sync     # sync local media folder into the database
 python main.py --update   # refresh IMDb offline datasets
 python main.py --refresh  # refresh ratings for all entries

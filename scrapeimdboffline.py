@@ -86,14 +86,18 @@ class ScrapeIMDbOffline:
                         illegal_ids.append(x.imdb_id)
                         continue
                 
-                if file_type == 1 and x.titleType == None:
+                if file_type == 1 and x.titleType in (None, "localMovie", "localSeries"): # titleType still unset or still the local-scrape placeholder: no matching row was found in title.basics
                     if x.subdir == None:
+                        # referenced-only title missing from the dataset: not worth an online fallback scrape, discard
                         illegal_ids.append(x.imdb_id)
                         continue
                     else:
-                        raise EnvironmentError("no title type found for " + str(x.imdb_id))
-                
+                        # locally-owned title missing from the dataset (e.g. very obscure titles): flag for online fallback instead of silently dropping it
+                        x.needsOnlineFallback = True
+                        continue
+
                 if file_type == 1 and x.titleType not in self.movieTitleTypes + self.seriesTitleTypes:
+                    # found in the dataset, but not an acceptable title type (e.g. a TV episode ending up in the movie library)
                     illegal_ids.append(x.imdb_id)
             
             # remove illegal media from dict
@@ -135,13 +139,6 @@ class ScrapeIMDbOffline:
             raise SyntaxError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
         media_obj.startYear = int(row[5])
         media_obj.endYear = int(row[6]) if row[6] != "\\N" else None
-        if len(media_obj.genres) != 0:
-            raise SyntaxError("genres not empty for title " + row[0])
-        if len(row[8].split(',')) not in range(1, 4):
-            raise SyntaxError("illegal genre count for title " + row[0])
-        for genre in row[8].split(','):
-            if genre != "\\N":
-                media_obj.genres.append(genre)
-        
+
         return media_obj
         

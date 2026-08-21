@@ -12,28 +12,42 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     referencedInitial = len(db.getReferencedOnlyMedia())
 
+    # 1. scan local media library
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
+    # 2. determine newly added media
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT)
-    scrapeimdbonline.downloadCovers(mediaDictOriginal) # download all missing covers, regardless of whether they are newly added
-    scrapeimdbonline.generateThumbnails()
+
+    # 3. scrape main pages of newly added media: download covers if missing, scrape interests
+    knownInterestIDs = db.getAllKnownInterestIDs()
+    newInterestRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs)
+    for imdb_interest_id, name, parent_imdb_interest_id in newInterestRegistrations:
+        db.ensureInterestExists(imdb_interest_id, name, parent_imdb_interest_id)
+
+    # 4. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
-    # add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
+    # 5. add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
     newlyAddedMediaDictCopy = newlyAddedMediaDict.copy()
     for x in newlyAddedMediaDictCopy.values():
         for y in x.mediaConnections:
             if y.foreignIMDbID not in mediaDictOriginal or (y.foreignIMDbID in newlyAddedMediaDictOriginal and y.foreignIMDbID not in newlyAddedMediaDictCopy):
                 newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
 
+    # 6. offline parsing; flags locally-owned titles missing from the dataset for online fallback (step 7),
+    # discards referenced-only titles missing from the dataset
     scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
-    del scrapeimdbonline
+
+    # 7. online fallback for locally-owned titles missing from the offline dataset (should happen very infrequently)
+    flaggedMediaDict = {k: v for k, v in newlyAddedMediaDict.items() if v.needsOnlineFallback}
+    if len(flaggedMediaDict) > 0:
+        scrapeimdbonline.fillMissingBasics(flaggedMediaDict)
 
     removedDict = db.determineLocallyRemovedMedia(mediaDictOriginal)
     db.removeMultipleMedia(removedDict)
@@ -43,7 +57,13 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             print(x.originalTitle + " " + str(x.startYear))
 
     db.addMultipleMedia(newlyAddedMediaDict)
-    
+
+    # 8. recover covers missing for any currently-owned medium (e.g. deleted between syncs), then generate thumbnails
+    scrapeimdbonline.downloadCovers(mediaDictOriginal)
+    scrapeimdbonline.generateThumbnails()
+
+    del scrapeimdbonline
+
     referencedOnlyMedia = db.getReferencedOnlyMedia()
     print("Referenced-only media:")
     print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
@@ -58,14 +78,16 @@ def refreshTitleRatings():
     db.refreshRatings(imdbOnlyDict)
 
 args = sys.argv[1:]
-options = "hstur"
-long_options = ["help", "sync", "stats", "update", "refresh"]
+options = "hcstur"
+long_options = ["help", "createdb", "sync", "stats", "update", "refresh"]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.")
+        elif currentArg in ("-c", "--createdb"):
+            DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):
             syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH)
         elif currentArg in ("-t", "--stats"):

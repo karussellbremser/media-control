@@ -30,12 +30,13 @@ class Media:
         self.releaseMonth = None # only entered manually when necessary
         self.releaseDay = None # only entered manually when necessary
         self.subdir = subdir
-        self.genres = []
+        self.interests = [] # list of IMDb interest ids (in0000076, ...), covering both standard genres and subgenres
         self.mediaVersions = []
         self.mediaConnections = []
-    
+        self.needsOnlineFallback = False # set when locally-owned media is missing from the IMDb offline datasets
+
     def __str__(self):
-        return_str = str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.genres)
+        return_str = str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.interests)
         if (len(self.mediaConnections) > 0): return_str += " mediaConnections:"
         for x in self.mediaConnections:
             return_str += str(" " + str(x))

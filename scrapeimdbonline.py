@@ -10,19 +10,19 @@ from PIL import Image
 class ScrapeIMDbOnline:
 
     headers = {"Accept-Language": "en-US,en;q=0.5", 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36'}
-    
+
     TARGET_WIDTH = 380
     TARGET_HEIGHT = 562
-    
+
     # TBD: restrict online parsing to locally available movies and no TV episodes
-    
+
     def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0):
         self.cover_directory = cover_directory
         self.thumbnail_directory = thumbnail_directory
         self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
-        
+
         # instantiate chrome browser
         chrome_options = Options()
         user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
@@ -38,68 +38,230 @@ class ScrapeIMDbOnline:
         self.browser.implicitly_wait(10)
         self.browser.get("https://www.imdb.com/")
         time.sleep(20)
-    
+
     def __del__(self):
         self.browser.quit()
-    
+
     def downloadCovers(self, mediaDict):
-        
+
         if len(mediaDict) == 0:
             return
-        
+
         print("downloading covers...")
-        
+
         count = 0
-        
+
         for currentMedia in mediaDict.values():
-        
+
             # check if file exists, in this case skip this media
-            if os.path.isfile(os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")):
+            coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
+            if os.path.isfile(coverPath):
                 continue
-            
+
             # scrape IMDb media main page
             self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
             time.sleep(4)
-            
-            matches = self.browser.execute_script("""
-                const re = /^View ’[^’"]+’ Poster$/;
 
-                return Array.from(document.querySelectorAll('[aria-label]'))
-                    .filter(el => re.test(el.getAttribute('aria-label') || ''))
-                    .map(el => el.getAttribute('href'));
-            """)
+            self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-            if len(matches) != 1:
-                raise EnvironmentError("no unique cover tag found")
-
-            # scrape cover page
-            self.browser.get("https://www.imdb.com" + matches[0])
-            time.sleep(4)
-            
-            matches = self.browser.execute_script("""
-                return Array.from(document.querySelectorAll('[property]'))
-                    .filter(el => (el.getAttribute('property') || '') === "og:image")
-                    .map(el => el.getAttribute('content'));
-            """)
-
-            if len(matches) != 1:
-                raise EnvironmentError("no unique cover tag found")
-            
-            link_parts = matches[0].rsplit('.', 2)
-            if len(link_parts) != 3 or link_parts[2] != "jpg":
-                raise EnvironmentError("cover link not properly formatted: " + currentMedia.getIDString() + " - " + cover_direct_link)
-            cover_direct_link = link_parts[0] + "._V1_.jpg"
-            
-            # download cover
-            coverFile = requests.get(cover_direct_link, allow_redirects=True)
-            open(os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg"), 'wb').write(coverFile.content)
-            
             count += 1
             if count == self.maxCount:
                 return
-            
+
             self.__sleep()
-    
+
+    def scrapeMainPages(self, mediaDict, knownInterestIDs):
+        """For every medium in mediaDict, visits its IMDb main page exactly once and:
+        - always scrapes its interests (standard genres and subgenres alike)
+        - downloads its cover if the file doesn't already exist
+
+        knownInterestIDs is a set of already-known IMDb interest ids; it is mutated in place
+        as new interests are discovered. Returns a list of (imdb_interest_id, name,
+        parent_imdb_interest_id) tuples for newly discovered interests, in dependency order
+        (a subgenre's parent genre always appears before the subgenre itself), so the caller
+        can persist them via DBControl.ensureInterestExists() in the order returned."""
+
+        if len(mediaDict) == 0:
+            return []
+
+        print("scraping main pages...")
+
+        newInterestRegistrations = []
+        count = 0
+        first = True
+
+        for currentMedia in mediaDict.values():
+            if first:
+                first = False
+            else:
+                self.__sleep()
+
+            self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
+            time.sleep(4)
+
+            chips = self.__scrapeInterestChips()
+            currentMedia.interests = [chip_id for chip_id, _ in chips]
+
+            # cover download must happen here, while still on the title's main page from the browser.get()
+            # above; classifying newly-discovered interests below navigates away to separate /interest/...
+            # pages, so this ordering keeps the title's own main page visited exactly once per title
+            coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
+            if not os.path.isfile(coverPath):
+                self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
+
+            newInterestRegistrations.extend(self.__ensureInterestsRegistered(chips, knownInterestIDs))
+
+            count += 1
+            if count == self.maxCount:
+                return newInterestRegistrations
+
+        return newInterestRegistrations
+
+    def __downloadCoverFromLoadedMainPage(self, currentMedia, coverPath):
+        """Downloads the highest-quality cover available, assuming the browser is currently
+        on currentMedia's IMDb main page. Visits the dedicated poster subpage rather than using
+        the main page's own image directly, since the poster subpage serves a larger version."""
+
+        matches = self.browser.execute_script("""
+            const re = /^View ’[^’"]+’ Poster$/;
+
+            return Array.from(document.querySelectorAll('[aria-label]'))
+                .filter(el => re.test(el.getAttribute('aria-label') || ''))
+                .map(el => el.getAttribute('href'));
+        """)
+
+        if len(matches) != 1:
+            raise EnvironmentError("no unique cover tag found")
+
+        # scrape cover page
+        self.browser.get("https://www.imdb.com" + matches[0])
+        time.sleep(4)
+
+        matches = self.browser.execute_script("""
+            return Array.from(document.querySelectorAll('[property]'))
+                .filter(el => (el.getAttribute('property') || '') === "og:image")
+                .map(el => el.getAttribute('content'));
+        """)
+
+        if len(matches) != 1:
+            raise EnvironmentError("no unique cover tag found")
+
+        link_parts = matches[0].rsplit('.', 2)
+        if len(link_parts) != 3 or link_parts[2] != "jpg":
+            raise EnvironmentError("cover link not properly formatted: " + currentMedia.getIDString() + " - " + matches[0])
+        cover_direct_link = link_parts[0] + "._V1_.jpg"
+
+        # download cover
+        coverFile = requests.get(cover_direct_link, allow_redirects=True)
+        open(coverPath, 'wb').write(coverFile.content)
+
+    def __scrapeInterestChips(self):
+        """Scrapes the interests chip list from the currently-loaded title main page.
+        Returns a list of (imdb_interest_id, name) tuples. Raises on any unexpected structure,
+        rather than silently skipping or guessing."""
+
+        box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="interests"]\').length;')
+        if box_count != 1:
+            raise EnvironmentError("expected exactly one interests block on title page, found " + str(box_count))
+
+        chips = self.browser.execute_script("""
+            const box = document.querySelector('[data-testid="interests"]');
+            return Array.from(box.querySelectorAll('a')).map(a => ({
+                text: a.innerText,
+                href: a.getAttribute('href')
+            }));
+        """)
+
+        if len(chips) == 0:
+            raise EnvironmentError("interests block present but contains no chips")
+
+        result = []
+        seenIDs = set()
+        for chip in chips:
+            match = re.search(r"^/interest/(in\d+)/", chip.get("href") or "")
+            if not match:
+                raise EnvironmentError("interest chip href not properly formatted: " + str(chip.get("href")))
+            chip_id = match.group(1)
+            name = (chip.get("text") or "").strip()
+            if name == "":
+                raise EnvironmentError("interest chip has empty name: " + chip_id)
+            if chip_id in seenIDs:
+                raise EnvironmentError("duplicate interest chip on page: " + chip_id)
+            seenIDs.add(chip_id)
+            result.append((chip_id, name))
+
+        return result
+
+    def __ensureInterestsRegistered(self, chips, knownInterestIDs):
+        """For every (imdb_interest_id, name) in chips not already in knownInterestIDs, visits its
+        IMDb interest page to classify it as a genre or subgenre. Subgenres must resolve their
+        parent genre to one of this same title's other chips by name; the parent is registered
+        first if it too is new. knownInterestIDs is mutated in place. Raises on any unexpected
+        structure (unknown type, missing/ambiguous parent, more than two taxonomy levels)."""
+
+        chipsByName = {}
+        for chip_id, chip_name in chips:
+            chipsByName.setdefault(chip_name, []).append(chip_id)
+
+        newRegistrations = []
+
+        def classify(interest_id, name):
+            self.browser.get("https://www.imdb.com/interest/" + interest_id + "/")
+            time.sleep(4)
+
+            typeText = self.browser.execute_script("""
+                const el = document.querySelector('[data-testid="interest-hero-type"]');
+                return el ? el.innerText.trim() : null;
+            """)
+            if typeText not in ("Genre", "Subgenre"):
+                raise EnvironmentError("unexpected interest type '" + str(typeText) + "' for " + interest_id + " (" + name + ")")
+
+            categoryTexts = self.browser.execute_script("""
+                const header = document.querySelector('[data-testid="interest-hero-header"]');
+                if (!header) return null;
+                return Array.from(header.querySelectorAll('[data-testid="hero-breadcrumb-category"]')).map(a => a.innerText.trim());
+            """)
+            if categoryTexts is None:
+                raise EnvironmentError("interest hero header not found for " + interest_id)
+
+            if typeText == "Genre":
+                if len(categoryTexts) != 0:
+                    raise EnvironmentError("genre-type interest unexpectedly has a parent category: " + interest_id)
+                return ("Genre", None)
+            else:
+                distinctParents = set(categoryTexts)
+                if len(distinctParents) != 1:
+                    raise EnvironmentError("could not determine a single parent category for subgenre " + interest_id + ": " + str(distinctParents))
+                return ("Subgenre", next(iter(distinctParents)))
+
+        for chip_id, chip_name in chips:
+            if chip_id in knownInterestIDs:
+                continue
+
+            typeText, parentName = classify(chip_id, chip_name)
+
+            if typeText == "Genre":
+                newRegistrations.append((chip_id, chip_name, None))
+                knownInterestIDs.add(chip_id)
+                continue
+
+            candidates = chipsByName.get(parentName)
+            if not candidates or len(candidates) != 1:
+                raise EnvironmentError("parent genre '" + parentName + "' for subgenre " + chip_id + " (" + chip_name + ") not uniquely found among this title's interests")
+            parent_id = candidates[0]
+
+            if parent_id not in knownInterestIDs:
+                parentType, parentParentName = classify(parent_id, parentName)
+                if parentType != "Genre":
+                    raise EnvironmentError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
+                newRegistrations.append((parent_id, parentName, None))
+                knownInterestIDs.add(parent_id)
+
+            newRegistrations.append((chip_id, chip_name, parent_id))
+            knownInterestIDs.add(chip_id)
+
+        return newRegistrations
+
     def __makeThumbnail(self, in_path, out_path):
         with Image.open(in_path) as img:
             img = img.convert("RGB")  # important for WebP
@@ -130,10 +292,10 @@ class ScrapeIMDbOnline:
 
             # Schritt 3: Als WebP speichern
             img.save(out_path, "WEBP", quality=90, method=6)
-    
+
     def generateThumbnails(self): # generate every missing thumbnail
         print("generating thumbnails...")
-        
+
         for filename in os.listdir(self.cover_directory):
             if not filename.lower().endswith(".jpg"):
                 continue
@@ -155,35 +317,35 @@ class ScrapeIMDbOnline:
                 print("Error:", filename, e)
 
     def parseMediaConnections(self, mediaDict):
-        
+
         if len(mediaDict) == 0:
             return mediaDict
-        
+
         resultDict = {}
         count = 0
-        
+
         print("parsing media connections...")
-        
+
         first = True
         for currentMedia in mediaDict.values():
-            
+
             if first:
                 first = False
             else:
                 self.__sleep()
-            
+
             print(str(count+1) + " / " + str(len(mediaDict)) + " " + currentMedia.originalTitle)
-            
+
             # enter medium into result dict
             resultDict[currentMedia.imdb_id] = currentMedia
 
             # scrape IMDb media movie connections page
             url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
-            
+
             self.browser.get(url)
             time.sleep(4)
             soup = BeautifulSoup(self.browser.page_source, 'html.parser')
-            
+
             if len(soup.find_all("h1", string="Connections")) != 1:
                 raise EnvironmentError("connection page did not load properly")
 
@@ -194,32 +356,32 @@ class ScrapeIMDbOnline:
                 if len(content) == 0:
                     continue
                 elementList = content[0].parent.next_sibling.contents[0]
-                
+
                 if elementList.contents[-1].name != "li": # check whether page needs to be dynamically expanded or not
                     count_dyn = 0
-                    
+
                     # dynamic scraping
-                    
+
                     while True:
                         count_dyn += 1
                         if count_dyn > 5:
                             raise EnvironmentError("excessively long loop for page expanding for connection type " + connectionType)
-                        
+
                         element = self.browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
                         element.location_once_scrolled_into_view
                         time.sleep(1)
                         self.browser.execute_script("arguments[0].click();", element)
                         time.sleep(3)
                         soup = BeautifulSoup(self.browser.page_source, 'html.parser')
-                        
+
                         content = soup.find_all(attrs={"href": "#"+connectionType})
                         if len(content) != 1:
                             raise EnvironmentError("false results for connection type " + connectionType)
                         elementList = content[0].parent.next_sibling.contents[0]
-                        
+
                         if elementList.contents[-1].name == "li": # check whether page needs to be expanded further
                             break
-                
+
                 for element in elementList.children:
                     if element.contents[0].name != "div":
                         raise EnvironmentError("connection scraping error")
@@ -233,19 +395,19 @@ class ScrapeIMDbOnline:
                         raise EnvironmentError("connection scraping error")
                     if element.contents[0].contents[0].contents[0].contents[0].contents[0].contents[0].name != "a":
                         raise EnvironmentError("connection scraping error")
-                    
+
                     targetUrl = element.contents[0].contents[0].contents[0].contents[0].contents[0].contents[0]['href']
                     if targetUrl[0:7] != "/title/":
                         raise EnvironmentError("connection scraping error")
                     targetUrl = targetUrl[7:]
                     foreignIMDbID = targetUrl.split('?')[0]
-                    
+
                     if foreignIMDbID[-1] == "/":
                         foreignIMDbID = foreignIMDbID[:-1]
-                    
+
                     if not re.search("^tt\d{7,8}$", foreignIMDbID):
                         raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
-                    
+
                     # check for duplicate imdb connection entries (it happens)
                     duplicate = False
                     for x in resultDict[currentMedia.imdb_id].mediaConnections:
@@ -254,22 +416,22 @@ class ScrapeIMDbOnline:
                             break
                     if duplicate:
                         continue
-                    
+
                     resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), connectionType))
-            
+
             count += 1
             if count == self.maxCount:
                 return resultDict
 
         return resultDict
-    
+
     def isInDevelopment(self, imdb_id):
         # scrape IMDb media main page
         self.browser.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
         time.sleep(4)
         soup = BeautifulSoup(self.browser.page_source, 'html.parser')
-        
-        
+
+
         expectedValues = {
             "In Development",
             "In Production",
@@ -295,22 +457,10 @@ class ScrapeIMDbOnline:
             return True
         if foundOther:
             print("WARNING: unknown production status for IMDb ID " + str(imdb_id))
-        
+
         return False
 
 
     def __sleep(self):
         if self.delay > 0:
             time.sleep(random.randint(self.delay - math.ceil(self.delay / 3), self.delay + math.ceil(self.delay / 3)))
-
-
-
-
-
-
-
-
-
-
-
-
