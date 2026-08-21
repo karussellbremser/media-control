@@ -8,7 +8,7 @@ def query_media(search_query, sort_by, order,
                 year_from, year_to,
                 rating_from, rating_to,
                 votes_from, votes_to,
-                selected_genres,
+                selected_interest_ids,
                 limit, offset):
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
@@ -16,19 +16,19 @@ def query_media(search_query, sort_by, order,
     sql = """
     SELECT m.imdb_id, m.originalTitle, m.startYear, m.rating_mul10, m.numVotes,
     (
-        SELECT GROUP_CONCAT(ge.genre_name, ', ')
-        FROM genres g_show
-        JOIN genre_enum ge ON g_show.genre_id = ge.genre_id
-        WHERE g_show.imdb_id = m.imdb_id
-        ORDER BY ge.genre_name
+        SELECT GROUP_CONCAT(ie.name, ', ')
+        FROM media_interests mi_show
+        JOIN interest_enum ie ON mi_show.imdb_interest_id = ie.imdb_interest_id
+        WHERE mi_show.imdb_id = m.imdb_id
+        ORDER BY ie.name
     ) as tags
     FROM media m
     """
     params = []
-    
-    # filter genres
-    if selected_genres:
-        sql += " JOIN genres g_filter ON m.imdb_id = g_filter.imdb_id"
+
+    # filter genres/interests (selected_interest_ids may mix genre and subgenre ids)
+    if selected_interest_ids:
+        sql += " JOIN media_interests mi_filter ON m.imdb_id = mi_filter.imdb_id"
 
     sql += " WHERE m.subdir IS NOT NULL"
     
@@ -63,16 +63,16 @@ def query_media(search_query, sort_by, order,
         sql += " AND numVotes <= ?"
         params.append(votes_to)
     
-    # filter genres (AND)
-    if selected_genres:
-        placeholders = ",".join("?" for _ in selected_genres)
-        sql += f" AND g_filter.genre_id IN ({placeholders})"
-        params.extend(selected_genres)
+    # filter genres/interests (AND across all selected)
+    if selected_interest_ids:
+        placeholders = ",".join("?" for _ in selected_interest_ids)
+        sql += f" AND mi_filter.imdb_interest_id IN ({placeholders})"
+        params.extend(selected_interest_ids)
 
     sql += " GROUP BY m.imdb_id"
-    
-    if selected_genres:
-        sql += f" HAVING COUNT(DISTINCT g_filter.genre_id) = {len(selected_genres)}"
+
+    if selected_interest_ids:
+        sql += f" HAVING COUNT(DISTINCT mi_filter.imdb_interest_id) = {len(selected_interest_ids)}"
     
     # sorting
     if sort_by == "rating":
@@ -106,21 +106,42 @@ def index():
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT genre_id, genre_name FROM genre_enum ORDER BY genre_name")
+    cursor.execute("""
+        SELECT imdb_interest_id, name, description
+        FROM interest_enum
+        WHERE parent_imdb_interest_id IS NULL
+        ORDER BY name
+    """)
     genres = cursor.fetchall()
 
+    # subgenres grouped by parent genre; interestRows is ordered by parent name so rows for
+    # the same parent are contiguous, letting this be grouped in one pass below
+    cursor.execute("""
+        SELECT p.imdb_interest_id, p.name, i.imdb_interest_id, i.name, i.description
+        FROM interest_enum i
+        JOIN interest_enum p ON i.parent_imdb_interest_id = p.imdb_interest_id
+        ORDER BY p.name, i.name
+    """)
+    interestGroups = []
+    currentGroup = None
+    for parent_id, parent_name, interest_id, interest_name, interest_desc in cursor.fetchall():
+        if currentGroup is None or currentGroup[0] != parent_id:
+            currentGroup = (parent_id, parent_name, [])
+            interestGroups.append(currentGroup)
+        currentGroup[2].append((interest_id, interest_name, interest_desc))
+
     conn.close()
-    return render_template('index.html', genres=genres)
+    return render_template('index.html', genres=genres, interestGroups=interestGroups)
 
 @server.route('/search')
 def search():
     args = request.args
-    selected_genres = args.getlist('genres[]')
-    
+    selected_interest_ids = args.getlist('genres[]') + args.getlist('interests[]')
+
     page = int(args.get('page', 1))
     limit = 50
     offset = (page - 1) * limit
-    
+
     media = query_media(
         args.get('q', ''),
         args.get('sort', 'year'),
@@ -131,7 +152,7 @@ def search():
         args.get('rating_to'),
         args.get('votes_from'),
         args.get('votes_to'),
-        selected_genres,
+        selected_interest_ids,
         limit,
         offset
     )

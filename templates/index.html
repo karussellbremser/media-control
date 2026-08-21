@@ -72,7 +72,47 @@
 			display: grid;
 			grid-template-columns: 1fr 1fr;
 		}
-		
+
+		.interest-groups {
+			max-height: 300px;
+			overflow-y: auto;
+			border: 1px solid #ccc;
+			padding: 5px;
+			background: white;
+			margin-bottom: 10px;
+		}
+
+		.interest-group {
+			margin-bottom: 8px;
+		}
+
+		.interest-group-header {
+			font-weight: bold;
+			font-size: 13px;
+			color: #555;
+			border-bottom: 1px solid #ddd;
+			margin-bottom: 4px;
+		}
+
+		.interest-list {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+		}
+
+		.interest-list label {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+		}
+
+		.interest-list input[type="checkbox"] {
+			width: auto;
+		}
+
+		.interest-group.hidden, .interestLabel.hidden {
+			display: none;
+		}
+
 		#resetButton {
 			margin-top: 10px;
 			background-color: #ddd;
@@ -253,14 +293,32 @@
 		
 		<h3>Genres</h3>
 		<div class="genre-list">
-		{% for genre_id, genre_name in genres %}
-			<label>
+		{% for genre_id, genre_name, genre_description in genres %}
+			<label title="{{ genre_description }}">
 				<input type="checkbox" class="genreCheckbox" value="{{ genre_id }}">
 				<span>{{ genre_name }}</span>
 			</label>
 		{% endfor %}
 		</div>
-		
+
+		<h3>Interests</h3>
+		<input type="text" id="interestSearchInput" placeholder="Filter interests">
+		<div class="interest-groups">
+		{% for genre_id, genre_name, subinterests in interestGroups %}
+			<div class="interest-group">
+				<div class="interest-group-header">{{ genre_name }}</div>
+				<div class="interest-list">
+				{% for interest_id, interest_name, interest_description in subinterests %}
+					<label class="interestLabel" data-search="{{ interest_name|lower }}" title="{{ interest_description }}">
+						<input type="checkbox" class="interestCheckbox" value="{{ interest_id }}">
+						<span>{{ interest_name }}</span>
+					</label>
+				{% endfor %}
+				</div>
+			</div>
+		{% endfor %}
+		</div>
+
 		<h3>Year</h3>
 		<input type="number" id="yearFrom" placeholder="from">
 		<input type="number" id="yearTo" placeholder="to">

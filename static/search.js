@@ -14,7 +14,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const votesTo = document.getElementById('votesTo');
 	
 	const genreCheckboxes = document.querySelectorAll('.genreCheckbox');
-	
+	const interestCheckboxes = document.querySelectorAll('.interestCheckbox');
+	const interestSearchInput = document.getElementById('interestSearchInput');
+	const interestGroupEls = document.querySelectorAll('.interest-group');
+
+	function filterInterests() {
+		const query = interestSearchInput.value.trim().toLowerCase();
+
+		interestGroupEls.forEach(group => {
+			let anyVisible = false;
+
+			group.querySelectorAll('.interestLabel').forEach(label => {
+				const match = label.dataset.search.includes(query);
+				label.classList.toggle('hidden', !match);
+				if (match) anyVisible = true;
+			});
+
+			group.classList.toggle('hidden', !anyVisible);
+		});
+	}
+
 	let viewMode = "list";
 
 	const listViewBtn = document.getElementById('listViewBtn');
@@ -90,6 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		votesTo.value = '';
 
 		genreCheckboxes.forEach(cb => cb.checked = false);
+		interestCheckboxes.forEach(cb => cb.checked = false);
+		interestSearchInput.value = '';
+		filterInterests();
 
 		currentPage = 1;
 		allLoaded = false;
@@ -126,7 +148,13 @@ document.addEventListener('DOMContentLoaded', () => {
 				params.append('genres[]', cb.value);
 			}
 		});
-		
+
+		interestCheckboxes.forEach(cb => {
+			if (cb.checked) {
+				params.append('interests[]', cb.value);
+			}
+		});
+
         fetch(`/search?${params.toString()}`)
             .then(response => response.json())
             .then(data => {
@@ -258,7 +286,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	genreCheckboxes.forEach(cb => {
 		cb.addEventListener('change', () => resetAndSearch(input.value));
 	});
-	
+
+	interestCheckboxes.forEach(cb => {
+		cb.addEventListener('change', () => resetAndSearch(input.value));
+	});
+
+	interestSearchInput.addEventListener('input', filterInterests);
+
 	window.addEventListener('scroll', () => {
 		if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {
 			fetchResults(input.value, true);
