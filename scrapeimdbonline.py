@@ -22,6 +22,7 @@ class ScrapeIMDbOnline:
         self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
+        self.__interestNameMap = None # lazily-fetched cache, see __getGlobalInterestNameMap
 
         # instantiate chrome browser
         chrome_options = Options()
@@ -76,7 +77,7 @@ class ScrapeIMDbOnline:
         - downloads its cover if the file doesn't already exist
 
         knownInterestIDs is a set of already-known IMDb interest ids; it is mutated in place
-        as new interests are discovered. Returns a list of (imdb_interest_id, name,
+        as new interests are discovered. Returns a list of (imdb_interest_id, name, description,
         parent_imdb_interest_id) tuples for newly discovered interests, in dependency order
         (a subgenre's parent genre always appears before the subgenre itself), so the caller
         can persist them via DBControl.ensureInterestExists() in the order returned."""
@@ -194,14 +195,14 @@ class ScrapeIMDbOnline:
 
     def __ensureInterestsRegistered(self, chips, knownInterestIDs):
         """For every (imdb_interest_id, name) in chips not already in knownInterestIDs, visits its
-        IMDb interest page to classify it as a genre or subgenre. Subgenres must resolve their
-        parent genre to one of this same title's other chips by name; the parent is registered
-        first if it too is new. knownInterestIDs is mutated in place. Raises on any unexpected
-        structure (unknown type, missing/ambiguous parent, more than two taxonomy levels)."""
-
-        chipsByName = {}
-        for chip_id, chip_name in chips:
-            chipsByName.setdefault(chip_name, []).append(chip_id)
+        IMDb interest page to classify it as a genre or subgenre and scrape its description text.
+        A subgenre's parent genre is NOT necessarily among the same title's other chips (a title
+        can carry a subgenre without also being tagged with its parent genre directly), so the
+        parent's id is resolved against IMDb's full interest directory instead. The parent is
+        registered first if it too is new. knownInterestIDs is mutated in place. Returns a list of
+        (imdb_interest_id, name, description, parent_imdb_interest_id) tuples. Raises on any
+        unexpected structure (unknown type, missing description, missing/ambiguous parent, more
+        than two taxonomy levels)."""
 
         newRegistrations = []
 
@@ -224,43 +225,83 @@ class ScrapeIMDbOnline:
             if categoryTexts is None:
                 raise EnvironmentError("interest hero header not found for " + interest_id)
 
+            description = self.browser.execute_script("""
+                const box = document.querySelector('[data-testid="interest-description-and-chips"]');
+                if (!box) return null;
+                const descEls = box.querySelectorAll('.ipc-overflowText');
+                return descEls.length === 1 ? descEls[0].innerText.trim() : null;
+            """)
+            if not description:
+                raise EnvironmentError("could not find description text for interest " + interest_id + " (" + name + ")")
+
             if typeText == "Genre":
                 if len(categoryTexts) != 0:
                     raise EnvironmentError("genre-type interest unexpectedly has a parent category: " + interest_id)
-                return ("Genre", None)
+                return ("Genre", None, description)
             else:
                 distinctParents = set(categoryTexts)
                 if len(distinctParents) != 1:
                     raise EnvironmentError("could not determine a single parent category for subgenre " + interest_id + ": " + str(distinctParents))
-                return ("Subgenre", next(iter(distinctParents)))
+                return ("Subgenre", next(iter(distinctParents)), description)
 
         for chip_id, chip_name in chips:
             if chip_id in knownInterestIDs:
                 continue
 
-            typeText, parentName = classify(chip_id, chip_name)
+            typeText, parentName, description = classify(chip_id, chip_name)
 
             if typeText == "Genre":
-                newRegistrations.append((chip_id, chip_name, None))
+                newRegistrations.append((chip_id, chip_name, description, None))
                 knownInterestIDs.add(chip_id)
                 continue
 
-            candidates = chipsByName.get(parentName)
+            candidates = self.__getGlobalInterestNameMap().get(parentName)
             if not candidates or len(candidates) != 1:
-                raise EnvironmentError("parent genre '" + parentName + "' for subgenre " + chip_id + " (" + chip_name + ") not uniquely found among this title's interests")
-            parent_id = candidates[0]
+                raise EnvironmentError("parent genre '" + parentName + "' for subgenre " + chip_id + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
+            parent_id = next(iter(candidates))
 
             if parent_id not in knownInterestIDs:
-                parentType, parentParentName = classify(parent_id, parentName)
+                parentType, parentParentName, parentDescription = classify(parent_id, parentName)
                 if parentType != "Genre":
                     raise EnvironmentError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
-                newRegistrations.append((parent_id, parentName, None))
+                newRegistrations.append((parent_id, parentName, parentDescription, None))
                 knownInterestIDs.add(parent_id)
 
-            newRegistrations.append((chip_id, chip_name, parent_id))
+            newRegistrations.append((chip_id, chip_name, description, parent_id))
             knownInterestIDs.add(chip_id)
 
         return newRegistrations
+
+    def __getGlobalInterestNameMap(self):
+        """Lazily fetches and caches IMDb's full interest directory (/interest/all/) as a
+        name -> set(imdb_interest_id) map. Used to resolve a subgenre's parent genre name to
+        its id, since the parent is not always among the same title's own interest chips.
+        Raises if the directory can't be parsed as expected."""
+
+        if self.__interestNameMap is not None:
+            return self.__interestNameMap
+
+        self.browser.get("https://www.imdb.com/interest/all/")
+        time.sleep(4)
+
+        links = self.browser.execute_script("""
+            return Array.from(document.querySelectorAll('a[href^="/interest/in"]'))
+                .map(a => ({text: a.innerText.trim(), href: a.getAttribute('href')}))
+                .filter(l => l.text !== '');
+        """)
+
+        if len(links) == 0:
+            raise EnvironmentError("IMDb interest directory (/interest/all/) returned no entries")
+
+        nameMap = {}
+        for link in links:
+            match = re.search(r"^/interest/(in\d+)/", link.get("href") or "")
+            if not match:
+                raise EnvironmentError("interest directory entry href not properly formatted: " + str(link.get("href")))
+            nameMap.setdefault(link["text"], set()).add(match.group(1))
+
+        self.__interestNameMap = nameMap
+        return nameMap
 
     def __makeThumbnail(self, in_path, out_path):
         with Image.open(in_path) as img:

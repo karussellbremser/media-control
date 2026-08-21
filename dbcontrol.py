@@ -61,6 +61,7 @@ class DBControl:
             self.c.execute("""CREATE TABLE interest_enum (
             imdb_interest_id text NOT NULL,
             name text NOT NULL,
+            description text NOT NULL,
             parent_imdb_interest_id text,
             PRIMARY KEY (imdb_interest_id),
             FOREIGN KEY (parent_imdb_interest_id)
@@ -232,10 +233,10 @@ class DBControl:
             self.c.execute("SELECT DISTINCT imdb_id FROM media_interests")
             return set(row[0] for row in self.c.fetchall())
 
-    def ensureInterestExists(self, imdb_interest_id, name, parent_imdb_interest_id=None):
+    def ensureInterestExists(self, imdb_interest_id, name, description, parent_imdb_interest_id=None):
         """Insert a newly-discovered interest (genre or subgenre) into interest_enum if not already known."""
         with self.conn:
-            self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?)", (imdb_interest_id, name, parent_imdb_interest_id))
+            self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
 
     def __getTitleTypeIDByTitleTypeName(self, titleType_name):
         with self.conn:
