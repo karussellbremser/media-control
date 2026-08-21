@@ -9,6 +9,7 @@ def query_media(search_query, sort_by, order,
                 rating_from, rating_to,
                 votes_from, votes_to,
                 selected_interest_ids,
+                selected_language_id,
                 limit, offset):
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
@@ -62,7 +63,12 @@ def query_media(search_query, sort_by, order,
     if votes_to:
         sql += " AND numVotes <= ?"
         params.append(votes_to)
-    
+
+    # filter language
+    if selected_language_id is not None:
+        sql += " AND m.language_id = ?"
+        params.append(selected_language_id)
+
     # filter genres/interests (AND across all selected)
     if selected_interest_ids:
         placeholders = ",".join("?" for _ in selected_interest_ids)
@@ -130,13 +136,22 @@ def index():
             interestGroups.append(currentGroup)
         currentGroup[2].append((interest_id, interest_name, interest_desc))
 
+    # English (id 0) first, since it's the default/most common; the rest alphabetically
+    cursor.execute("""
+        SELECT imdb_interest_id, name
+        FROM language_enum
+        ORDER BY CASE WHEN imdb_interest_id = 0 THEN 0 ELSE 1 END, name
+    """)
+    languages = cursor.fetchall()
+
     conn.close()
-    return render_template('index.html', genres=genres, interestGroups=interestGroups)
+    return render_template('index.html', genres=genres, interestGroups=interestGroups, languages=languages)
 
 @server.route('/search')
 def search():
     args = request.args
     selected_interest_ids = [int(x) for x in args.getlist('genres[]') + args.getlist('interests[]')]
+    selected_language_id = int(args.get('language')) if args.get('language') else None
 
     page = int(args.get('page', 1))
     limit = 50
@@ -153,6 +168,7 @@ def search():
         args.get('votes_from'),
         args.get('votes_to'),
         selected_interest_ids,
+        selected_language_id,
         limit,
         offset
     )

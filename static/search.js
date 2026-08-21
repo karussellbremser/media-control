@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const votesFrom = document.getElementById('votesFrom');
     const votesTo = document.getElementById('votesTo');
 	
+	const languageSelect = document.getElementById('languageSelect');
 	const genreCheckboxes = document.querySelectorAll('.genreCheckbox');
 	const interestCheckboxes = document.querySelectorAll('.interestCheckbox');
 	const interestSearchInput = document.getElementById('interestSearchInput');
@@ -108,6 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		votesFrom.value = '';
 		votesTo.value = '';
 
+		languageSelect.value = '';
+
 		genreCheckboxes.forEach(cb => cb.checked = false);
 		interestCheckboxes.forEach(cb => cb.checked = false);
 		interestSearchInput.value = '';
@@ -140,9 +143,10 @@ document.addEventListener('DOMContentLoaded', () => {
             rating_to: ratingTo.value,
             votes_from: votesFrom.value,
             votes_to: votesTo.value,
+            language: languageSelect.value,
 			page: currentPage
         });
-		
+
 		genreCheckboxes.forEach(cb => {
 			if (cb.checked) {
 				params.append('genres[]', cb.value);
@@ -278,7 +282,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	sortSelect.addEventListener('change', () => {
         resetAndSearch(input.value);
     });
-	
+
+	languageSelect.addEventListener('change', () => {
+        resetAndSearch(input.value);
+    });
+
     [yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => {
         el.addEventListener('input', () => debounceSearch(input.value));
     });

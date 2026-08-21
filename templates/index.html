@@ -319,6 +319,14 @@
 		{% endfor %}
 		</div>
 
+		<h3>Language</h3>
+		<select id="languageSelect">
+			<option value="">Any language</option>
+			{% for language_id, language_name in languages %}
+				<option value="{{ language_id }}">{{ language_name }}</option>
+			{% endfor %}
+		</select>
+
 		<h3>Year</h3>
 		<input type="number" id="yearFrom" placeholder="from">
 		<input type="number" id="yearTo" placeholder="to">
