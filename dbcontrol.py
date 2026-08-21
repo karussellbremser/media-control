@@ -134,7 +134,6 @@ class DBControl:
                 self.c.execute("UPDATE media SET titleType_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.imdb_id))
             else:
                 raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
-            self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (thisMedia.imdb_id,)) # delete interest entries for the case of previously existing referenced medium now being newly added
             for imdb_interest_id in thisMedia.interests:
                 self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
             for mediaVersion in thisMedia.mediaVersions:
