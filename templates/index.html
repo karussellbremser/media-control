@@ -73,6 +73,33 @@
 			grid-template-columns: 1fr 1fr;
 		}
 
+		.language-list {
+			overflow-y: auto;
+			max-height: 200px;
+			border: 1px solid #ccc;
+			background: white;
+			margin-bottom: 10px;
+		}
+
+		.language-list label {
+			display: block;
+			padding: 6px 10px;
+			cursor: pointer;
+		}
+
+		.language-list input[type="radio"] {
+			display: none;
+		}
+
+		.language-list label:hover {
+			background-color: #eee;
+		}
+
+		.language-list label:has(input:checked) {
+			background-color: #3d6fb4;
+			color: white;
+		}
+
 		.interest-groups {
 			max-height: 300px;
 			overflow-y: auto;
@@ -320,12 +347,18 @@
 		</div>
 
 		<h3>Language</h3>
-		<select id="languageSelect">
-			<option value="">Any language</option>
-			{% for language_id, language_name in languages %}
-				<option value="{{ language_id }}">{{ language_name }}</option>
+		<div class="language-list">
+			<label>
+				<input type="radio" name="language" class="languageRadio" value="" checked>
+				<span>Any language</span>
+			</label>
+			{% for language_id, language_name, language_description in languages %}
+				<label title="{{ language_description }}">
+					<input type="radio" name="language" class="languageRadio" value="{{ language_id }}">
+					<span>{{ language_name }}</span>
+				</label>
 			{% endfor %}
-		</select>
+		</div>
 
 		<h3>Year</h3>
 		<input type="number" id="yearFrom" placeholder="from">

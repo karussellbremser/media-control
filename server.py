@@ -138,7 +138,7 @@ def index():
 
     # English (id 0) first, since it's the default/most common; the rest alphabetically
     cursor.execute("""
-        SELECT imdb_interest_id, name
+        SELECT imdb_interest_id, name, description
         FROM language_enum
         ORDER BY CASE WHEN imdb_interest_id = 0 THEN 0 ELSE 1 END, name
     """)

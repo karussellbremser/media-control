@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const votesFrom = document.getElementById('votesFrom');
     const votesTo = document.getElementById('votesTo');
 	
-	const languageSelect = document.getElementById('languageSelect');
+	const languageRadios = document.querySelectorAll('.languageRadio');
 	const genreCheckboxes = document.querySelectorAll('.genreCheckbox');
 	const interestCheckboxes = document.querySelectorAll('.interestCheckbox');
 	const interestSearchInput = document.getElementById('interestSearchInput');
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		votesFrom.value = '';
 		votesTo.value = '';
 
-		languageSelect.value = '';
+		document.querySelector('.languageRadio[value=""]').checked = true;
 
 		genreCheckboxes.forEach(cb => cb.checked = false);
 		interestCheckboxes.forEach(cb => cb.checked = false);
@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rating_to: ratingTo.value,
             votes_from: votesFrom.value,
             votes_to: votesTo.value,
-            language: languageSelect.value,
+            language: document.querySelector('.languageRadio:checked').value,
 			page: currentPage
         });
 
@@ -283,9 +283,9 @@ document.addEventListener('DOMContentLoaded', () => {
         resetAndSearch(input.value);
     });
 
-	languageSelect.addEventListener('change', () => {
-        resetAndSearch(input.value);
-    });
+	languageRadios.forEach(radio => {
+		radio.addEventListener('change', () => resetAndSearch(input.value));
+	});
 
     [yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => {
         el.addEventListener('input', () => debounceSearch(input.value));
