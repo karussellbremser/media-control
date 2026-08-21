@@ -190,15 +190,18 @@ class DBControl:
             self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
             remainingConnections = self.c.fetchall()
 
-            # capture mediumToRemove's current interests before they're removed, so any subgenre
-            # left with no remaining attachments afterward can be pruned from interest_enum
+            # capture mediumToRemove's current interests and language before they're removed, so
+            # anything left with no remaining attachments afterward can be pruned
             self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedInterestIDs = [row[0] for row in self.c.fetchall()]
+            self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
 
-            #3a. if yes: only "light-remove" mediumToRemove (remove subdir and interests, since interests are only valid for locally-owned media)
+            #3a. if yes: only "light-remove" mediumToRemove (remove subdir, interests, and reset
+            # language to the default; these are only valid for locally-owned media)
             if len(remainingConnections) != 0:
                 print("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
-                self.c.execute("UPDATE media SET subdir = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0 WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             #3b. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
@@ -206,7 +209,8 @@ class DBControl:
                 print("Removing " + mediumToRemove.originalTitle + " from DB")
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
-            self.__pruneOrphanedSubinterests(affectedInterestIDs)
+            self.__pruneOrphanedInterests(affectedInterestIDs)
+            self.__pruneOrphanedLanguages(affectedLanguageIDs)
 
             #4. for all x in list referencesToRemove:
             for x in referencesToRemove:
@@ -275,16 +279,45 @@ class DBControl:
         with self.conn:
             self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
 
-    def __pruneOrphanedSubinterests(self, imdb_interest_ids):
-        """Removes any of the given interests from interest_enum if they are subgenres (i.e. have
-        a parent) and are no longer attached to any medium. Top-level genres are kept regardless,
-        even if currently unused."""
-        for imdb_interest_id in imdb_interest_ids:
+    def __pruneOrphanedInterests(self, imdb_interest_ids):
+        """Removes any of the given interests (genre or subgenre) from interest_enum once they're
+        no longer attached to any medium (media_interests) AND no longer have any subgenre
+        depending on them as a parent. The second condition is always true for subgenres (nothing
+        is ever a subgenre's child in this two-level taxonomy), so it only meaningfully restricts
+        genres: a genre survives as long as it's either directly used, or still has a live
+        subgenre under it. When a subgenre is pruned, its parent genre is re-checked too, since
+        losing that subgenre may make the parent newly eligible."""
+        idsToCheck = list(imdb_interest_ids)
+        while idsToCheck:
+            imdb_interest_id = idsToCheck.pop()
+
+            self.c.execute("SELECT parent_imdb_interest_id FROM interest_enum WHERE imdb_interest_id = ?", (imdb_interest_id,))
+            row = self.c.fetchone()
+            if row is None:
+                continue # already pruned (e.g. via an earlier id in this same batch), or never existed
+            parent_id = row[0]
+
             self.c.execute("""
                 DELETE FROM interest_enum
                 WHERE imdb_interest_id = ?
-                AND parent_imdb_interest_id IS NOT NULL
                 AND NOT EXISTS (SELECT 1 FROM media_interests WHERE imdb_interest_id = ?)
+                AND NOT EXISTS (SELECT 1 FROM interest_enum WHERE parent_imdb_interest_id = ?)
+            """, (imdb_interest_id, imdb_interest_id, imdb_interest_id))
+
+            if self.c.rowcount > 0 and parent_id is not None:
+                idsToCheck.append(parent_id)
+
+    def __pruneOrphanedLanguages(self, imdb_interest_ids):
+        """Removes any of the given languages from language_enum once no medium uses them anymore.
+        English (id 0) is never pruned, since it's the permanent default media.language_id falls
+        back to (and is required to exist by that column's foreign key)."""
+        for imdb_interest_id in imdb_interest_ids:
+            if imdb_interest_id == 0:
+                continue
+            self.c.execute("""
+                DELETE FROM language_enum
+                WHERE imdb_interest_id = ?
+                AND NOT EXISTS (SELECT 1 FROM media WHERE language_id = ?)
             """, (imdb_interest_id, imdb_interest_id))
 
     def __getTitleTypeIDByTitleTypeName(self, titleType_name):
