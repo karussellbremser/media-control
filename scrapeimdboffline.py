@@ -1,6 +1,7 @@
 import csv, requests, gzip, shutil, os
 from media import Media
 from scrapeimdbonline import ScrapeIMDbOnline
+from exceptions import OfflineDatasetError
 
 class ScrapeIMDbOffline:
     
@@ -58,7 +59,7 @@ class ScrapeIMDbOffline:
         elif file_type == 1:
             filename = self.title_basics_filename
         else:
-            raise SyntaxError("unknown filetype")
+            raise RuntimeError("unknown filetype") # internal misuse: file_type is always 0 or 1, passed by this class's own methods
         
         with open(os.path.join(self.dataset_directory, filename), "r", encoding="utf8") as f:
             c = csv.reader(f, delimiter="\t")
@@ -71,7 +72,7 @@ class ScrapeIMDbOffline:
                     elif file_type == 1:
                         content_dict[current_imdb_id] = self.__insertTitleBasics(content_dict[current_imdb_id], row)
                     else:
-                        raise SyntaxError("unknown filetype")
+                        raise RuntimeError("unknown filetype") # internal misuse: file_type is always 0 or 1, passed by this class's own methods
         
         if (remove_illegal):
             # make sure that all items have been touched; mark ones that are illegal for deletion
@@ -114,7 +115,7 @@ class ScrapeIMDbOffline:
         else:
             rating_mul10 = int(row[1].replace('.',''))
             if rating_mul10 < 10 or rating_mul10 > 100:
-                raise SyntaxError("rating conversion problem for movie " + row[0])
+                raise OfflineDatasetError("rating conversion problem for movie " + row[0])
             media_obj.rating_mul10 = rating_mul10
         media_obj.numVotes = int(row[2]) if row[2] != "\\N" else None
         
@@ -125,7 +126,7 @@ class ScrapeIMDbOffline:
         localTitleType = media_obj.titleType # result of local parsing (movie or series)
         if ((localTitleType == "localMovie" and row[1] not in Media.movieTitleTypes)
             or (localTitleType == "localSeries" and row[1] not in Media.seriesTitleTypes)):
-            raise SyntaxError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
+            raise OfflineDatasetError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
         if (row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N"):
             media_obj.titleType = "ILLEGAL" # set illegal title type so that object will be removed later
             return media_obj
@@ -133,7 +134,7 @@ class ScrapeIMDbOffline:
         media_obj.primaryTitle = row[2]
         media_obj.originalTitle = row[3]
         if media_obj.startYear != None and media_obj.startYear != int(row[5]):
-            raise SyntaxError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
+            raise OfflineDatasetError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
         media_obj.startYear = int(row[5])
         media_obj.endYear = int(row[6]) if row[6] != "\\N" else None
 

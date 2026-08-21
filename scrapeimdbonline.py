@@ -6,6 +6,7 @@ from selenium.webdriver.chrome.options import Options
 from media import Media
 from mediaconnection import MediaConnection
 from imdbinterestid import parseInterestID, formatInterestID
+from exceptions import ScrapingError
 from PIL import Image
 
 class ScrapeIMDbOnline:
@@ -173,15 +174,15 @@ class ScrapeIMDbOnline:
             docTitle = self.browser.execute_script("return document.title;")
             match = re.search(r"\(([^()]*?)\d{4}(?:–\d{4})?\)\s*-\s*IMDb$", docTitle or "")
             if not match:
-                raise EnvironmentError("could not parse title type/year from document title: " + str(docTitle))
+                raise ScrapingError("could not parse title type/year from document title: " + str(docTitle))
             typeLabel = match.group(1).strip()
             if typeLabel not in self.titleTypeLabels:
-                raise EnvironmentError("unknown title type label '" + typeLabel + "' for " + currentMedia.getIDString())
+                raise ScrapingError("unknown title type label '" + typeLabel + "' for " + currentMedia.getIDString())
             scrapedTitleType = self.titleTypeLabels[typeLabel]
 
             if ((localTitleType == "localMovie" and scrapedTitleType not in Media.movieTitleTypes)
                 or (localTitleType == "localSeries" and scrapedTitleType not in Media.seriesTitleTypes)):
-                raise SyntaxError("title type " + scrapedTitleType + " not acceptable for local parsing result " + localTitleType)
+                raise ScrapingError("title type " + scrapedTitleType + " not acceptable for local parsing result " + localTitleType)
 
             currentMedia.titleType = scrapedTitleType
 
@@ -191,7 +192,7 @@ class ScrapeIMDbOnline:
                 return el ? el.innerText.trim() : null;
             """)
             if not primaryTitle:
-                raise EnvironmentError("could not find primary title for " + currentMedia.getIDString())
+                raise ScrapingError("could not find primary title for " + currentMedia.getIDString())
             currentMedia.primaryTitle = primaryTitle
 
             # original title: only shown separately from the primary title when they differ
@@ -205,13 +206,13 @@ class ScrapeIMDbOnline:
                     .map(el => el.innerText.trim());
             """)
             if origTitleMatches is None:
-                raise EnvironmentError("hero section not found for " + currentMedia.getIDString())
+                raise ScrapingError("hero section not found for " + currentMedia.getIDString())
             if len(origTitleMatches) > 1:
-                raise EnvironmentError("multiple 'Original title:' elements found for " + currentMedia.getIDString())
+                raise ScrapingError("multiple 'Original title:' elements found for " + currentMedia.getIDString())
             if len(origTitleMatches) == 1:
                 originalTitle = origTitleMatches[0][len("Original title:"):].strip()
                 if not originalTitle:
-                    raise EnvironmentError("empty original title for " + currentMedia.getIDString())
+                    raise ScrapingError("empty original title for " + currentMedia.getIDString())
                 currentMedia.originalTitle = originalTitle
             else:
                 currentMedia.originalTitle = primaryTitle
@@ -223,10 +224,10 @@ class ScrapeIMDbOnline:
                 return Array.from(hero.querySelectorAll('a[href*="/releaseinfo"]')).map(a => a.innerText.trim());
             """)
             if yearLinks is None or len(yearLinks) != 1 or not re.fullmatch(r"\d{4}", yearLinks[0]):
-                raise EnvironmentError("could not uniquely determine release year for " + currentMedia.getIDString() + ": " + str(yearLinks))
+                raise ScrapingError("could not uniquely determine release year for " + currentMedia.getIDString() + ": " + str(yearLinks))
             scrapedYear = int(yearLinks[0])
             if currentMedia.startYear is not None and currentMedia.startYear != scrapedYear:
-                raise SyntaxError("startYear mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.startYear) + " vs scraped=" + str(scrapedYear))
+                raise ScrapingError("startYear mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.startYear) + " vs scraped=" + str(scrapedYear))
             currentMedia.startYear = scrapedYear
             currentMedia.endYear = None # movies only; series are not supported
 
@@ -246,15 +247,15 @@ class ScrapeIMDbOnline:
             elif scoreText is not None and voteText is not None:
                 scoreMatch = re.fullmatch(r"(\d+\.\d)\s*/\s*10", scoreText.replace("\n", ""))
                 if not scoreMatch:
-                    raise EnvironmentError("could not parse rating score '" + scoreText + "' for " + currentMedia.getIDString())
+                    raise ScrapingError("could not parse rating score '" + scoreText + "' for " + currentMedia.getIDString())
                 rating_mul10 = int(scoreMatch.group(1).replace('.', ''))
                 if rating_mul10 < 10 or rating_mul10 > 100:
-                    raise EnvironmentError("rating conversion problem for " + currentMedia.getIDString())
+                    raise ScrapingError("rating conversion problem for " + currentMedia.getIDString())
                 currentMedia.rating_mul10 = rating_mul10
 
                 voteMatch = re.fullmatch(r"(\d+(?:\.\d+)?)(K|M)?", voteText)
                 if not voteMatch:
-                    raise EnvironmentError("could not parse vote count '" + voteText + "' for " + currentMedia.getIDString())
+                    raise ScrapingError("could not parse vote count '" + voteText + "' for " + currentMedia.getIDString())
                 voteValue = float(voteMatch.group(1))
                 voteSuffix = voteMatch.group(2)
                 if voteSuffix == "K":
@@ -267,7 +268,7 @@ class ScrapeIMDbOnline:
                 if voteSuffix is not None:
                     print("INFO: vote count for " + currentMedia.getIDString() + " is approximate (" + voteText + " ~= " + str(currentMedia.numVotes) + ")")
             else:
-                raise EnvironmentError("inconsistent rating state for " + currentMedia.getIDString() + ": score=" + str(scoreText) + " votes=" + str(voteText))
+                raise ScrapingError("inconsistent rating state for " + currentMedia.getIDString() + ": score=" + str(scoreText) + " votes=" + str(voteText))
 
             currentMedia.needsOnlineFallback = False
 
@@ -285,7 +286,7 @@ class ScrapeIMDbOnline:
         """)
 
         if len(matches) != 1:
-            raise EnvironmentError("no unique cover tag found")
+            raise ScrapingError("no unique cover tag found")
 
         # scrape cover page
         self.browser.get("https://www.imdb.com" + matches[0])
@@ -298,11 +299,11 @@ class ScrapeIMDbOnline:
         """)
 
         if len(matches) != 1:
-            raise EnvironmentError("no unique cover tag found")
+            raise ScrapingError("no unique cover tag found")
 
         link_parts = matches[0].rsplit('.', 2)
         if len(link_parts) != 3 or link_parts[2] != "jpg":
-            raise EnvironmentError("cover link not properly formatted: " + currentMedia.getIDString() + " - " + matches[0])
+            raise ScrapingError("cover link not properly formatted: " + currentMedia.getIDString() + " - " + matches[0])
         cover_direct_link = link_parts[0] + "._V1_.jpg"
 
         # download cover
@@ -316,7 +317,7 @@ class ScrapeIMDbOnline:
 
         box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="interests"]\').length;')
         if box_count != 1:
-            raise EnvironmentError("expected exactly one interests block on title page, found " + str(box_count))
+            raise ScrapingError("expected exactly one interests block on title page, found " + str(box_count))
 
         chips = self.browser.execute_script("""
             const box = document.querySelector('[data-testid="interests"]');
@@ -327,20 +328,20 @@ class ScrapeIMDbOnline:
         """)
 
         if len(chips) == 0:
-            raise EnvironmentError("interests block present but contains no chips")
+            raise ScrapingError("interests block present but contains no chips")
 
         result = []
         seenIDs = set()
         for chip in chips:
             match = re.search(r"^/interest/(in\d+)/", chip.get("href") or "")
             if not match:
-                raise EnvironmentError("interest chip href not properly formatted: " + str(chip.get("href")))
+                raise ScrapingError("interest chip href not properly formatted: " + str(chip.get("href")))
             chip_id = parseInterestID(match.group(1))
             name = (chip.get("text") or "").strip()
             if name == "":
-                raise EnvironmentError("interest chip has empty name: " + str(chip_id))
+                raise ScrapingError("interest chip has empty name: " + str(chip_id))
             if chip_id in seenIDs:
-                raise EnvironmentError("duplicate interest chip on page: " + str(chip_id))
+                raise ScrapingError("duplicate interest chip on page: " + str(chip_id))
             seenIDs.add(chip_id)
             result.append((chip_id, name))
 
@@ -379,7 +380,7 @@ class ScrapeIMDbOnline:
                 return el ? el.innerText.trim() : null;
             """)
             if typeText not in ("Genre", "Subgenre", "Language"):
-                raise EnvironmentError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
+                raise ScrapingError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
 
             categoryTexts = self.browser.execute_script("""
                 const header = document.querySelector('[data-testid="interest-hero-header"]');
@@ -387,7 +388,7 @@ class ScrapeIMDbOnline:
                 return Array.from(header.querySelectorAll('[data-testid="hero-breadcrumb-category"]')).map(a => a.innerText.trim());
             """)
             if categoryTexts is None:
-                raise EnvironmentError("interest hero header not found for " + str(interest_id))
+                raise ScrapingError("interest hero header not found for " + str(interest_id))
 
             description = self.browser.execute_script("""
                 const box = document.querySelector('[data-testid="interest-description-and-chips"]');
@@ -396,16 +397,16 @@ class ScrapeIMDbOnline:
                 return descEls.length === 1 ? descEls[0].innerText.trim() : null;
             """)
             if not description:
-                raise EnvironmentError("could not find description text for interest " + str(interest_id) + " (" + name + ")")
+                raise ScrapingError("could not find description text for interest " + str(interest_id) + " (" + name + ")")
 
             if typeText in ("Genre", "Language"):
                 if len(categoryTexts) != 0:
-                    raise EnvironmentError(typeText + "-type interest unexpectedly has a parent category: " + str(interest_id))
+                    raise ScrapingError(typeText + "-type interest unexpectedly has a parent category: " + str(interest_id))
                 return (typeText, None, description)
             else:
                 distinctParents = set(categoryTexts)
                 if len(distinctParents) != 1:
-                    raise EnvironmentError("could not determine a single parent category for subgenre " + str(interest_id) + ": " + str(distinctParents))
+                    raise ScrapingError("could not determine a single parent category for subgenre " + str(interest_id) + ": " + str(distinctParents))
                 return ("Subgenre", next(iter(distinctParents)), description)
 
         for chip_id, chip_name in chips:
@@ -415,7 +416,7 @@ class ScrapeIMDbOnline:
 
             if chip_id in knownLanguageIDs:
                 if languageID is not None:
-                    raise EnvironmentError("multiple language interests attached to the same title")
+                    raise ScrapingError("multiple language interests attached to the same title")
                 languageID = chip_id
                 continue
 
@@ -429,7 +430,7 @@ class ScrapeIMDbOnline:
 
             if typeText == "Language":
                 if languageID is not None:
-                    raise EnvironmentError("multiple language interests attached to the same title")
+                    raise ScrapingError("multiple language interests attached to the same title")
                 newLanguageRegistrations.append((chip_id, chip_name, description))
                 knownLanguageIDs.add(chip_id)
                 languageID = chip_id
@@ -437,13 +438,13 @@ class ScrapeIMDbOnline:
 
             candidates = self.__getGlobalInterestNameMap().get(parentName)
             if not candidates or len(candidates) != 1:
-                raise EnvironmentError("parent genre '" + parentName + "' for subgenre " + str(chip_id) + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
+                raise ScrapingError("parent genre '" + parentName + "' for subgenre " + str(chip_id) + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
             parent_id = next(iter(candidates))
 
             if parent_id not in knownInterestIDs:
                 parentType, parentParentName, parentDescription = classify(parent_id, parentName)
                 if parentType != "Genre":
-                    raise EnvironmentError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
+                    raise ScrapingError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
                 newInterestRegistrations.append((parent_id, parentName, parentDescription, None))
                 knownInterestIDs.add(parent_id)
 
@@ -472,13 +473,13 @@ class ScrapeIMDbOnline:
         """)
 
         if len(links) == 0:
-            raise EnvironmentError("IMDb interest directory (/interest/all/) returned no entries")
+            raise ScrapingError("IMDb interest directory (/interest/all/) returned no entries")
 
         nameMap = {}
         for link in links:
             match = re.search(r"^/interest/(in\d+)/", link.get("href") or "")
             if not match:
-                raise EnvironmentError("interest directory entry href not properly formatted: " + str(link.get("href")))
+                raise ScrapingError("interest directory entry href not properly formatted: " + str(link.get("href")))
             nameMap.setdefault(link["text"], set()).add(parseInterestID(match.group(1)))
 
         self.__interestNameMap = nameMap
@@ -569,12 +570,12 @@ class ScrapeIMDbOnline:
             soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
             if len(soup.find_all("h1", string="Connections")) != 1:
-                raise EnvironmentError("connection page did not load properly")
+                raise ScrapingError("connection page did not load properly")
 
             for connectionType in MediaConnection.connectionTypeList:
                 content = soup.find_all(attrs={"href": "#"+connectionType})
                 if len(content) > 1:
-                    raise EnvironmentError("multiple results for connection type " + connectionType)
+                    raise ScrapingError("multiple results for connection type " + connectionType)
                 if len(content) == 0:
                     continue
                 elementList = content[0].parent.next_sibling.contents[0]
@@ -587,7 +588,7 @@ class ScrapeIMDbOnline:
                     while True:
                         count_dyn += 1
                         if count_dyn > 5:
-                            raise EnvironmentError("excessively long loop for page expanding for connection type " + connectionType)
+                            raise ScrapingError("excessively long loop for page expanding for connection type " + connectionType)
 
                         element = self.browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
                         element.location_once_scrolled_into_view
@@ -598,7 +599,7 @@ class ScrapeIMDbOnline:
 
                         content = soup.find_all(attrs={"href": "#"+connectionType})
                         if len(content) != 1:
-                            raise EnvironmentError("false results for connection type " + connectionType)
+                            raise ScrapingError("false results for connection type " + connectionType)
                         elementList = content[0].parent.next_sibling.contents[0]
 
                         if elementList.contents[-1].name == "li": # check whether page needs to be expanded further
@@ -606,21 +607,21 @@ class ScrapeIMDbOnline:
 
                 for element in elementList.children:
                     if element.contents[0].name != "div":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
                     if element.contents[0].contents[0].name != "ul":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
                     if element.contents[0].contents[0].contents[0].name != "div":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
                     if element.contents[0].contents[0].contents[0].contents[0].name != "div":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
                     if element.contents[0].contents[0].contents[0].contents[0].contents[0].name != "p":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
                     if element.contents[0].contents[0].contents[0].contents[0].contents[0].contents[0].name != "a":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
 
                     targetUrl = element.contents[0].contents[0].contents[0].contents[0].contents[0].contents[0]['href']
                     if targetUrl[0:7] != "/title/":
-                        raise EnvironmentError("connection scraping error")
+                        raise ScrapingError("connection scraping error")
                     targetUrl = targetUrl[7:]
                     foreignIMDbID = targetUrl.split('?')[0]
 
@@ -628,7 +629,7 @@ class ScrapeIMDbOnline:
                         foreignIMDbID = foreignIMDbID[:-1]
 
                     if not re.search("^tt\d{7,8}$", foreignIMDbID):
-                        raise EnvironmentError("illegal foreign imdb id " + foreignIMDbID)
+                        raise ScrapingError("illegal foreign imdb id " + foreignIMDbID)
 
                     # check for duplicate imdb connection entries (it happens)
                     duplicate = False

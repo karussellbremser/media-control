@@ -1,6 +1,7 @@
 import sys, os
 from media import Media
 from mediaversion import MediaVersion
+from exceptions import LocalLibraryError
 
 class ScrapeLocal:
 
@@ -29,7 +30,7 @@ class ScrapeLocal:
         elif len(files) == 0:
             return self.__scrapeSingleSeries(subdir)
         else:
-            raise SyntaxError('Bad content of subdirectory ' + subdir)
+            raise LocalLibraryError('Bad content of subdirectory ' + subdir)
     
     def __scrapeSingleMovie(self, subdir, files):
         currentMovie = Media(subdir, False)
@@ -46,7 +47,7 @@ class ScrapeLocal:
             elif "OTHER" in src_dict:
                 src = src_dict["OTHER"]
             else:
-                raise SyntaxError('Bad source file in subdirectory ' + subdir)
+                raise LocalLibraryError('Bad source file in subdirectory ' + subdir)
             
             if not versions_exists:
                 version = None
@@ -55,7 +56,7 @@ class ScrapeLocal:
             elif "OTHER" in versions_dict:
                 version = versions_dict["OTHER"]
             else:
-                raise SyntaxError('Bad versions file in subdirectory ' + subdir)
+                raise LocalLibraryError('Bad versions file in subdirectory ' + subdir)
             
             currentMovie.mediaVersions.append(MediaVersion(mkv_file, src, version))
             
@@ -87,7 +88,7 @@ class ScrapeLocal:
         for file in files:
             file_split = file.rsplit('.', 1)
             if len(file_split) != 2:
-                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+                raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
             
             if file_split[1] == "torrent": # torrent file
                 continue
@@ -96,19 +97,19 @@ class ScrapeLocal:
                     continue
                 elif file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
                     if sources_file != "":
-                        raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+                        raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
                     sources_file = file
                 elif file_split[0] == "versions": # versions file
                     versions_exists = True
                 else:
-                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+                    raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
             elif file_split[1] == "mkv": # mkv files
                 mkv_files.append(file)
             else:
-                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + file)
+                raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
             
         if sources_file == "" or len(mkv_files) == 0 or (len(mkv_files) > 1 and versions_exists == False):
-            raise SyntaxError('Bad content of subdirectory ' + subdir)
+            raise LocalLibraryError('Bad content of subdirectory ' + subdir)
         
         return mkv_files, sources_file, versions_exists
     
@@ -121,7 +122,7 @@ class ScrapeLocal:
             isSources = True
         else: # source is embedded within filename (allowed format of filename was checked before)
             if not os.stat(pathToFile).st_size == 0: # file must be empty
-                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
             return {"OTHER": dictFile[:-4]} # source identifier from filename minus ".txt" at end
     
         with open(pathToFile, "r", encoding="utf8") as f:
@@ -129,22 +130,22 @@ class ScrapeLocal:
             numLines = len(lines)
             
             if numLines == 0: # every remaining dict file must have at least one line
-                raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
             elif numLines == 1:
                 if isSources: # source files must have at least two lines, since only one source is embedded within file name
-                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                    raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
                 if ':' in lines[0] or lines[0] == '': # single-line version files must not have a key and must not be empty
-                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                    raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
                 return {"OTHER": lines[0]}
             
             # main loop for all dict files with > 1 line
             resultDict = {}
             for line in lines:
                 if line.count(':') == 0 or line == '': # ':' must be present as separator between key and value (first instance only counts as separator) and line must not be empty
-                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                    raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
                 lineSplit = line.split(':', 1)
                 if lineSplit[0] in resultDict: # no key must be present twice
-                    raise SyntaxError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
+                    raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + dictFile)
                 resultDict[lineSplit[0]] = lineSplit[1]
             return resultDict
         

@@ -1,5 +1,7 @@
 import re
 
+from exceptions import LocalLibraryError
+
 class Media:
 
     # accepted IMDb titleType values for locally-scraped movies/series respectively, used by both
@@ -13,9 +15,9 @@ class Media:
             thisMedia = subdir.rsplit('_', 2)
             
             if len(thisMedia) != 3 or thisMedia[0] == "" or not re.search("^\d{4}$", thisMedia[1]) or not re.search("^tt\d{7,8}$", thisMedia[2]):
-                raise SyntaxError('Bad format of subdirectory ' + subdir)
+                raise LocalLibraryError('Bad format of subdirectory ' + subdir)
             if len(thisMedia[2]) == 10 and thisMedia[2][2] == '0': # 8-digit id's must not start with '0', otherwise id ambiguities may occur
-                raise SyntaxError('Bad format of imdb id in subdirectory ' + subdir)
+                raise LocalLibraryError('Bad format of imdb id in subdirectory ' + subdir)
             
             self.imdb_id = int(thisMedia[2][2:]) # delete 'tt' at beginning and convert to int
             self.originalTitle = thisMedia[0]

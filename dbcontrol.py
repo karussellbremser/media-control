@@ -142,7 +142,7 @@ class DBControl:
 
     def addSingleMediaWoConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
-            raise RuntimeError('no media object')
+            raise TypeError('no media object')
         with self.conn:
             self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
             data = self.c.fetchall()
@@ -159,7 +159,7 @@ class DBControl:
 
     def addSingleMediaConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
-            raise RuntimeError('no media object')
+            raise TypeError('no media object')
         with self.conn:
             for mediaConnection in thisMedia.mediaConnections:
                 self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
@@ -323,7 +323,7 @@ class DBControl:
             self.c.execute("SELECT titleType_id FROM titleType_enum WHERE titleType_name=?", (titleType_name,))
             titleType_id = self.c.fetchone()
             if not titleType_id or not titleType_id[0]:
-                raise SyntaxError('unknown titleType ' + titleType_name)
+                raise RuntimeError('unknown titleType ' + titleType_name)
             return(titleType_id[0])
 
     def __getTitleTypeNameByTitleTypeID(self, titleType_id):
@@ -331,7 +331,7 @@ class DBControl:
             self.c.execute("SELECT titleType_name FROM titleType_enum WHERE titleType_id=?", (titleType_id,))
             titleType_name = self.c.fetchone()
             if not titleType_name or not titleType_name[0]:
-                raise SyntaxError('unknown titleType ID ' + str(titleType_id))
+                raise RuntimeError('unknown titleType ID ' + str(titleType_id))
             return(titleType_name[0])
 
     def __getConnectionTypeIDByConnectionTypeName(self, connectionType_name):
@@ -339,7 +339,7 @@ class DBControl:
             self.c.execute("SELECT connection_type_id FROM connection_type_enum WHERE connection_type_name=?", (connectionType_name,))
             connection_type_id = self.c.fetchone()
             if not connection_type_id or not connection_type_id[0]:
-                raise SyntaxError('unknown connection type ' + connectionType_name)
+                raise RuntimeError('unknown connection type ' + connectionType_name)
             return(connection_type_id[0])
 
     def __getConnectionTypeNameByConnectionTypeID(self, connectionType_id):
@@ -347,7 +347,7 @@ class DBControl:
             self.c.execute("SELECT connection_type_name FROM connection_type_enum WHERE connection_type_id=?", (connectionType_id,))
             connection_type_name = self.c.fetchone()
             if not connection_type_name or not connection_type_name[0]:
-                raise SyntaxError('unknown connection type ' + str(connectionType_id))
+                raise RuntimeError('unknown connection type ' + str(connectionType_id))
             return(connection_type_name[0])
 
     def determineNewlyAddedMedia(self, mediaDict):
