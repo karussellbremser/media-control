@@ -1,7 +1,0 @@
-config.ini
-myMovieDB.db
-covers/
-covers_small/
-__pycache__/
-geckodriver.log
-tools/*.zip
