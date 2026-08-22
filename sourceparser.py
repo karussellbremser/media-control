@@ -74,7 +74,9 @@ def _parseSlotCandidates(tokens, role):
         seq = 1
         while True:
             try:
-                source, remaining = _parseLeafSource(remaining, role, fanres=True, seq=seq)
+                # a fanres member always takes its most greedy reading -- see
+                # _parseLeafSourceCandidates for why a member can have more than one
+                source, remaining = _parseLeafSourceCandidates(remaining, role, fanres=True, seq=seq)[0]
             except LocalLibraryError:
                 break
             sources = sources + [source]
@@ -84,13 +86,17 @@ def _parseSlotCandidates(tokens, role):
             raise LocalLibraryError("'fanres-' must be followed by at least one source")
         return candidates
     else:
-        source, remaining = _parseLeafSource(tokens, role, fanres=False, seq=1)
-        return [([source], remaining)]
+        return [([source], remaining) for source, remaining in _parseLeafSourceCandidates(tokens, role, fanres=False, seq=1)]
 
-def _parseLeafSource(tokens, role, fanres, seq):
-    """Parses exactly one leaf source from the start of tokens. Returns (MediaSource,
-    remainingTokens). Raises LocalLibraryError if tokens doesn't start with a recognizable
-    leaf source."""
+def _parseLeafSourceCandidates(tokens, role, fanres, seq):
+    """Parses exactly one leaf source from the start of tokens, returning every plausible reading
+    as a list of (MediaSource, remainingTokens) tuples, most-greedy first. Most source kinds are
+    unambiguous and yield a single candidate; WEB-DL/WEBRip's optional trailing provider token is
+    ambiguous whenever the token that follows could equally well belong to whatever comes next
+    (e.g. in 'hybrid-WEB-DL-br-1', is 'br' the provider, or the start of the audio role's own
+    source?), so both readings are offered here and _parseRoles backtracks into the second one if
+    the greedy (provider-consumed) reading fails to let the rest of the source string parse.
+    Raises LocalLibraryError if tokens doesn't start with a recognizable leaf source at all."""
 
     if len(tokens) == 0:
         raise LocalLibraryError("expected a source, found nothing")
@@ -108,30 +114,37 @@ def _parseLeafSource(tokens, role, fanres, seq):
             disc_corrected = True
             rest = rest[1:]
         base_layer, downmixed, rest = _parseModifiers(rest)
-        return MediaSource(role, firstLower, disc_id=disc_id, disc_corrected=disc_corrected,
-                            base_layer=base_layer, downmixed=downmixed, fanres=fanres, seq=seq), rest
+        return [(MediaSource(role, firstLower, disc_id=disc_id, disc_corrected=disc_corrected,
+                              base_layer=base_layer, downmixed=downmixed, fanres=fanres, seq=seq), rest)]
 
     if firstLower in _BARE_TYPE_TOKENS:
         rest = tokens[1:]
         base_layer, downmixed, rest = _parseModifiers(rest)
-        return MediaSource(role, firstLower, base_layer=base_layer, downmixed=downmixed,
-                            fanres=fanres, seq=seq), rest
+        return [(MediaSource(role, firstLower, base_layer=base_layer, downmixed=downmixed,
+                              fanres=fanres, seq=seq), rest)]
 
     if firstLower == "web" and tokens[1:2] and tokens[1].lower() == "dl":
-        rest = tokens[2:]
-        provider, rest = _parseOptionalProvider(rest)
-        base_layer, downmixed, rest = _parseModifiers(rest)
-        return MediaSource(role, "web-dl", web_provider=provider, base_layer=base_layer,
-                            downmixed=downmixed, fanres=fanres, seq=seq), rest
+        return _parseWebLikeCandidates(tokens[2:], "web-dl", role, fanres, seq)
 
     if firstLower == "webrip":
-        rest = tokens[1:]
-        provider, rest = _parseOptionalProvider(rest)
-        base_layer, downmixed, rest = _parseModifiers(rest)
-        return MediaSource(role, "webrip", web_provider=provider, base_layer=base_layer,
-                            downmixed=downmixed, fanres=fanres, seq=seq), rest
+        return _parseWebLikeCandidates(tokens[1:], "webrip", role, fanres, seq)
 
     raise LocalLibraryError("unrecognized source token '" + first + "'")
+
+def _parseWebLikeCandidates(tokens, source_type, role, fanres, seq):
+    """Returns the possible readings of a WEB-DL/WEBRip source's optional trailing provider token,
+    greedy (provider consumed) first, falling back to a reading where the token is left alone for
+    whatever comes next to consume."""
+    candidates = []
+    provider, restWithProvider = _parseOptionalProvider(tokens)
+    if provider is not None:
+        base_layer, downmixed, rest = _parseModifiers(restWithProvider)
+        candidates.append((MediaSource(role, source_type, web_provider=provider, base_layer=base_layer,
+                                        downmixed=downmixed, fanres=fanres, seq=seq), rest))
+    base_layer, downmixed, rest = _parseModifiers(tokens)
+    candidates.append((MediaSource(role, source_type, web_provider=None, base_layer=base_layer,
+                                    downmixed=downmixed, fanres=fanres, seq=seq), rest))
+    return candidates
 
 def _parseModifiers(tokens):
     """Consumes the optional trailing -bl and -downmixed modifiers, in that fixed order."""
