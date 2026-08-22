@@ -21,6 +21,8 @@ COVERS_DIR = _resolve(_config["paths"]["covers_dir"])
 COVERS_SMALL_DIR = _resolve(_config["paths"]["covers_small_dir"])
 WEBDRIVER_PATH = _resolve(_config["paths"]["webdriver_path"])
 IMDB_DATASETS_DIR = _config["paths"]["imdb_datasets_dir"]
+IGNORED_IDS_PATH = _resolve(_config["paths"]["ignored_ids_path"])
+WONTADD_IDS_PATH = _resolve(_config["paths"]["wontadd_ids_path"])
 
 SCRAPE_DELAY = _config.getint("scraping", "delay")
 SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")

@@ -4,19 +4,39 @@ from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from statistics import Statistics
+from exceptions import LocalLibraryError
 import config
-import getopt, sys
+import getopt, os, sys
+
+def readIDList(path):
+    """Reads a user-maintained list of imdb ids, one 'tt#######' per line (blank lines ignored).
+    A missing file is treated as an empty list, since these lists are optional."""
+    if not os.path.exists(path):
+        return set()
+    with open(path, "r") as f:
+        return {int(line.strip()[2:]) for line in f if line.strip()}
 
 def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     db = DBControl(config.DB_PATH)
 
     db.syncWebProvidersFromConfig(config.WEB_PROVIDERS)
 
+    ignoredIDs = readIDList(config.IGNORED_IDS_PATH)
+    wontaddIDs = readIDList(config.WONTADD_IDS_PATH)
+    db.syncIgnoredAndWontaddIDs(ignoredIDs, wontaddIDs)
+    db.enforceIgnoredAndWontaddIDs()
+
     referencedInitial = len(db.getReferencedOnlyMedia())
 
     # 1. scan local media library
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
+
+    # fail fast if any locally-owned title is on the ignored/wontadd list, before any scraping happens
+    violating = [m for m in mediaDictOriginal.values() if m.imdb_id in ignoredIDs or m.imdb_id in wontaddIDs]
+    if violating:
+        raise LocalLibraryError("locally-owned media found on the ignored/wontadd list(s): " +
+                                 ", ".join(m.originalTitle + " (" + m.getIDString() + ")" for m in violating))
 
     # 2. determine newly added media
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
@@ -45,6 +65,8 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     newlyAddedMediaDictCopy = newlyAddedMediaDict.copy()
     for x in newlyAddedMediaDictCopy.values():
         for y in x.mediaConnections:
+            if y.foreignIMDbID in ignoredIDs:
+                continue
             if y.foreignIMDbID not in mediaDictOriginal or (y.foreignIMDbID in newlyAddedMediaDictOriginal and y.foreignIMDbID not in newlyAddedMediaDictCopy):
                 newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
 

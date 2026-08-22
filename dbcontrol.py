@@ -213,6 +213,20 @@ class DBControl:
                 self.c.execute("INSERT INTO connection_type_enum VALUES (?, ?)", (i, connection_type))
                 i += 1
 
+            # imdb ids that must never appear in the DB at all; kept in sync (non-additively) from
+            # config.IGNORED_IDS_PATH (see syncIgnoredAndWontaddIDs/enforceIgnoredAndWontaddIDs)
+            self.c.execute("""CREATE TABLE ignored_ids (
+            imdb_id integer NOT NULL,
+            PRIMARY KEY (imdb_id)
+            )""")
+
+            # imdb ids allowed to reside in the DB as referenced-only media, but never intended to
+            # be added as local media; kept in sync (non-additively) from config.WONTADD_IDS_PATH
+            self.c.execute("""CREATE TABLE wontadd_ids (
+            imdb_id integer NOT NULL,
+            PRIMARY KEY (imdb_id)
+            )""")
+
     def addSingleMediaWoConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
@@ -372,6 +386,52 @@ class DBControl:
         with self.conn:
             for abbreviation, full_name in web_providers.items():
                 self.c.execute("INSERT OR IGNORE INTO source_web_provider_enum (abbreviation, full_name) VALUES (?, ?)", (abbreviation, full_name))
+
+    def syncIgnoredAndWontaddIDs(self, ignored_ids, wontadd_ids):
+        """Non-additively syncs ignored_ids/wontadd_ids from the given sets of imdb ids (see
+        config.IGNORED_IDS_PATH/WONTADD_IDS_PATH) -- unlike syncWebProvidersFromConfig, removing
+        an id from the source list actually removes it here, since these lists are meant to be
+        fully user-editable. Meant to be called on every sync, before enforceIgnoredAndWontaddIDs."""
+        with self.conn:
+            self.c.execute("DELETE FROM ignored_ids")
+            self.c.executemany("INSERT INTO ignored_ids VALUES (?)", [(imdb_id,) for imdb_id in ignored_ids])
+            self.c.execute("DELETE FROM wontadd_ids")
+            self.c.executemany("INSERT INTO wontadd_ids VALUES (?)", [(imdb_id,) for imdb_id in wontadd_ids])
+
+    def enforceIgnoredAndWontaddIDs(self):
+        """Enforces ignored_ids/wontadd_ids against the current DB state: raises LocalLibraryError
+        if any locally-owned medium's id is on either list (this is a configuration error the user
+        needs to fix), and removes any referenced-only medium whose id is on ignored_ids -- fully,
+        regardless of what still references it, unlike removeSingleMedia's "light-remove" (which
+        exists for media that merely stopped being locally owned, not for media that must never be
+        in the DB at all). Meant to be called right after syncIgnoredAndWontaddIDs, at the very
+        start of every sync (before any local scanning/scraping) -- this reconciles drift left over
+        from a list edited since the last sync. New violations introduced during the rest of the
+        sync itself are instead caught on the go: newly-added local media are checked right after
+        the local scan, and newly-discovered referenced ids on ignored_ids are simply never added
+        in the first place, so nothing new for this method to clean up accumulates by the end."""
+        with self.conn:
+            self.c.execute("""SELECT imdb_id, originalTitle FROM media WHERE subdir IS NOT NULL
+                AND imdb_id IN (SELECT imdb_id FROM ignored_ids UNION SELECT imdb_id FROM wontadd_ids)""")
+            violatingLocal = self.c.fetchall()
+        if violatingLocal:
+            raise LocalLibraryError("locally-owned media found on the ignored/wontadd list(s): " +
+                                     ", ".join(row[1] + " (tt" + str(row[0]).zfill(7) + ")" for row in violatingLocal))
+
+        with self.conn:
+            self.c.execute("""SELECT imdb_id, originalTitle FROM media WHERE subdir IS NULL
+                AND imdb_id IN (SELECT imdb_id FROM ignored_ids)""")
+            referencedIgnored = self.c.fetchall()
+            for imdb_id, originalTitle in referencedIgnored:
+                print("Removing referenced medium " + originalTitle + " from DB (now on ignored list)")
+                self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdb_id,))
+                affectedInterestIDs = [row[0] for row in self.c.fetchall()]
+                self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (imdb_id,))
+                affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
+                self.c.execute("DELETE FROM mediaConnections WHERE imdb_id=? OR foreign_imdb_id=?", (imdb_id, imdb_id))
+                self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
+                self.__pruneOrphanedInterests(affectedInterestIDs)
+                self.__pruneOrphanedLanguages(affectedLanguageIDs)
 
     def __pruneOrphanedInterests(self, imdb_interest_ids):
         """Removes any of the given interests (genre or subgenre) from interest_enum once they're
