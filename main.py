@@ -50,9 +50,12 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language
     knownInterestIDs = db.getAllKnownInterestIDs()
     knownLanguageIDs = db.getAllKnownLanguageIDs()
-    newInterestRegistrations, newLanguageRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs, knownLanguageIDs)
+    knownPseudoGenreIDs = db.getAllKnownPseudoGenreIDs()
+    newInterestRegistrations, newLanguageRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs)
     for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
-        if parent_imdb_interest_id is None:
+        if imdb_interest_id < 0:
+            print("New pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+        elif parent_imdb_interest_id is None:
             print("New genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
         else:
             print("New subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))

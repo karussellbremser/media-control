@@ -84,19 +84,20 @@ class ScrapeIMDbOnline:
 
             self.__sleep()
 
-    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs):
+    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs):
         """For every medium in mediaDict, visits its IMDb main page exactly once and:
         - always scrapes its interests (standard genres and subgenres alike) and language
         - downloads its cover if the file doesn't already exist
 
         knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
-        mutated in place as new ones are discovered. A title with no language-type interest
-        attached keeps Media's default language_id of 0 (English). Returns (newInterestRegistrations,
-        newLanguageRegistrations): newInterestRegistrations is a list of (imdb_interest_id, name,
-        description, parent_imdb_interest_id) tuples in dependency order (a subgenre's parent
-        genre always appears before the subgenre itself); newLanguageRegistrations is a list of
-        (imdb_interest_id, name, description) tuples. Persist via DBControl.ensureInterestExists()
-        / ensureLanguageExists() in the order returned."""
+        mutated in place as new ones are discovered. knownPseudoGenreIDs is a name -> id map of
+        already-known pseudo-genres (see __classifyChips), also mutated in place. A title with no
+        language-type interest attached keeps Media's default language_id of 0 (English). Returns
+        (newInterestRegistrations, newLanguageRegistrations): newInterestRegistrations is a list of
+        (imdb_interest_id, name, description, parent_imdb_interest_id) tuples in dependency order
+        (a subgenre's parent always appears before the subgenre itself); newLanguageRegistrations is
+        a list of (imdb_interest_id, name, description) tuples. Persist via
+        DBControl.ensureInterestExists()/ensureLanguageExists() in the order returned."""
 
         if len(mediaDict) == 0:
             return [], []
@@ -126,7 +127,7 @@ class ScrapeIMDbOnline:
             if not os.path.isfile(coverPath):
                 self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs)
+            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs)
             currentMedia.interests = attachedInterestIDs
             if languageID is not None:
                 currentMedia.language_id = languageID
@@ -347,7 +348,7 @@ class ScrapeIMDbOnline:
 
         return result
 
-    def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs):
+    def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs):
         """Classifies every (imdb_interest_id, name) in chips as a genre, subgenre, or language,
         visiting each not-yet-known id's IMDb interest page to determine which and scrape its
         description text. A subgenre's parent genre is NOT necessarily among the same title's
@@ -356,6 +357,14 @@ class ScrapeIMDbOnline:
         The parent is registered first if it too is new. knownInterestIDs/knownLanguageIDs are
         mutated in place.
 
+        A subgenre's breadcrumb "parent category" text is sometimes not a real, individually
+        taggable genre interest at all -- e.g. "Holiday Comedy"'s breadcrumb is "Seasonal", which
+        doesn't appear anywhere in IMDb's interest directory; IMDb uses it purely to group several
+        subgenres on the browse-all-interests page. When that happens, a synthetic pseudo-genre
+        (a negative, self-minted id -- real ids are always positive) is registered/reused as the
+        parent instead of failing, via knownPseudoGenreIDs (a name -> id map, mutated in place,
+        shared across the whole sync so the same category always resolves to the same id).
+
         Returns (attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations,
         languageID): attachedInterestIDs are the genre/subgenre ids actually attached to this
         title (for media_interests -- language ids are never included); newInterestRegistrations
@@ -363,8 +372,8 @@ class ScrapeIMDbOnline:
         newLanguageRegistrations is a list of (imdb_interest_id, name, description) tuples;
         languageID is this title's language_id if a language chip was found, else None.
 
-        Raises on any unexpected structure (unknown type, missing description, missing/ambiguous
-        parent, more than two genre/subgenre taxonomy levels, more than one language attached)."""
+        Raises on any unexpected structure (unknown type, missing description, ambiguous parent,
+        more than two genre/subgenre taxonomy levels, more than one language attached)."""
 
         attachedInterestIDs = []
         newInterestRegistrations = []
@@ -437,15 +446,26 @@ class ScrapeIMDbOnline:
                 continue
 
             candidates = self.__getGlobalInterestNameMap().get(parentName)
-            if not candidates or len(candidates) != 1:
-                raise ScrapingError("parent genre '" + parentName + "' for subgenre " + str(chip_id) + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
-            parent_id = next(iter(candidates))
+            if candidates:
+                if len(candidates) != 1:
+                    raise ScrapingError("parent genre '" + parentName + "' for subgenre " + str(chip_id) + " (" + chip_name + ") not uniquely found in IMDb's interest directory: " + str(candidates))
+                parent_id = next(iter(candidates))
 
-            if parent_id not in knownInterestIDs:
-                parentType, parentParentName, parentDescription = classify(parent_id, parentName)
-                if parentType != "Genre":
-                    raise ScrapingError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
-                newInterestRegistrations.append((parent_id, parentName, parentDescription, None))
+                if parent_id not in knownInterestIDs:
+                    parentType, parentParentName, parentDescription = classify(parent_id, parentName)
+                    if parentType != "Genre":
+                        raise ScrapingError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
+                    newInterestRegistrations.append((parent_id, parentName, parentDescription, None))
+                    knownInterestIDs.add(parent_id)
+            elif parentName in knownPseudoGenreIDs:
+                parent_id = knownPseudoGenreIDs[parentName]
+            else:
+                # not a real genre interest -- see this method's docstring
+                parent_id = min(knownPseudoGenreIDs.values(), default=0) - 1
+                knownPseudoGenreIDs[parentName] = parent_id
+                newInterestRegistrations.append((parent_id, parentName,
+                    "A category IMDb groups related subgenres under, without itself being a taggable interest.",
+                    None))
                 knownInterestIDs.add(parent_id)
 
             newInterestRegistrations.append((chip_id, chip_name, description, parent_id))

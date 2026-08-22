@@ -358,6 +358,15 @@ class DBControl:
             self.c.execute("SELECT imdb_interest_id FROM interest_enum")
             return set(row[0] for row in self.c.fetchall())
 
+    def getAllKnownPseudoGenreIDs(self):
+        """Name -> imdb_interest_id map of already-known pseudo-genres: synthetic, negative ids
+        minted for an IMDb taxonomy category (e.g. "Seasonal") that groups subgenres without being
+        a real, individually taggable interest itself -- see ScrapeIMDbOnline.__classifyChips.
+        Real genres/subgenres always have a positive id, so this can't collide with them."""
+        with self.conn:
+            self.c.execute("SELECT name, imdb_interest_id FROM interest_enum WHERE imdb_interest_id < 0")
+            return {row[0]: row[1] for row in self.c.fetchall()}
+
     def getMediaIDsWithInterests(self):
         """Set of imdb_ids that already have at least one media_interests row."""
         with self.conn:
