@@ -113,14 +113,14 @@ def _parseLeafSourceCandidates(tokens, role, fanres, seq):
         if rest[:1] and rest[0].lower() == "corrected":
             disc_corrected = True
             rest = rest[1:]
-        base_layer, downmixed, rest = _parseModifiers(rest)
+        base_layer, downmixed, core, rest = _parseModifiers(rest)
         return [(MediaSource(role, firstLower, disc_id=disc_id, disc_corrected=disc_corrected,
-                              base_layer=base_layer, downmixed=downmixed, fanres=fanres, seq=seq), rest)]
+                              base_layer=base_layer, downmixed=downmixed, core=core, fanres=fanres, seq=seq), rest)]
 
     if firstLower in _BARE_TYPE_TOKENS:
         rest = tokens[1:]
-        base_layer, downmixed, rest = _parseModifiers(rest)
-        return [(MediaSource(role, firstLower, base_layer=base_layer, downmixed=downmixed,
+        base_layer, downmixed, core, rest = _parseModifiers(rest)
+        return [(MediaSource(role, firstLower, base_layer=base_layer, downmixed=downmixed, core=core,
                               fanres=fanres, seq=seq), rest)]
 
     if firstLower == "web" and tokens[1:2] and tokens[1].lower() == "dl":
@@ -138,30 +138,34 @@ def _parseWebLikeCandidates(tokens, source_type, role, fanres, seq):
     candidates = []
     provider, restWithProvider = _parseOptionalProvider(tokens)
     if provider is not None:
-        base_layer, downmixed, rest = _parseModifiers(restWithProvider)
+        base_layer, downmixed, core, rest = _parseModifiers(restWithProvider)
         candidates.append((MediaSource(role, source_type, web_provider=provider, base_layer=base_layer,
-                                        downmixed=downmixed, fanres=fanres, seq=seq), rest))
-    base_layer, downmixed, rest = _parseModifiers(tokens)
+                                        downmixed=downmixed, core=core, fanres=fanres, seq=seq), rest))
+    base_layer, downmixed, core, rest = _parseModifiers(tokens)
     candidates.append((MediaSource(role, source_type, web_provider=None, base_layer=base_layer,
-                                    downmixed=downmixed, fanres=fanres, seq=seq), rest))
+                                    downmixed=downmixed, core=core, fanres=fanres, seq=seq), rest))
     return candidates
 
 def _parseModifiers(tokens):
-    """Consumes the optional trailing -bl and -downmixed modifiers, in that fixed order."""
+    """Consumes the optional trailing -bl, -downmixed and -core modifiers, in that fixed order."""
     base_layer = False
     downmixed = False
+    core = False
     if tokens[:1] and tokens[0].lower() == "bl":
         base_layer = True
         tokens = tokens[1:]
     if tokens[:1] and tokens[0].lower() == "downmixed":
         downmixed = True
         tokens = tokens[1:]
-    return base_layer, downmixed, tokens
+    if tokens[:1] and tokens[0].lower() == "core":
+        core = True
+        tokens = tokens[1:]
+    return base_layer, downmixed, core, tokens
 
 def _parseOptionalProvider(tokens):
-    """A web provider abbreviation is a single token that isn't itself a -bl/-downmixed
+    """A web provider abbreviation is a single token that isn't itself a -bl/-downmixed/-core
     modifier. Kept verbatim (not case-normalized) since it's user-defined data matched against
     config.WEB_PROVIDERS elsewhere, not a parser keyword."""
-    if tokens and tokens[0].lower() not in ("bl", "downmixed"):
+    if tokens and tokens[0].lower() not in ("bl", "downmixed", "core"):
         return tokens[0], tokens[1:]
     return None, tokens

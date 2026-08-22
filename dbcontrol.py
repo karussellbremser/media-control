@@ -164,6 +164,7 @@ class DBControl:
             web_provider_id integer,
             base_layer integer,
             downmixed integer,
+            core integer,
             fanres integer,
             PRIMARY KEY (imdb_id, filename, role_id, seq),
             FOREIGN KEY (imdb_id, filename)
@@ -244,7 +245,7 @@ class DBControl:
             for mediaVersion in thisMedia.mediaVersions:
                 self.c.execute("INSERT INTO media_versions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
                 for source in mediaVersion.sources:
-                    self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                    self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
                         thisMedia.imdb_id,
                         mediaVersion.filename,
                         self.__getSourceRoleIDByName(source.role),
@@ -255,6 +256,7 @@ class DBControl:
                         self.__getWebProviderIDByAbbreviation(source.web_provider) if source.web_provider is not None else None,
                         int(source.base_layer),
                         int(source.downmixed),
+                        int(source.core),
                         int(source.fanres),
                     ))
 

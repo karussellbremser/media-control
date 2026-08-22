@@ -1,7 +1,7 @@
 class MediaSource:
 
     def __init__(self, role, source_type, disc_id=None, disc_corrected=False, web_provider=None,
-                 base_layer=False, downmixed=False, fanres=False, seq=1):
+                 base_layer=False, downmixed=False, core=False, fanres=False, seq=1):
         self.role = role
         self.source_type = source_type
         self.disc_id = disc_id
@@ -9,6 +9,7 @@ class MediaSource:
         self.web_provider = web_provider
         self.base_layer = base_layer
         self.downmixed = downmixed
+        self.core = core
         self.fanres = fanres
         self.seq = seq
 
