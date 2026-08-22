@@ -38,6 +38,9 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         raise LocalLibraryError("locally-owned media found on the ignored/wontadd list(s): " +
                                  ", ".join(m.originalTitle + " (" + m.getIDString() + ")" for m in violating))
 
+    # fail fast if any locally-owned source references an unknown web provider, before any scraping happens
+    db.checkWebProvidersKnown(mediaDictOriginal)
+
     # 2. determine newly added media
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()

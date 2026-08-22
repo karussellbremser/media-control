@@ -389,6 +389,26 @@ class DBControl:
             for abbreviation, full_name in web_providers.items():
                 self.c.execute("INSERT OR IGNORE INTO source_web_provider_enum (abbreviation, full_name) VALUES (?, ?)", (abbreviation, full_name))
 
+    def checkWebProvidersKnown(self, mediaDict):
+        """Raises LocalLibraryError listing every web provider abbreviation referenced by
+        mediaDict's local sources that isn't (yet) in source_web_provider_enum. Meant to be called
+        right after the local scan and syncWebProvidersFromConfig, before any online scraping --
+        this only depends on locally-scraped source strings, so there's no reason to only discover
+        a config.ini gap at DB-write time, after a full sync's worth of scraping already ran."""
+        usedAbbreviations = set()
+        for medium in mediaDict.values():
+            for mediaVersion in medium.mediaVersions:
+                for source in mediaVersion.sources:
+                    if source.web_provider is not None:
+                        usedAbbreviations.add(source.web_provider)
+        with self.conn:
+            self.c.execute("SELECT abbreviation FROM source_web_provider_enum")
+            knownAbbreviations = {row[0] for row in self.c.fetchall()}
+        missing = usedAbbreviations - knownAbbreviations
+        if missing:
+            raise LocalLibraryError("unknown web provider abbreviation(s) " + ", ".join(sorted(missing)) +
+                                     " -- add them to config.ini's [web_providers] section and sync again")
+
     def syncIgnoredAndWontaddIDs(self, ignored_ids, wontadd_ids):
         """Non-additively syncs ignored_ids/wontadd_ids from the given sets of imdb ids (see
         config.IGNORED_IDS_PATH/WONTADD_IDS_PATH) -- unlike syncWebProvidersFromConfig, removing
