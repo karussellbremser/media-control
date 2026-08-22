@@ -6,6 +6,7 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _CONFIG_PATH = os.path.join(_BASE_DIR, "config.ini")
 
 _config = configparser.ConfigParser()
+_config.optionxform = str  # preserve option name case (e.g. web_providers abbreviations like "iT"/"IMDb")
 if not _config.read(_CONFIG_PATH):
     sys.exit(
         "config.ini not found. Copy config.example.ini to config.ini "
