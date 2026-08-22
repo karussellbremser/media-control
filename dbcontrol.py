@@ -99,13 +99,13 @@ class DBControl:
                 self.c.execute("INSERT INTO titleType_enum VALUES (?, ?)", (i, titleType))
                 i += 1
 
-            self.c.execute("""CREATE TABLE mediaVersions (
+            self.c.execute("""CREATE TABLE media_versions (
             imdb_id integer NOT NULL,
             filename text NOT NULL,
             source text NOT NULL,
             version text,
-            PRIMARY KEY (imdb_id, version),
-            UNIQUE (imdb_id, filename),
+            PRIMARY KEY (imdb_id, filename),
+            UNIQUE (imdb_id, version),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
@@ -155,7 +155,7 @@ class DBControl:
             # arbitrary number of sources for the same role.
             self.c.execute("""CREATE TABLE media_version_sources (
             imdb_id integer NOT NULL,
-            version text,
+            filename text NOT NULL,
             role_id integer NOT NULL,
             seq integer NOT NULL,
             source_type_id integer NOT NULL,
@@ -165,9 +165,9 @@ class DBControl:
             base_layer integer,
             downmixed integer,
             fanres integer,
-            PRIMARY KEY (imdb_id, version, role_id, seq),
-            FOREIGN KEY (imdb_id, version)
-                REFERENCES mediaVersions (imdb_id, version)
+            PRIMARY KEY (imdb_id, filename, role_id, seq),
+            FOREIGN KEY (imdb_id, filename)
+                REFERENCES media_versions (imdb_id, filename)
                     ON UPDATE CASCADE
                     ON DELETE CASCADE,
             FOREIGN KEY (role_id)
@@ -228,11 +228,11 @@ class DBControl:
             for imdb_interest_id in thisMedia.interests:
                 self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
             for mediaVersion in thisMedia.mediaVersions:
-                self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
+                self.c.execute("INSERT INTO media_versions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
                 for source in mediaVersion.sources:
                     self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
                         thisMedia.imdb_id,
-                        mediaVersion.version,
+                        mediaVersion.filename,
                         self.__getSourceRoleIDByName(source.role),
                         source.seq,
                         self.__getSourceTypeIDByName(source.source_type),
@@ -263,8 +263,8 @@ class DBControl:
 
     def removeSingleMedia(self, mediumToRemove):
         with self.conn:
-            #1. remove all mediaVersions of mediumToRemove
-            self.c.execute("DELETE FROM mediaVersions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            #1. remove all media_versions of mediumToRemove
+            self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
             self.c.execute("SELECT imdb_id, foreign_imdb_id FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
@@ -531,7 +531,7 @@ class DBControl:
 
     def __getMediaVersionList(self, imdbID):
         with self.conn:
-            self.c.execute("SELECT * FROM mediaVersions WHERE imdb_id=?", (imdbID,))
+            self.c.execute("SELECT * FROM media_versions WHERE imdb_id=?", (imdbID,))
             dbResult = self.c.fetchall()
             resultList = []
             for mediaVersionRow in dbResult:
