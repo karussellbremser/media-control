@@ -3,7 +3,7 @@ from mediasource import MediaSource
 
 # all keyword/structural tokens are matched case-insensitively; only a web provider abbreviation
 # (user-defined data, matched against config.WEB_PROVIDERS later) is kept verbatim
-_BARE_TYPE_TOKENS = ("tv", "vhs", "ld", "intermediate", "kaleidescape")
+_BARE_TYPE_TOKENS = ("tv", "vhs", "hifivhs", "ld", "intermediate", "kaleidescape")
 _DISC_TYPE_TOKENS = ("dvd", "br", "uhd")
 
 def parseSourceString(raw_string):
