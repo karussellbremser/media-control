@@ -2,6 +2,7 @@ import sqlite3
 from media import Media
 from mediaversion import MediaVersion
 from mediaconnection import MediaConnection
+from exceptions import LocalLibraryError
 
 class DBControl:
 
@@ -228,6 +229,20 @@ class DBControl:
                 self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
             for mediaVersion in thisMedia.mediaVersions:
                 self.c.execute("INSERT INTO mediaVersions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
+                for source in mediaVersion.sources:
+                    self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                        thisMedia.imdb_id,
+                        mediaVersion.version,
+                        self.__getSourceRoleIDByName(source.role),
+                        source.seq,
+                        self.__getSourceTypeIDByName(source.source_type),
+                        source.disc_id,
+                        int(source.disc_corrected),
+                        self.__getWebProviderIDByAbbreviation(source.web_provider) if source.web_provider is not None else None,
+                        int(source.base_layer),
+                        int(source.downmixed),
+                        int(source.fanres),
+                    ))
 
     def addSingleMediaConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
@@ -430,6 +445,38 @@ class DBControl:
             if not connection_type_name or not connection_type_name[0]:
                 raise RuntimeError('unknown connection type ' + str(connectionType_id))
             return(connection_type_name[0])
+
+    def __getSourceTypeIDByName(self, source_type_name):
+        # source_type_name always comes from Media.source_type_list, which is what seeds this
+        # enum, so a miss here means the two have drifted -- an internal bug, not bad local data
+        with self.conn:
+            self.c.execute("SELECT source_type_id FROM source_type_enum WHERE source_type_name=?", (source_type_name,))
+            source_type_id = self.c.fetchone()
+            if not source_type_id:
+                raise RuntimeError('unknown source type ' + source_type_name)
+            return(source_type_id[0])
+
+    def __getSourceRoleIDByName(self, role_name):
+        # role_name always comes from Media.source_role_list, which is what seeds this enum, so
+        # a miss here means the two have drifted -- an internal bug, not bad local data
+        with self.conn:
+            self.c.execute("SELECT role_id FROM source_role_enum WHERE role_name=?", (role_name,))
+            role_id = self.c.fetchone()
+            if not role_id:
+                raise RuntimeError('unknown source role ' + role_name)
+            return(role_id[0])
+
+    def __getWebProviderIDByAbbreviation(self, abbreviation):
+        # unlike the two lookups above, a miss here is a genuine local-data problem: the source
+        # string references a web provider abbreviation not present in source_web_provider_enum
+        # (and therefore not in config.ini's [web_providers] section either, at least not as of
+        # the last sync -- see DBControl.syncWebProvidersFromConfig)
+        with self.conn:
+            self.c.execute("SELECT web_provider_id FROM source_web_provider_enum WHERE abbreviation=?", (abbreviation,))
+            web_provider_id = self.c.fetchone()
+            if not web_provider_id:
+                raise LocalLibraryError("unknown web provider abbreviation '" + abbreviation + "' -- add it to config.ini's [web_providers] section and sync again")
+            return(web_provider_id[0])
 
     def determineNewlyAddedMedia(self, mediaDict):
         newlyAddedDict = {}
