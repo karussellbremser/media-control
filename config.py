@@ -27,3 +27,5 @@ SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")
 
 SERVER_HOST = _config["server"]["host"]
 SERVER_PORT = _config.getint("server", "port")
+
+WEB_PROVIDERS = dict(_config.items("web_providers"))

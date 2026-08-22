@@ -111,6 +111,78 @@ class DBControl:
                     ON DELETE CASCADE
             )""")
 
+            # fixed, pre-seeded classification of physical/digital media a mediaVersion's source(s)
+            # can come from (see Media.source_type_list)
+            self.c.execute("""CREATE TABLE source_type_enum (
+            source_type_id integer NOT NULL,
+            source_type_name text NOT NULL UNIQUE,
+            PRIMARY KEY (source_type_id)
+            )""")
+            i = 1
+            for source_type in Media.source_type_list:
+                self.c.execute("INSERT INTO source_type_enum VALUES (?, ?)", (i, source_type))
+                i += 1
+
+            # fixed, pre-seeded structural role a single leaf source plays within a mediaVersion's
+            # overall source description (see Media.source_role_list)
+            self.c.execute("""CREATE TABLE source_role_enum (
+            role_id integer NOT NULL,
+            role_name text NOT NULL UNIQUE,
+            PRIMARY KEY (role_id)
+            )""")
+            i = 1
+            for source_role in Media.source_role_list:
+                self.c.execute("INSERT INTO source_role_enum VALUES (?, ?)", (i, source_role))
+                i += 1
+
+            # web download providers (e.g. "AMZN" -> "Amazon"), sourced from config.WEB_PROVIDERS.
+            # Not pre-seeded here; kept in sync additively on every sync instead (see
+            # syncWebProvidersFromConfig), so the enum -- not config -- is the actual source of
+            # truth: removing a provider from config only stops it being re-affirmed, it doesn't
+            # remove it or anything that already references it. web_provider_id is a plain SQLite
+            # rowid (we mint these ourselves, unlike interest/language ids which come from IMDb)
+            self.c.execute("""CREATE TABLE source_web_provider_enum (
+            web_provider_id INTEGER PRIMARY KEY,
+            abbreviation text NOT NULL UNIQUE,
+            full_name text NOT NULL
+            )""")
+
+            # the leaf source(s) that make up a single mediaVersion's provenance. A version with a
+            # single plain source has one row (role=main). hybrid/dynhdrhybrid/combined splits use
+            # the video/audio/video_base/video_dynhdr roles, one row each. fanres allows more than
+            # one row per role (seq disambiguates them), since a fan restoration can blend an
+            # arbitrary number of sources for the same role.
+            self.c.execute("""CREATE TABLE media_version_sources (
+            imdb_id integer NOT NULL,
+            version text,
+            role_id integer NOT NULL,
+            seq integer NOT NULL,
+            source_type_id integer NOT NULL,
+            disc_id integer,
+            disc_corrected integer,
+            web_provider_id integer,
+            base_layer integer,
+            downmixed integer,
+            fanres integer,
+            PRIMARY KEY (imdb_id, version, role_id, seq),
+            FOREIGN KEY (imdb_id, version)
+                REFERENCES mediaVersions (imdb_id, version)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (role_id)
+                REFERENCES source_role_enum (role_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (source_type_id)
+                REFERENCES source_type_enum (source_type_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (web_provider_id)
+                REFERENCES source_web_provider_enum (web_provider_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
+            )""")
+
             self.c.execute("""CREATE TABLE mediaConnections (
             imdb_id integer NOT NULL,
             foreign_imdb_id integer NOT NULL,
@@ -276,6 +348,15 @@ class DBControl:
         """Insert a newly-discovered language interest into language_enum if not already known."""
         with self.conn:
             self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
+
+    def syncWebProvidersFromConfig(self, web_providers):
+        """Additively syncs source_web_provider_enum from a {abbreviation: full_name} dict (see
+        config.WEB_PROVIDERS). Only ever inserts; never updates or removes an existing row, so the
+        enum -- not config -- remains the actual source of truth (see createMediaDB's comment on
+        this table). Meant to be called on every sync."""
+        with self.conn:
+            for abbreviation, full_name in web_providers.items():
+                self.c.execute("INSERT OR IGNORE INTO source_web_provider_enum (abbreviation, full_name) VALUES (?, ?)", (abbreviation, full_name))
 
     def __pruneOrphanedInterests(self, imdb_interest_ids):
         """Removes any of the given interests (genre or subgenre) from interest_enum once they're

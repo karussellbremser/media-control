@@ -10,6 +10,11 @@ class Media:
     movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
     seriesTitleTypes = [] # TBD
 
+    # fixed vocabulary for a mediaVersion's source(s), used by dbcontrol.py to seed
+    # source_type_enum/source_role_enum and (eventually) by the source-string parser
+    source_type_list = ["dvd", "br", "uhd", "web-dl", "webrip", "tv", "vhs", "ld", "intermediate", "kaleidescape"]
+    source_role_list = ["main", "video", "audio", "video_base", "video_dynhdr"]
+
     def __init__(self, subdir, isSeries, imdbIDInt = None): # this function has become ugly, but python does not offer constructor overloading...
         if subdir != None:
             thisMedia = subdir.rsplit('_', 2)

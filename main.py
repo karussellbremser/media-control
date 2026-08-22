@@ -10,6 +10,8 @@ import getopt, sys
 def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     db = DBControl(config.DB_PATH)
 
+    db.syncWebProvidersFromConfig(config.WEB_PROVIDERS)
+
     referencedInitial = len(db.getReferencedOnlyMedia())
 
     # 1. scan local media library
