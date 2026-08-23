@@ -71,6 +71,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                 episodeMedia.episode_number = localEpisode.episode_number
                 episodeMedia.series_imdb_id = series.imdb_id
                 episodeMedia.mediaVersions = localEpisode.mediaVersions
+                episodeMedia.intended_order = localEpisode.intended_order
                 mediaDictOriginal[episode_imdb_id] = episodeMedia
             series.episodes = [] # consumed -- resolved episodes now live as their own top-level entries
 

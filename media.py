@@ -51,6 +51,7 @@ class Media:
         self.season_number = None # None unless this is an episode (titleType in episodeTitleTypes); None also covers IMDb's own "unnumbered" episodes, never conflated with a real season/episode number (see ScrapeIMDbOffline.parseTitleEpisode)
         self.episode_number = None
         self.series_imdb_id = None # imdb_id of the parent series; None unless this is an episode
+        self.intended_order = None # this episode's 1-indexed rank in its season's intended_order.txt, if any -- purely local data (unlike season_number/episode_number), so cleared like language_id/interests once no longer locally owned (see DBControl.removeSingleMedia)
         self.endYear = None
         self.rating_mul10 = None
         self.numVotes = None

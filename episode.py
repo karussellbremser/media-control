@@ -14,12 +14,13 @@ class Episode:
     is None here and gets resolved later by cross-referencing title.episode.tsv against the parent
     series' own id."""
 
-    def __init__(self, season_number, episode_number, mediaVersions, subdir, imdb_id=None):
+    def __init__(self, season_number, episode_number, mediaVersions, subdir, imdb_id=None, intended_order=None):
         self.season_number = season_number
         self.episode_number = episode_number
         self.mediaVersions = mediaVersions
         self.subdir = subdir
         self.imdb_id = imdb_id
+        self.intended_order = intended_order # this episode's 1-indexed rank in its season's intended_order.txt, if any -- see ScrapeLocal.__scrapeSingleSeason
 
     def __str__(self):
         return "S" + str(self.season_number) + "E" + str(self.episode_number) + " " + str([str(v.source) for v in self.mediaVersions])

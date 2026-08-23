@@ -89,7 +89,10 @@ class ScrapeLocal:
         if len(dirs) != 0:
             raise LocalLibraryError('Bad content of season folder ' + seasonPath)
 
-        mkv_files, sources_file, versions_exists = self.__checkSeasonFilenames(subdir, seasonDir, files)
+        mkv_files, sources_file, versions_exists, intended_order_file = self.__checkSeasonFilenames(subdir, seasonDir, files)
+
+        if intended_order_file != "" and season_number == 0:
+            raise LocalLibraryError('intended_order.txt is not supported in the unnumbered season folder ' + seasonPath)
 
         src_dict = self.__parseDictFile(seasonPath, sources_file)
         if versions_exists:
@@ -123,6 +126,27 @@ class ScrapeLocal:
                 episode_key = int(filenameMatch.group(3))
                 suffix = filenameMatch.group(4)
             episodeFiles.setdefault(episode_key, []).append((mkv_file, suffix))
+
+        # intended_order.txt: a comma-separated permutation of this season's own episode numbers,
+        # in artistically-intended watch order (distinct from IMDb's official numbering, which stays
+        # the source of truth -- see Episode/Media.intended_order). Optional; intendedOrderMap stays
+        # empty when absent, so every episode's intended_order ends up None (see below)
+        intendedOrderMap = {}
+        if intended_order_file != "":
+            with open(self.__complFilePath(seasonPath, intended_order_file), "r", encoding="utf8") as f:
+                content = f.read().strip()
+            rawValues = content.split(",") if content != "" else []
+            parsedOrder = []
+            for rawValue in rawValues:
+                rawValue = rawValue.strip()
+                if not rawValue.isdigit():
+                    raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + intended_order_file)
+                parsedOrder.append(int(rawValue))
+            if len(parsedOrder) != len(episodeFiles) or set(parsedOrder) != set(episodeFiles.keys()):
+                raise LocalLibraryError('intended_order.txt in season folder ' + seasonPath +
+                                         ' must be an exact permutation of the locally-present episode numbers ' + str(sorted(episodeFiles.keys())))
+            for rank, episode_number in enumerate(parsedOrder, start=1):
+                intendedOrderMap[episode_number] = rank
 
         for episode_key, fileList in episodeFiles.items():
             nonIntroCount = sum(1 for _, suffix in fileList if not (suffix and re.fullmatch(r"Intro\d*", suffix)))
@@ -158,7 +182,7 @@ class ScrapeLocal:
             if isUnnumbered:
                 currentSeries.episodes.append(Episode(None, None, mediaVersions, seasonPath, imdb_id=episode_key))
             else:
-                currentSeries.episodes.append(Episode(season_number, episode_key, mediaVersions, seasonPath))
+                currentSeries.episodes.append(Episode(season_number, episode_key, mediaVersions, seasonPath, intended_order=intendedOrderMap.get(episode_key)))
 
     def __complDirPath(self, subdir):
         return(os.path.join(self.rootdir, subdir))
@@ -207,15 +231,18 @@ class ScrapeLocal:
 
         return mkv_files, sources_file, versions_exists
 
-    def __checkSeasonFilenames(self, subdir, seasonDir, files): # returns mkv_files, sources_file, versions_exists
+    def __checkSeasonFilenames(self, subdir, seasonDir, files): # returns mkv_files, sources_file, versions_exists, intended_order_file
         # same file-type rules as __checkMovieFilenames, except versions.txt isn't mandated just
         # because the season folder has more than one .mkv file overall -- multiple episodes
         # naturally means multiple files; that requirement is instead checked per episode, once
-        # files are grouped by episode number (see __scrapeSingleSeason)
+        # files are grouped by episode number (see __scrapeSingleSeason). intended_order.txt is an
+        # optional extra: an artistically-intended watch order, distinct from IMDb's official
+        # numbering (see __scrapeSingleSeason for how it's parsed/validated)
         seasonPath = os.path.join(subdir, seasonDir)
         mkv_files = []
         sources_file = ""
         versions_exists = False
+        intended_order_file = ""
 
         for file in files:
             file_split = file.rsplit('.', 1)
@@ -233,6 +260,8 @@ class ScrapeLocal:
                     sources_file = file
                 elif file_split[0] == "versions": # versions file
                     versions_exists = True
+                elif file_split[0] == "intended_order": # intended watch order file
+                    intended_order_file = file
                 else:
                     raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
             elif file_split[1] == "mkv": # mkv files
@@ -243,7 +272,7 @@ class ScrapeLocal:
         if sources_file == "" or len(mkv_files) == 0:
             raise LocalLibraryError('Bad content of season folder ' + seasonPath)
 
-        return mkv_files, sources_file, versions_exists
+        return mkv_files, sources_file, versions_exists, intended_order_file
 
     def __parseDictFile(self, subdir, dictFile):
         pathToFile = self.__complFilePath(subdir, dictFile)
