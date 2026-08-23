@@ -84,28 +84,32 @@ class ScrapeIMDbOnline:
 
             self.__sleep()
 
-    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs):
+    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
         """For every medium in mediaDict, visits its IMDb main page exactly once and:
         - always scrapes its interests (standard genres and subgenres alike), language and plot summary
         - downloads its cover if the file doesn't already exist
 
         knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
         mutated in place as new ones are discovered. knownPseudoGenreIDs is a name -> id map of
-        already-known pseudo-genres (see __classifyChips), also mutated in place. A title with no
-        language-type interest attached keeps Media's default language_id of 0 (English). Returns
-        (newInterestRegistrations, newLanguageRegistrations): newInterestRegistrations is a list of
-        (imdb_interest_id, name, description, parent_imdb_interest_id) tuples in dependency order
-        (a subgenre's parent always appears before the subgenre itself); newLanguageRegistrations is
-        a list of (imdb_interest_id, name, description) tuples. Persist via
-        DBControl.ensureInterestExists()/ensureLanguageExists() in the order returned."""
+        already-known pseudo-genres (see __classifyChips), also mutated in place. knownFranchiseIDs
+        is a set of already-seen franchise-type interest ids (ignored entirely, see __classifyChips),
+        also mutated in place. A title with no language-type interest attached keeps Media's default
+        language_id of 0 (English). Returns (newInterestRegistrations, newLanguageRegistrations,
+        newFranchiseRegistrations): newInterestRegistrations is a list of (imdb_interest_id, name,
+        description, parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always
+        appears before the subgenre itself); newLanguageRegistrations is a list of (imdb_interest_id,
+        name, description) tuples; newFranchiseRegistrations is a list of (imdb_interest_id, name)
+        tuples. Persist via DBControl.ensureInterestExists()/ensureLanguageExists()/
+        ensureFranchiseInterestExists() in the order returned."""
 
         if len(mediaDict) == 0:
-            return [], []
+            return [], [], []
 
         print("scraping main pages...")
 
         newInterestRegistrations = []
         newLanguageRegistrations = []
+        newFranchiseRegistrations = []
         count = 0
         first = True
 
@@ -128,18 +132,19 @@ class ScrapeIMDbOnline:
             if not os.path.isfile(coverPath):
                 self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs)
+            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID, newFranchiseRegs = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
             currentMedia.interests = attachedInterestIDs
             if languageID is not None:
                 currentMedia.language_id = languageID
             newInterestRegistrations.extend(newInterestRegs)
             newLanguageRegistrations.extend(newLanguageRegs)
+            newFranchiseRegistrations.extend(newFranchiseRegs)
 
             count += 1
             if count == self.maxCount:
-                return newInterestRegistrations, newLanguageRegistrations
+                return newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations
 
-        return newInterestRegistrations, newLanguageRegistrations
+        return newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations
 
     def fillMissingBasics(self, mediaDict):
         """For locally-owned titles missing from the offline IMDb datasets (flagged via
@@ -368,14 +373,22 @@ class ScrapeIMDbOnline:
 
         return plotSummary
 
-    def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs):
-        """Classifies every (imdb_interest_id, name) in chips as a genre, subgenre, or language,
-        visiting each not-yet-known id's IMDb interest page to determine which and scrape its
-        description text. A subgenre's parent genre is NOT necessarily among the same title's
-        other chips (a title can carry a subgenre without also being tagged with its parent genre
-        directly), so the parent's id is resolved against IMDb's full interest directory instead.
-        The parent is registered first if it too is new. knownInterestIDs/knownLanguageIDs are
-        mutated in place.
+    def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
+        """Classifies every (imdb_interest_id, name) in chips as a genre, subgenre, language, or
+        franchise, visiting each not-yet-known id's IMDb interest page to determine which and
+        scrape its description text. A subgenre's parent genre is NOT necessarily among the same
+        title's other chips (a title can carry a subgenre without also being tagged with its parent
+        genre directly), so the parent's id is resolved against IMDb's full interest directory
+        instead. The parent is registered first if it too is new. knownInterestIDs/knownLanguageIDs
+        are mutated in place.
+
+        Franchise-type interests (e.g. "Evil Dead") are recognized but deliberately ignored --
+        never attached to the title and never registered in interest_enum at all -- since that
+        relationship is already covered via IMDb connection parsing (see MediaConnection). Only
+        the type check runs for them; their description/parent category is never even scraped.
+        knownFranchiseIDs is a set of already-seen franchise ids (see DBControl.getAllKnownFranchiseIDs/
+        ensureFranchiseInterestExists), mutated in place, so a franchise is only ever classified once
+        (an extra IMDb page visit) across all syncs, not just the current one.
 
         A subgenre's breadcrumb "parent category" text is sometimes not a real, individually
         taggable genre interest at all -- e.g. "Holiday Comedy"'s breadcrumb is "Seasonal", which
@@ -386,11 +399,13 @@ class ScrapeIMDbOnline:
         shared across the whole sync so the same category always resolves to the same id).
 
         Returns (attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations,
-        languageID): attachedInterestIDs are the genre/subgenre ids actually attached to this
-        title (for media_interests -- language ids are never included); newInterestRegistrations
-        is a list of (imdb_interest_id, name, description, parent_imdb_interest_id) tuples;
-        newLanguageRegistrations is a list of (imdb_interest_id, name, description) tuples;
-        languageID is this title's language_id if a language chip was found, else None.
+        languageID, newFranchiseRegistrations): attachedInterestIDs are the genre/subgenre ids
+        actually attached to this title (for media_interests -- language ids are never included);
+        newInterestRegistrations is a list of (imdb_interest_id, name, description,
+        parent_imdb_interest_id) tuples; newLanguageRegistrations is a list of (imdb_interest_id,
+        name, description) tuples; languageID is this title's language_id if a language chip was
+        found, else None; newFranchiseRegistrations is a list of (imdb_interest_id, name) tuples --
+        persist via DBControl.ensureFranchiseInterestExists() in the order returned.
 
         Raises on any unexpected structure (unknown type, missing description, ambiguous parent,
         more than two genre/subgenre taxonomy levels, more than one language attached)."""
@@ -398,6 +413,7 @@ class ScrapeIMDbOnline:
         attachedInterestIDs = []
         newInterestRegistrations = []
         newLanguageRegistrations = []
+        newFranchiseRegistrations = []
         languageID = None
 
         def classify(interest_id, name):
@@ -408,8 +424,11 @@ class ScrapeIMDbOnline:
                 const el = document.querySelector('[data-testid="interest-hero-type"]');
                 return el ? el.innerText.trim() : null;
             """)
-            if typeText not in ("Genre", "Subgenre", "Language"):
+            if typeText not in ("Genre", "Subgenre", "Language", "Franchise"):
                 raise ScrapingError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
+
+            if typeText == "Franchise":
+                return ("Franchise", None, None)
 
             categoryTexts = self.browser.execute_script("""
                 const header = document.querySelector('[data-testid="interest-hero-header"]');
@@ -449,7 +468,15 @@ class ScrapeIMDbOnline:
                 languageID = chip_id
                 continue
 
+            if chip_id in knownFranchiseIDs:
+                continue
+
             typeText, parentName, description = classify(chip_id, chip_name)
+
+            if typeText == "Franchise":
+                newFranchiseRegistrations.append((chip_id, chip_name))
+                knownFranchiseIDs.add(chip_id)
+                continue
 
             if typeText == "Genre":
                 newInterestRegistrations.append((chip_id, chip_name, description, None))
@@ -492,7 +519,7 @@ class ScrapeIMDbOnline:
             knownInterestIDs.add(chip_id)
             attachedInterestIDs.append(chip_id)
 
-        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageID
+        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageID, newFranchiseRegistrations
 
     def __getGlobalInterestNameMap(self):
         """Lazily fetches and caches IMDb's full interest directory (/interest/all/) as a

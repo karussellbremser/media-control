@@ -229,6 +229,17 @@ class DBControl:
             PRIMARY KEY (imdb_id)
             )""")
 
+            # imdb interest ids already known to be franchise-type (e.g. "Evil Dead") -- these are
+            # deliberately never attached to any medium or added to interest_enum itself (that
+            # relationship is already covered via media_connections/MediaConnection); this table
+            # exists purely so a franchise doesn't need to be re-classified (an extra IMDb page
+            # visit) on every future sync. Populated additively as new ones are discovered, see
+            # ScrapeIMDbOnline.__classifyChips / DBControl.ensureFranchiseInterestExists
+            self.c.execute("""CREATE TABLE franchise_interest_ids (
+            imdb_interest_id integer NOT NULL,
+            PRIMARY KEY (imdb_interest_id)
+            )""")
+
     def addSingleMediaWoConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
@@ -389,6 +400,19 @@ class DBControl:
         """Insert a newly-discovered language interest into language_enum if not already known."""
         with self.conn:
             self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
+
+    def getAllKnownFranchiseIDs(self):
+        """Set of all IMDb interest ids already known to be franchise-type (in franchise_interest_ids
+        -- see ScrapeIMDbOnline.__classifyChips)."""
+        with self.conn:
+            self.c.execute("SELECT imdb_interest_id FROM franchise_interest_ids")
+            return set(row[0] for row in self.c.fetchall())
+
+    def ensureFranchiseInterestExists(self, imdb_interest_id):
+        """Records a newly-discovered franchise-type interest id into franchise_interest_ids if not
+        already known, so it's skipped without re-classification on future syncs."""
+        with self.conn:
+            self.c.execute("INSERT OR IGNORE INTO franchise_interest_ids VALUES (?)", (imdb_interest_id,))
 
     def syncWebProvidersFromConfig(self, web_providers):
         """Additively syncs source_web_provider_enum from a {abbreviation: full_name} dict (see

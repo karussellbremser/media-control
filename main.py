@@ -51,7 +51,8 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     knownInterestIDs = db.getAllKnownInterestIDs()
     knownLanguageIDs = db.getAllKnownLanguageIDs()
     knownPseudoGenreIDs = db.getAllKnownPseudoGenreIDs()
-    newInterestRegistrations, newLanguageRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs)
+    knownFranchiseIDs = db.getAllKnownFranchiseIDs()
+    newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
     for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
         if imdb_interest_id < 0:
             print("New pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
@@ -63,6 +64,9 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     for imdb_interest_id, name, description in newLanguageRegistrations:
         print("New language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
         db.ensureLanguageExists(imdb_interest_id, name, description)
+    for imdb_interest_id, name in newFranchiseRegistrations:
+        print("New franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
+        db.ensureFranchiseInterestExists(imdb_interest_id)
 
     # 4. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
