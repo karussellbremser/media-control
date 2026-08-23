@@ -1,8 +1,21 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-import sqlite3
+import sqlite3, os
 import config
+from imdbinterestid import parseInterestID
 
 server = Flask(__name__)
+
+def _readHiddenInterestIDs(path):
+    """Reads config.HIDDEN_INTEREST_IDS_PATH: subgenres never shown/selectable in the UI, though
+    still scraped and stored normally (e.g. "Tragedy" spoilers a movie's ending). One imdb interest
+    id (e.g. in0000090) per line, blank lines ignored. Read once at server start -- restart the
+    server to pick up changes. A missing file is treated as an empty list."""
+    if not os.path.exists(path):
+        return set()
+    with open(path, "r") as f:
+        return {parseInterestID(line.strip()) for line in f if line.strip()}
+
+HIDDEN_INTEREST_IDS = _readHiddenInterestIDs(config.HIDDEN_INTEREST_IDS_PATH)
 
 def query_media(search_query, sort_by, order,
                 year_from, year_to,
@@ -131,6 +144,8 @@ def index():
     interestGroups = []
     currentGroup = None
     for parent_id, parent_name, interest_id, interest_name, interest_desc in cursor.fetchall():
+        if interest_id in HIDDEN_INTEREST_IDS:
+            continue
         if currentGroup is None or currentGroup[0] != parent_id:
             currentGroup = (parent_id, parent_name, [])
             interestGroups.append(currentGroup)
