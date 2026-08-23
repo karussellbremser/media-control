@@ -109,7 +109,10 @@ class ScrapeIMDbOffline:
         meant for enumerating a series' full episode list including every unnumbered one.
 
         Raises OfflineDatasetError if two different episodes claim the same real (season, episode)
-        for the same series -- a genuine dataset anomaly, not something to silently pick one of."""
+        for the same series, or if any given series has zero episodes in title.episode.tsv at all --
+        a series with nothing there isn't a "just hasn't been catalogued yet" situation worth
+        quietly returning an empty result for, since every caller only ever asks about a series it
+        already has a concrete reason to expect episodes for."""
 
         if len(series_imdb_ids) == 0:
             return {}
@@ -131,6 +134,10 @@ class ScrapeIMDbOffline:
                 if key != (None, None) and key in result[parent_imdb_id]:
                     raise OfflineDatasetError("duplicate season/episode " + str(key) + " for series " + row[1] + ": " + str(result[parent_imdb_id][key]) + " and " + row[0])
                 result[parent_imdb_id][key] = episode_imdb_id
+
+        for series_imdb_id, episodes in result.items():
+            if len(episodes) == 0:
+                raise OfflineDatasetError("series tt" + str(series_imdb_id).zfill(7) + " has zero episodes in title.episode.tsv")
 
         return result
 
@@ -207,6 +214,13 @@ class ScrapeIMDbOffline:
                         # of ownership (unlike movies/series, a referenced-only episode is never silently
                         # discarded -- catalog completeness for a series' episodes is the whole point)
                         raise OfflineDatasetError("episode " + x.getIDString() + " found in title.episode.tsv but missing from title.basics.tsv")
+                    if x.titleType == "localSeries":
+                        # a locally-owned series missing from title.basics.tsv: by this point its local
+                        # episodes have already resolved successfully against title.episode.tsv (see
+                        # main.py step 1b), so that file already treats this id as a real, cataloged
+                        # series -- title.basics.tsv disagreeing is a dataset inconsistency, not a
+                        # genuinely obscure title worth an online fallback lookup, unlike a movie
+                        raise OfflineDatasetError("series " + x.getIDString() + " has episodes in title.episode.tsv but is missing from title.basics.tsv")
                     if x.subdir == None:
                         # referenced-only title missing from the dataset: not worth an online fallback scrape, discard
                         illegal_ids.append(x.imdb_id)
