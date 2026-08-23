@@ -16,12 +16,12 @@ if not _config.read(_CONFIG_PATH):
 def _resolve(path):
     return path if os.path.isabs(path) else os.path.join(_BASE_DIR, path)
 
-MEDIA_DIR = _config["paths"]["media_dir"]
+MEDIA_DIR = _resolve(_config["paths"]["media_dir"])
 DB_PATH = _resolve(_config["paths"]["db_path"])
 COVERS_DIR = _resolve(_config["paths"]["covers_dir"])
 COVERS_SMALL_DIR = _resolve(_config["paths"]["covers_small_dir"])
 WEBDRIVER_PATH = _resolve(_config["paths"]["webdriver_path"])
-IMDB_DATASETS_DIR = _config["paths"]["imdb_datasets_dir"]
+IMDB_DATASETS_DIR = _resolve(_config["paths"]["imdb_datasets_dir"])
 IGNORED_IDS_PATH = _resolve(_config["paths"]["ignored_ids_path"])
 WONTADD_IDS_PATH = _resolve(_config["paths"]["wontadd_ids_path"])
 HIDDEN_INTEREST_IDS_PATH = _resolve(_config["paths"]["hidden_interest_ids_path"])
