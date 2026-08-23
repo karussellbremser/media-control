@@ -56,6 +56,29 @@ class ScrapeIMDbOnline:
     def __del__(self):
         self.browser.quit()
 
+    def restrictToScrapeBudget(self, mediaDict):
+        """Restricts mediaDict to at most self.maxCount 'units' before any online scraping starts,
+        so a sync run can never be cut off midway through a series: an episode always counts
+        together with its parent series (identified via series_imdb_id) as a single unit, rather
+        than each episode counting individually. maxCount == 0 means unlimited (the existing
+        convention for the config value), in which case mediaDict is returned unchanged. Order of
+        first appearance is preserved. Once a unit's budget slot is taken, every entry belonging to
+        it is kept regardless of how many episodes that turns out to be -- the cap bounds the number
+        of titles considered per run, not the number of online page visits."""
+        if not self.maxCount:
+            return mediaDict
+
+        selectedUnits = set()
+        result = {}
+        for imdb_id, medium in mediaDict.items():
+            unitKey = medium.series_imdb_id if medium.series_imdb_id is not None else imdb_id
+            if unitKey not in selectedUnits:
+                if len(selectedUnits) == self.maxCount:
+                    continue
+                selectedUnits.add(unitKey)
+            result[imdb_id] = medium
+        return result
+
     def downloadCovers(self, mediaDict):
 
         if len(mediaDict) == 0:
@@ -110,7 +133,6 @@ class ScrapeIMDbOnline:
         newInterestRegistrations = []
         newLanguageRegistrations = []
         newFranchiseRegistrations = []
-        count = 0
         first = True
 
         for currentMedia in mediaDict.values():
@@ -139,10 +161,6 @@ class ScrapeIMDbOnline:
             newInterestRegistrations.extend(newInterestRegs)
             newLanguageRegistrations.extend(newLanguageRegs)
             newFranchiseRegistrations.extend(newFranchiseRegs)
-
-            count += 1
-            if count == self.maxCount:
-                return newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations
 
         return newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations
 
@@ -710,8 +728,6 @@ class ScrapeIMDbOnline:
                     resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), connectionType))
 
             count += 1
-            if count == self.maxCount:
-                return resultDict
 
         return resultDict
 

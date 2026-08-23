@@ -90,6 +90,19 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT)
 
+    # 2b. restrict to the configured per-run budget before any scraping starts, bounding both how many
+    # new movies/series get added this run and the online main-page/connections scraping below (steps
+    # 3+4) that goes with them. A series (together with all of its resolved episodes) counts as a single
+    # unit against the cap, so a sync run is never cut off midway through a series -- see
+    # restrictToScrapeBudget. Referenced-only stub media (step 5, discovered from these items'
+    # connections) fall outside this budget entirely -- they're cheap, offline-dataset-only additions:
+    # a stub missing from the offline dataset is discarded outright rather than ever being scraped
+    # online (see scrapeimdboffline.py's dataset-illegal handling), so they can never reach step 7's
+    # online fallback either. Anything excluded here is simply not "newly added" yet as far as the rest
+    # of this run is concerned; it's still missing from the DB afterwards, so it's picked up again on
+    # the next sync.
+    newlyAddedMediaDict = scrapeimdbonline.restrictToScrapeBudget(newlyAddedMediaDict)
+
     # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 1b) are excluded --
     # they get none of this: no cover, no interests, no language, no plot summary
@@ -149,11 +162,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
 
-    # 7. online fallback for locally-owned titles missing from the offline dataset (should happen very infrequently)
+    # 7. online fallback for locally-owned titles missing from the offline dataset (should happen very
+    # infrequently). No cap of its own -- needsOnlineFallback is only ever set for locally-owned media
+    # (see ScrapeIMDbOffline's dataset-illegal handling: a referenced-only title missing from the
+    # dataset is discarded outright, never flagged), so flaggedMediaDict is already a subset of the
+    # step-2b-restricted newlyAddedMediaDict and is bounded by the same per-run budget as everything else.
     flaggedMediaDict = {k: v for k, v in newlyAddedMediaDict.items() if v.needsOnlineFallback}
     if len(flaggedMediaDict) > 0:
         scrapeimdbonline.fillMissingBasics(flaggedMediaDict)
 
+    # removals are entirely unaffected by the scrape budget -- they're driven by mediaDictOriginal (the
+    # full local scan), not newlyAddedMediaDict, and never involve online scraping in the first place
     removedDict = db.determineLocallyRemovedMedia(mediaDictOriginal)
     db.removeMultipleMedia(removedDict)
 
