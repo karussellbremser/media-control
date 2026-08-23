@@ -27,8 +27,6 @@ class ScrapeIMDbOnline:
         "TV Short": "tvShort",
     }
 
-    # TBD: restrict online parsing to locally available movies and no TV episodes
-
     def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0):
         self.cover_directory = cover_directory
         self.thumbnail_directory = thumbnail_directory
