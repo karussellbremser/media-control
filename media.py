@@ -37,6 +37,7 @@ class Media:
             self.titleType = "localMovie" if not isSeries else "localSeries"
         
         self.primaryTitle = None
+        self.plotSummary = None # scraped from the title's IMDb main page; only set for locally-owned media
         self.endYear = None
         self.rating_mul10 = None
         self.numVotes = None

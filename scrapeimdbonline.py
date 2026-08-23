@@ -86,7 +86,7 @@ class ScrapeIMDbOnline:
 
     def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs):
         """For every medium in mediaDict, visits its IMDb main page exactly once and:
-        - always scrapes its interests (standard genres and subgenres alike) and language
+        - always scrapes its interests (standard genres and subgenres alike), language and plot summary
         - downloads its cover if the file doesn't already exist
 
         knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
@@ -119,6 +119,7 @@ class ScrapeIMDbOnline:
             time.sleep(4)
 
             chips = self.__scrapeInterestChips()
+            currentMedia.plotSummary = self.__scrapePlotSummary()
 
             # cover download must happen here, while still on the title's main page from the browser.get()
             # above; classifying newly-discovered interests below navigates away to separate /interest/...
@@ -347,6 +348,25 @@ class ScrapeIMDbOnline:
             result.append((chip_id, name))
 
         return result
+
+    def __scrapePlotSummary(self):
+        """Scrapes the plot summary from the currently-loaded title main page. Its underlying text
+        content is always the full summary regardless of viewport (IMDb truncates it visually via
+        CSS at narrower breakpoints, not in the DOM), so no "Read all"/"..." handling is needed.
+        Raises on any unexpected structure, rather than silently skipping or guessing."""
+
+        box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="plot"]\').length;')
+        if box_count != 1:
+            raise ScrapingError("expected exactly one plot summary block on title page, found " + str(box_count))
+
+        plotSummary = self.browser.execute_script("""
+            const box = document.querySelector('[data-testid="plot"]');
+            return box.innerText.trim();
+        """)
+        if not plotSummary:
+            raise ScrapingError("plot summary block present but empty")
+
+        return plotSummary
 
     def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs):
         """Classifies every (imdb_interest_id, name) in chips as a genre, subgenre, or language,
