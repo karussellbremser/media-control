@@ -2,7 +2,7 @@ import sqlite3
 from media import Media
 from mediaversion import MediaVersion
 from mediaconnection import MediaConnection
-from exceptions import LocalLibraryError
+from exceptions import LocalLibraryError, OfflineDatasetError
 
 class DBControl:
 
@@ -370,10 +370,38 @@ class DBControl:
                     print("Removing referenced medium " + mediumData[0][1] + " from DB")
                     self.c.execute("DELETE FROM media WHERE imdb_id=?", (x[1],))
 
+    def removeVanishedEpisode(self, episodeMedium):
+        """Removes an episode that a fresh title.episode.tsv scan no longer lists at all (e.g. an
+        announced season got cancelled) -- called only for a non-owned episode; an owned one raises
+        before ever reaching this. Unlike removeSingleMedia's light-remove, this raises
+        OfflineDatasetError if anything still references the episode: IMDb itself no longer
+        considers it to exist, so anything in our DB still pointing at it is a genuine
+        inconsistency to surface, not something to quietly preserve as a stub."""
+        with self.conn:
+            self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (episodeMedium.imdb_id,))
+            if len(self.c.fetchall()) != 0:
+                raise OfflineDatasetError("episode " + episodeMedium.getIDString() + " (" + str(episodeMedium.originalTitle) +
+                                           ") is no longer listed in title.episode.tsv, but is still referenced by other media")
+            print("Removing episode " + str(episodeMedium.originalTitle) + " from DB (no longer listed in title.episode.tsv)")
+            self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (episodeMedium.imdb_id,))
+            self.c.execute("DELETE FROM media WHERE imdb_id=?", (episodeMedium.imdb_id,))
+            if episodeMedium.series_imdb_id is not None:
+                self.__pruneOrphanedSeries([episodeMedium.series_imdb_id])
+
     def refreshRatings(self, mediaDict):
         with self.conn:
             for imdbID, media in mediaDict.items():
                 self.c.execute("UPDATE media SET rating_mul10=?, numVotes=? WHERE imdb_id=?", (media.rating_mul10, media.numVotes, imdbID))
+
+    def refreshTitleBasics(self, mediaDict):
+        """Writes back the fields ScrapeIMDbOffline.refreshTitleBasics may have updated in place --
+        titleType, primaryTitle, originalTitle, endYear. startYear is deliberately not included: it's
+        never allowed to change during a refresh (refreshTitleBasics raises before this would ever
+        see a differing value), so there's nothing for it to write back."""
+        with self.conn:
+            for imdbID, media in mediaDict.items():
+                self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, endYear=? WHERE imdb_id=?",
+                                (self.__getTitleTypeIDByTitleTypeName(media.titleType), media.originalTitle, media.primaryTitle, media.endYear, imdbID))
 
     def getAllMediaIDs(self):
         with self.conn:

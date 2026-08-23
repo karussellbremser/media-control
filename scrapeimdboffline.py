@@ -54,6 +54,14 @@ class ScrapeIMDbOffline:
     def parseTitleBasics(self, content_dict):
         return self.__parseIMDbOfflineFile(content_dict, 1, True)
 
+    def refreshTitleBasics(self, content_dict):
+        """Like refreshTitleRatings, but for title.basics: primaryTitle/originalTitle/endYear are
+        silently updated to whatever the dataset currently says (titles get corrected, an airing
+        series' endYear becomes known once it concludes). titleType and startYear are treated as
+        near-immutable instead -- see __insertTitleBasicsRefresh for exactly what's allowed to
+        change and what raises OfflineDatasetError."""
+        return self.__parseIMDbOfflineFile(content_dict, 2, False)
+
     def parseTitleEpisode(self, content_dict):
         """Resolves season_number/episode_number/series_imdb_id for every id in content_dict that
         turns out to be an episode, by scanning title.episode.tsv once. An id with no matching row
@@ -126,17 +134,47 @@ class ScrapeIMDbOffline:
 
         return result
 
-    def __parseIMDbOfflineFile(self, content_dict, file_type, remove_illegal): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
+    def getFullEpisodeListForSeries(self, series_imdb_ids):
+        """Scans title.episode.tsv once and returns {series_imdb_id: [(season_number,
+        episode_number, episode_imdb_id), ...]} -- the FULL episode list for each series in
+        series_imdb_ids, including every unnumbered episode individually (unlike
+        getEpisodesForSeries, which collapses those under one (None, None) dict key). Used where
+        completeness matters more than convenient keyed lookup, e.g. discovering new episodes or
+        detecting vanished ones for an owned series during a refresh."""
+
+        if len(series_imdb_ids) == 0:
+            return {}
+
+        result = {series_imdb_id: [] for series_imdb_id in series_imdb_ids}
+
+        with open(os.path.join(self.dataset_directory, self.title_episode_filename), "r", encoding="utf8") as f:
+            c = csv.reader(f, delimiter="\t")
+            next(c, None) # read from second line
+            for row in c: # row: tconst || parentTconst || seasonNumber || episodeNumber
+                parent_imdb_id = int(row[1][2:])
+                if parent_imdb_id not in result:
+                    continue
+                seasonRaw, episodeRaw = row[2], row[3]
+                if (seasonRaw == "\\N") != (episodeRaw == "\\N"):
+                    raise OfflineDatasetError("episode " + row[0] + " has a season/episode number mismatch (one is unknown, the other isn't): " + seasonRaw + "/" + episodeRaw)
+                season_number = int(seasonRaw) if seasonRaw != "\\N" else None
+                episode_number = int(episodeRaw) if episodeRaw != "\\N" else None
+                episode_imdb_id = int(row[0][2:])
+                result[parent_imdb_id].append((season_number, episode_number, episode_imdb_id))
+
+        return result
+
+    def __parseIMDbOfflineFile(self, content_dict, file_type, remove_illegal): # file_type: 0 -> TitleRatings, 1 -> TitleBasics, 2 -> TitleBasics (refresh)
         if len(content_dict) == 0:
             return content_dict
-        
+
         if file_type == 0:
             filename = self.title_ratings_filename
-        elif file_type == 1:
+        elif file_type in (1, 2):
             filename = self.title_basics_filename
         else:
-            raise RuntimeError("unknown filetype") # internal misuse: file_type is always 0 or 1, passed by this class's own methods
-        
+            raise RuntimeError("unknown filetype") # internal misuse: file_type is always 0, 1 or 2, passed by this class's own methods
+
         with open(os.path.join(self.dataset_directory, filename), "r", encoding="utf8") as f:
             c = csv.reader(f, delimiter="\t")
             next(c, None) # read from second line
@@ -147,8 +185,10 @@ class ScrapeIMDbOffline:
                         content_dict[current_imdb_id] = self.__insertTitleRatings(content_dict[current_imdb_id], row)
                     elif file_type == 1:
                         content_dict[current_imdb_id] = self.__insertTitleBasics(content_dict[current_imdb_id], row)
+                    elif file_type == 2:
+                        content_dict[current_imdb_id] = self.__insertTitleBasicsRefresh(content_dict[current_imdb_id], row)
                     else:
-                        raise RuntimeError("unknown filetype") # internal misuse: file_type is always 0 or 1, passed by this class's own methods
+                        raise RuntimeError("unknown filetype") # internal misuse: file_type is always 0, 1 or 2, passed by this class's own methods
         
         if (remove_illegal):
             # make sure that all items have been touched; mark ones that are illegal for deletion
@@ -203,6 +243,17 @@ class ScrapeIMDbOffline:
         
         return media_obj
     
+    def __titleTypeCategory(self, titleType):
+        """Which of Media's three titleType lists titleType belongs to ("movie"/"series"/"episode"),
+        or None if it doesn't belong to any of them."""
+        if titleType in Media.movieTitleTypes:
+            return "movie"
+        if titleType in Media.seriesTitleTypes:
+            return "series"
+        if titleType in Media.episodeTitleTypes:
+            return "episode"
+        return None
+
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
         localTitleType = media_obj.titleType # result of local parsing (movie or series), or None for referenced-only media and episodes
@@ -221,6 +272,34 @@ class ScrapeIMDbOffline:
         if media_obj.startYear != None and media_obj.startYear != int(row[5]):
             raise OfflineDatasetError("startYear does not match for title " + row[0] + " " + row[3] + " (" + str(media_obj.startYear) + " vs. " + row[5] + ")")
         media_obj.startYear = int(row[5])
+        media_obj.endYear = int(row[6]) if row[6] != "\\N" else None
+
+        return media_obj
+
+    def __insertTitleBasicsRefresh(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
+        """Refreshes an already-known medium's basics against the current dataset. primaryTitle/
+        originalTitle/endYear are silently updated. titleType may only change within the same
+        category (movie/series/episode) it was already in -- e.g. "movie" -> "tvMovie" is fine,
+        "movie" -> "tvSeries" is not, since that would mean this id fundamentally isn't the kind of
+        thing it was added as. startYear must not have changed at all. Any violation, or the row
+        having gone missing/incomplete since it was first read, raises OfflineDatasetError."""
+
+        if row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N":
+            raise OfflineDatasetError("title.basics row for " + row[0] + " is missing previously-known data (titleType/title/startYear)")
+
+        oldCategory = self.__titleTypeCategory(media_obj.titleType)
+        newCategory = self.__titleTypeCategory(row[1])
+        if newCategory is None or newCategory != oldCategory:
+            raise OfflineDatasetError("titleType for " + row[0] + " changed from '" + str(media_obj.titleType) + "' to '" + row[1] + "', crossing categories")
+        media_obj.titleType = row[1]
+
+        media_obj.primaryTitle = row[2]
+        media_obj.originalTitle = row[3]
+
+        newStartYear = int(row[5])
+        if media_obj.startYear != newStartYear:
+            raise OfflineDatasetError("startYear for " + row[0] + " changed from " + str(media_obj.startYear) + " to " + str(newStartYear))
+
         media_obj.endYear = int(row[6]) if row[6] != "\\N" else None
 
         return media_obj

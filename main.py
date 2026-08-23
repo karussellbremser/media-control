@@ -4,7 +4,7 @@ from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from statistics import Statistics
-from exceptions import LocalLibraryError
+from exceptions import LocalLibraryError, OfflineDatasetError
 import config
 import getopt, os, sys
 
@@ -184,14 +184,53 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     print("Referenced-only media:")
     print("# total: " + str(len(referencedOnlyMedia)) + " (before: " + str(referencedInitial) + ")")
 
-def refreshTitleRatings():
-    print("Refreshing ratings...")
+def refreshTitleData():
+    print("Refreshing data...")
     db = DBControl(config.DB_PATH)
 
-    imdbOnlyDict = db.getDictWithImdbIDs()
-    imdbOnlyDict = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT), config.IMDB_DATASETS_DIR).refreshTitleRatings(imdbOnlyDict)
+    mediaDict = db.getAllMovieObjects()
 
-    db.refreshRatings(imdbOnlyDict)
+    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT), config.IMDB_DATASETS_DIR)
+    mediaDict = offline.refreshTitleRatings(mediaDict)
+    mediaDict = offline.refreshTitleBasics(mediaDict)
+
+    db.refreshRatings(mediaDict)
+    db.refreshTitleBasics(mediaDict)
+
+    # discover new episodes / detect vanished ones for every currently-owned series. New episodes
+    # are added as referenced-only stubs (not scraped online -- refresh is purely offline-dataset
+    # driven); a vanished, locally-owned episode is an error (see removeVanishedEpisode's docstring
+    # for the referenced-only case).
+    ownedSeries = [m for m in mediaDict.values() if m.subdir is not None and m.titleType in Media.seriesTitleTypes]
+    if ownedSeries:
+        fullEpisodeLists = offline.getFullEpisodeListForSeries({s.imdb_id for s in ownedSeries})
+
+        newEpisodeStubs = {}
+        for series in ownedSeries:
+            for season, episode, episode_imdb_id in fullEpisodeLists[series.imdb_id]:
+                if episode_imdb_id not in mediaDict and episode_imdb_id not in newEpisodeStubs:
+                    stub = Media(None, None, episode_imdb_id)
+                    stub.series_imdb_id = series.imdb_id
+                    stub.season_number = season
+                    stub.episode_number = episode
+                    newEpisodeStubs[episode_imdb_id] = stub
+        if newEpisodeStubs:
+            offline.parseTitleRatings(newEpisodeStubs)
+            offline.parseTitleBasics(newEpisodeStubs)
+            for episode_imdb_id, stub in newEpisodeStubs.items():
+                print("New episode discovered: " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].originalTitle if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
+            db.addMultipleMedia(newEpisodeStubs)
+            mediaDict.update(newEpisodeStubs)
+
+        for series in ownedSeries:
+            currentEpisodeIDs = {m.imdb_id for m in mediaDict.values() if m.series_imdb_id == series.imdb_id}
+            freshEpisodeIDs = {episode_imdb_id for (_, _, episode_imdb_id) in fullEpisodeLists[series.imdb_id]}
+            for vanished_id in currentEpisodeIDs - freshEpisodeIDs:
+                episodeMedia = mediaDict[vanished_id]
+                if episodeMedia.subdir is not None:
+                    raise OfflineDatasetError("locally-owned episode " + episodeMedia.getIDString() + " of " +
+                                               str(series.originalTitle) + " is no longer listed in title.episode.tsv")
+                db.removeVanishedEpisode(episodeMedia)
 
 args = sys.argv[1:]
 options = "hcstur"
@@ -201,7 +240,7 @@ try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.\n-r | --refresh: Refresh ratings/vote counts for all known media from the offline datasets.")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.\n-r | --refresh: Refresh ratings, basic title data, and each owned series' episode list for all known media from the offline datasets.")
         elif currentArg in ("-c", "--createdb"):
             DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):
@@ -213,6 +252,6 @@ try:
         elif currentArg in ("-u", "--update"):
             ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT), config.IMDB_DATASETS_DIR).updateDatasets()
         elif currentArg in ("-r", "--refresh"):
-            refreshTitleRatings()
+            refreshTitleData()
 except getopt.error as err:
     print(str(err))
