@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import sqlite3, os
 import config
 from imdbinterestid import parseInterestID
+from media import Media
 
 server = Flask(__name__)
 
@@ -23,7 +24,18 @@ def query_media(search_query, sort_by, order,
                 votes_from, votes_to,
                 selected_interest_ids,
                 selected_language_id,
+                show_movies, show_series,
                 limit, offset):
+    # media types to include -- episodes never appear here (episodeTitleTypes is never added),
+    # since they were never meant to have their own top-level browsing entry
+    allowedTypeNames = []
+    if show_movies:
+        allowedTypeNames += Media.movieTitleTypes
+    if show_series:
+        allowedTypeNames += Media.seriesTitleTypes
+    if not allowedTypeNames:
+        return []
+
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
 
@@ -37,6 +49,7 @@ def query_media(search_query, sort_by, order,
         ORDER BY ie.name
     ) as tags
     FROM media m
+    JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
     """
     params = []
 
@@ -45,7 +58,10 @@ def query_media(search_query, sort_by, order,
         sql += " JOIN media_interests mi_filter ON m.imdb_id = mi_filter.imdb_id"
 
     sql += " WHERE m.subdir IS NOT NULL"
-    
+
+    sql += " AND tt.title_type_name IN (" + ",".join("?" for _ in allowedTypeNames) + ")"
+    params.extend(allowedTypeNames)
+
     # text search -- each word must match either the original or the primary (localized) title
     if search_query:
         words = search_query.split()
@@ -53,14 +69,33 @@ def query_media(search_query, sort_by, order,
             sql += " AND (originalTitle LIKE ? COLLATE NOCASE OR primaryTitle LIKE ? COLLATE NOCASE)"
             params.append(f"%{word}%")
             params.append(f"%{word}%")
-    
-    # filter years
-    if year_from:
-        sql += " AND startYear >= ?"
-        params.append(year_from)
-    if year_to:
-        sql += " AND startYear <= ?"
-        params.append(year_to)
+
+    # filter years -- movies match on an exact startYear range; series match if the filter range
+    # overlaps the series' production span (startYear..endYear, or startYear..currentYear if the
+    # series is still running, i.e. endYear is NULL)
+    if year_from or year_to:
+        yearBranches = []
+        if show_movies:
+            movieCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.movieTitleTypes) + ")"
+            params.extend(Media.movieTitleTypes)
+            if year_from:
+                movieCond += " AND m.startYear >= ?"
+                params.append(year_from)
+            if year_to:
+                movieCond += " AND m.startYear <= ?"
+                params.append(year_to)
+            yearBranches.append("(" + movieCond + ")")
+        if show_series:
+            seriesCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.seriesTitleTypes) + ")"
+            params.extend(Media.seriesTitleTypes)
+            if year_from:
+                seriesCond += " AND COALESCE(m.endYear, CAST(strftime('%Y', 'now') AS INTEGER)) >= ?"
+                params.append(year_from)
+            if year_to:
+                seriesCond += " AND m.startYear <= ?"
+                params.append(year_to)
+            yearBranches.append("(" + seriesCond + ")")
+        sql += " AND (" + " OR ".join(yearBranches) + ")"
 
     # filter ratings
     if rating_from:
@@ -168,6 +203,8 @@ def search():
     args = request.args
     selected_interest_ids = [int(x) for x in args.getlist('genres[]') + args.getlist('interests[]')]
     selected_language_id = int(args.get('language')) if args.get('language') else None
+    show_movies = args.get('movies', '1') == '1'
+    show_series = args.get('series', '0') == '1'
 
     page = int(args.get('page', 1))
     limit = 50
@@ -185,6 +222,8 @@ def search():
         args.get('votes_to'),
         selected_interest_ids,
         selected_language_id,
+        show_movies,
+        show_series,
         limit,
         offset
     )

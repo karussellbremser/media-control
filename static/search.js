@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const votesFrom = document.getElementById('votesFrom');
     const votesTo = document.getElementById('votesTo');
 	
+	const moviesCheckbox = document.getElementById('moviesCheckbox');
+	const seriesCheckbox = document.getElementById('seriesCheckbox');
+
 	const languageRadios = document.querySelectorAll('.languageRadio');
 	const genreCheckboxes = document.querySelectorAll('.genreCheckbox');
 	const interestCheckboxes = document.querySelectorAll('.interestCheckbox');
@@ -109,6 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		votesFrom.value = '';
 		votesTo.value = '';
 
+		moviesCheckbox.checked = true;
+		seriesCheckbox.checked = false;
+
 		document.querySelector('.languageRadio[value=""]').checked = true;
 
 		genreCheckboxes.forEach(cb => cb.checked = false);
@@ -144,6 +150,8 @@ document.addEventListener('DOMContentLoaded', () => {
             votes_from: votesFrom.value,
             votes_to: votesTo.value,
             language: document.querySelector('.languageRadio:checked').value,
+			movies: moviesCheckbox.checked ? '1' : '0',
+			series: seriesCheckbox.checked ? '1' : '0',
 			page: currentPage
         });
 
@@ -286,6 +294,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	languageRadios.forEach(radio => {
 		radio.addEventListener('change', () => resetAndSearch(input.value));
 	});
+
+	moviesCheckbox.addEventListener('change', () => resetAndSearch(input.value));
+	seriesCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 
     [yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => {
         el.addEventListener('input', () => debounceSearch(input.value));
