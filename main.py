@@ -32,6 +32,48 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     scrape = ScrapeLocal(mediaDir)
     mediaDictOriginal = scrape.scrapeLocalComplete()
 
+    # 1b. resolve locally-found episodes (season/episode number, from each series' raw .episodes)
+    # to their real IMDb episode ids, via the offline title.episode.tsv dataset -- purely local, so
+    # this belongs before any scraping too, same as the checks below. Resolved episodes become
+    # ordinary top-level entries in mediaDictOriginal, just like movies/series, so every check and
+    # sync step from here on already applies to them with no further special-casing.
+    localSeries = [m for m in mediaDictOriginal.values() if m.episodes]
+    if localSeries:
+        offlineForEpisodes = ScrapeIMDbOffline(None, config.IMDB_DATASETS_DIR)
+        episodesBySeries = offlineForEpisodes.getEpisodesForSeries({series.imdb_id for series in localSeries})
+
+        # unnumbered (S00) episodes already carry their own id from the filename; verify each one
+        # in one extra pass rather than trusting it blindly, since getEpisodesForSeries's (season,
+        # episode) lookup can't be used for these (IMDb's "unnumbered" key collides across episodes)
+        unnumberedCandidates = {le.imdb_id: Media(None, None, le.imdb_id)
+                                 for series in localSeries for le in series.episodes if le.imdb_id is not None}
+        if unnumberedCandidates:
+            offlineForEpisodes.parseTitleEpisode(unnumberedCandidates)
+
+        for series in localSeries:
+            seriesEpisodes = episodesBySeries[series.imdb_id]
+            for localEpisode in series.episodes:
+                if localEpisode.imdb_id is not None:
+                    candidate = unnumberedCandidates[localEpisode.imdb_id]
+                    if candidate.series_imdb_id != series.imdb_id or candidate.season_number is not None:
+                        raise LocalLibraryError("locally-found unnumbered episode " + candidate.getIDString() +
+                                                 " in " + localEpisode.subdir + " is not an unnumbered episode of " + series.originalTitle + " per title.episode.tsv")
+                    episode_imdb_id = localEpisode.imdb_id
+                else:
+                    key = (localEpisode.season_number, localEpisode.episode_number)
+                    if key not in seriesEpisodes:
+                        raise LocalLibraryError("locally-found episode S" + str(localEpisode.season_number) + "E" + str(localEpisode.episode_number) +
+                                                 " of " + series.originalTitle + " not found in title.episode.tsv")
+                    episode_imdb_id = seriesEpisodes[key]
+                episodeMedia = Media(None, None, episode_imdb_id)
+                episodeMedia.subdir = localEpisode.subdir
+                episodeMedia.season_number = localEpisode.season_number
+                episodeMedia.episode_number = localEpisode.episode_number
+                episodeMedia.series_imdb_id = series.imdb_id
+                episodeMedia.mediaVersions = localEpisode.mediaVersions
+                mediaDictOriginal[episode_imdb_id] = episodeMedia
+            series.episodes = [] # consumed -- resolved episodes now live as their own top-level entries
+
     # fail fast if any locally-owned title is on the ignored/wontadd list, before any scraping happens
     violating = [m for m in mediaDictOriginal.values() if m.imdb_id in ignoredIDs or m.imdb_id in wontaddIDs]
     if violating:
@@ -47,12 +89,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT)
 
-    # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language
+    # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language.
+    # episodes (identified here by series_imdb_id already being set, from step 1b) are excluded --
+    # they get none of this: no cover, no interests, no language, no plot summary
+    moviesAndSeriesDict = {k: v for k, v in newlyAddedMediaDict.items() if v.series_imdb_id is None}
     knownInterestIDs = db.getAllKnownInterestIDs()
     knownLanguageIDs = db.getAllKnownLanguageIDs()
     knownPseudoGenreIDs = db.getAllKnownPseudoGenreIDs()
     knownFranchiseIDs = db.getAllKnownFranchiseIDs()
-    newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations = scrapeimdbonline.scrapeMainPages(newlyAddedMediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
+    newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
     for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
         if imdb_interest_id < 0:
             print("New pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
@@ -83,6 +128,23 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # 6. offline parsing; flags locally-owned titles missing from the dataset for online fallback (step 7),
     # discards referenced-only titles missing from the dataset
     scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
+
+    # a referenced connection target might be an episode rather than a movie/series -- resolve any
+    # such id's season/episode/parent series (must run before parseTitleBasics, see
+    # parseTitleEpisode), then add the parent series too if not already known: series_imdb_id's FK
+    # requires the series row to exist, not just nice for display. If the series is itself ignored,
+    # drop the episode instead (it can't be added without its series; a locally-owned series being
+    # ignored would already have failed the earlier local-scan check, so this can only happen for a
+    # referenced-only episode)
+    scrapeimdboffline.parseTitleEpisode(newlyAddedMediaDict)
+    for imdb_id, x in list(newlyAddedMediaDict.items()):
+        if x.series_imdb_id is None:
+            continue
+        if x.series_imdb_id in ignoredIDs:
+            del newlyAddedMediaDict[imdb_id]
+        elif x.series_imdb_id not in newlyAddedMediaDict:
+            newlyAddedMediaDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
+
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
 
@@ -100,9 +162,21 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     db.addMultipleMedia(newlyAddedMediaDict)
 
-    # 8. recover covers missing for any currently-owned medium (e.g. deleted between syncs), then generate thumbnails
-    scrapeimdbonline.downloadCovers(mediaDictOriginal)
+    # 8. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
+    # thumbnails. Series covers are deliberately never fetched automatically -- IMDb only offers the latest
+    # season's cover as a series' "main" image, which isn't what should represent the whole series locally;
+    # a missing series cover is instead flagged below, for the user to source and place manually. A series
+    # not yet resolved by title.basics this run still carries its "localSeries" local-scrape placeholder.
+    seriesTitleTypesLocal = ["localSeries"] + Media.seriesTitleTypes
+    moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if v.series_imdb_id is None and v.titleType not in seriesTitleTypesLocal}
+    scrapeimdbonline.downloadCovers(moviesOnlyDict)
     scrapeimdbonline.generateThumbnails()
+
+    for v in mediaDictOriginal.values():
+        if v.series_imdb_id is None and v.titleType in seriesTitleTypesLocal:
+            coverPath = os.path.join(coverDir, v.getIDString() + ".jpg")
+            if not os.path.isfile(coverPath):
+                print("WARNING: no cover found for locally-owned series " + str(v.originalTitle) + " (" + v.getIDString() + ") -- series covers must be added manually")
 
     del scrapeimdbonline
 

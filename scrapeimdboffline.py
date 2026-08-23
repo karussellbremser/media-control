@@ -86,7 +86,46 @@ class ScrapeIMDbOffline:
                 media_obj.episode_number = int(episodeRaw) if episodeRaw != "\\N" else None
 
         return content_dict
-    
+
+    def getEpisodesForSeries(self, series_imdb_ids):
+        """Scans title.episode.tsv once and returns {series_imdb_id: {(season_number,
+        episode_number): episode_imdb_id}} for every series in series_imdb_ids. The reverse
+        direction of parseTitleEpisode -- resolves a known (series, season, episode) to an episode
+        id, rather than a known episode id to its season/episode/series.
+
+        Only useful for looking up a real, numbered (season, episode) pair -- an unnumbered episode
+        maps to the (None, None) key like everywhere else, but since a series can legitimately have
+        more than one unnumbered episode, only the last one encountered survives under that key.
+        That's fine for resolving locally-found episode files (a local filename always carries a
+        real season/episode number, so (None, None) is never looked up here), but this method isn't
+        meant for enumerating a series' full episode list including every unnumbered one.
+
+        Raises OfflineDatasetError if two different episodes claim the same real (season, episode)
+        for the same series -- a genuine dataset anomaly, not something to silently pick one of."""
+
+        if len(series_imdb_ids) == 0:
+            return {}
+
+        result = {series_imdb_id: {} for series_imdb_id in series_imdb_ids}
+
+        with open(os.path.join(self.dataset_directory, self.title_episode_filename), "r", encoding="utf8") as f:
+            c = csv.reader(f, delimiter="\t")
+            next(c, None) # read from second line
+            for row in c: # row: tconst || parentTconst || seasonNumber || episodeNumber
+                parent_imdb_id = int(row[1][2:])
+                if parent_imdb_id not in result:
+                    continue
+                seasonRaw, episodeRaw = row[2], row[3]
+                if (seasonRaw == "\\N") != (episodeRaw == "\\N"):
+                    raise OfflineDatasetError("episode " + row[0] + " has a season/episode number mismatch (one is unknown, the other isn't): " + seasonRaw + "/" + episodeRaw)
+                key = (int(seasonRaw), int(episodeRaw)) if seasonRaw != "\\N" else (None, None)
+                episode_imdb_id = int(row[0][2:])
+                if key != (None, None) and key in result[parent_imdb_id]:
+                    raise OfflineDatasetError("duplicate season/episode " + str(key) + " for series " + row[1] + ": " + str(result[parent_imdb_id][key]) + " and " + row[0])
+                result[parent_imdb_id][key] = episode_imdb_id
+
+        return result
+
     def __parseIMDbOfflineFile(self, content_dict, file_type, remove_illegal): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
         if len(content_dict) == 0:
             return content_dict

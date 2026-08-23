@@ -70,6 +70,8 @@ class ScrapeLocal:
         root, seasonDirs, files = next(os.walk(self.__complDirPath(subdir)))
         # files is already known to be empty here -- __scrapeSingleMedia only routes a subdir here
         # when it contains no files directly, only subdirectories
+        if len(seasonDirs) == 0:
+            raise LocalLibraryError('Series subdirectory contains no season folders: ' + subdir)
 
         for seasonDir in seasonDirs:
             self.__scrapeSingleSeason(currentSeries, subdir, seasonDir)
@@ -93,25 +95,39 @@ class ScrapeLocal:
         if versions_exists:
             versions_dict = self.__parseDictFile(seasonPath, "versions.txt")
 
-        # group this season's files by episode number; each mkv_file's suffix (the part between
-        # SxxExx and .mkv, if any) is either a version name (looked up in versions_dict below) or
-        # an "Intro"/"IntroN" special-version marker, exempt from needing a versions.txt entry
+        # group this season's files by episode; each mkv_file's suffix (the part after the episode
+        # identifier and before .mkv, if any) is either a version name (looked up in versions_dict
+        # below) or an "Intro"/"IntroN" special-version marker, exempt from needing a versions.txt
+        # entry. S00 is reserved for IMDb's "unnumbered" episodes (see Episode's docstring /
+        # title.episode.tsv's "\N"), whose files embed the episode's own imdb id directly instead
+        # of a season/episode number, since there isn't one to encode
+        isUnnumbered = (season_number == 0)
         episodeFiles = {}
         for mkv_file in mkv_files:
-            filenameMatch = re.fullmatch(r"(.+)_S(\d+)E(\d+)(?:_(.+))?", mkv_file[:-4])
-            if not filenameMatch:
-                raise LocalLibraryError('Bad episode filename ' + mkv_file + ' in season folder ' + seasonPath)
-            file_season_number = int(filenameMatch.group(2))
-            episode_number = int(filenameMatch.group(3))
-            suffix = filenameMatch.group(4)
-            if file_season_number != season_number:
-                raise LocalLibraryError('Episode filename ' + mkv_file + ' does not match season folder ' + seasonPath)
-            episodeFiles.setdefault(episode_number, []).append((mkv_file, suffix))
+            if isUnnumbered:
+                filenameMatch = re.fullmatch(r"(.+)_tt(\d{7,8})(?:_(.+))?", mkv_file[:-4])
+                if not filenameMatch:
+                    raise LocalLibraryError('Bad unnumbered episode filename ' + mkv_file + ' in season folder ' + seasonPath)
+                episode_id_str = filenameMatch.group(2)
+                if len(episode_id_str) == 8 and episode_id_str[0] == '0': # 8-digit id's must not start with '0', matching Media's own subdir parsing
+                    raise LocalLibraryError('Bad format of imdb id in filename ' + mkv_file + ' in season folder ' + seasonPath)
+                episode_key = int(episode_id_str)
+                suffix = filenameMatch.group(3)
+            else:
+                filenameMatch = re.fullmatch(r"(.+)_S(\d+)E(\d+)(?:_(.+))?", mkv_file[:-4])
+                if not filenameMatch:
+                    raise LocalLibraryError('Bad episode filename ' + mkv_file + ' in season folder ' + seasonPath)
+                file_season_number = int(filenameMatch.group(2))
+                if file_season_number != season_number:
+                    raise LocalLibraryError('Episode filename ' + mkv_file + ' does not match season folder ' + seasonPath)
+                episode_key = int(filenameMatch.group(3))
+                suffix = filenameMatch.group(4)
+            episodeFiles.setdefault(episode_key, []).append((mkv_file, suffix))
 
-        for episode_number, fileList in episodeFiles.items():
+        for episode_key, fileList in episodeFiles.items():
             nonIntroCount = sum(1 for _, suffix in fileList if not (suffix and re.fullmatch(r"Intro\d*", suffix)))
             if nonIntroCount > 1 and not versions_exists:
-                raise LocalLibraryError('Episode S' + str(season_number) + 'E' + str(episode_number) + ' in season folder ' + seasonPath + ' has multiple versions but no versions.txt')
+                raise LocalLibraryError('Episode ' + str(episode_key) + ' in season folder ' + seasonPath + ' has multiple versions but no versions.txt')
 
             mediaVersions = []
             for mkv_file, suffix in fileList:
@@ -139,7 +155,10 @@ class ScrapeLocal:
 
                 mediaVersions.append(MediaVersion(mkv_file, src, version))
 
-            currentSeries.episodes.append(Episode(season_number, episode_number, mediaVersions))
+            if isUnnumbered:
+                currentSeries.episodes.append(Episode(None, None, mediaVersions, seasonPath, imdb_id=episode_key))
+            else:
+                currentSeries.episodes.append(Episode(season_number, episode_key, mediaVersions, seasonPath))
 
     def __complDirPath(self, subdir):
         return(os.path.join(self.rootdir, subdir))
