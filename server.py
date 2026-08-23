@@ -46,11 +46,12 @@ def query_media(search_query, sort_by, order,
 
     sql += " WHERE m.subdir IS NOT NULL"
     
-    # text search
+    # text search -- each word must match either the original or the primary (localized) title
     if search_query:
         words = search_query.split()
         for word in words:
-            sql += " AND originalTitle LIKE ? COLLATE NOCASE"
+            sql += " AND (originalTitle LIKE ? COLLATE NOCASE OR primaryTitle LIKE ? COLLATE NOCASE)"
+            params.append(f"%{word}%")
             params.append(f"%{word}%")
     
     # filter years
