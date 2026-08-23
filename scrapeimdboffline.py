@@ -9,6 +9,7 @@ class ScrapeIMDbOffline:
     
     title_ratings_filename = "title.ratings.tsv"
     title_basics_filename = "title.basics.tsv"
+    title_episode_filename = "title.episode.tsv"
 
     def __init__(self, scrapeimdbonline, dataset_directory):
         self.dataset_directory = dataset_directory
@@ -38,7 +39,10 @@ class ScrapeIMDbOffline:
         
         # update Title Ratings
         self.__updateDataset(os.path.join(self.dataset_directory, self.title_ratings_filename), "https://datasets.imdbws.com/title.ratings.tsv.gz")
-        
+
+        # update Title Episode
+        self.__updateDataset(os.path.join(self.dataset_directory, self.title_episode_filename), "https://datasets.imdbws.com/title.episode.tsv.gz")
+
         return
     
     def parseTitleRatings(self, content_dict):
@@ -49,6 +53,39 @@ class ScrapeIMDbOffline:
     
     def parseTitleBasics(self, content_dict):
         return self.__parseIMDbOfflineFile(content_dict, 1, True)
+
+    def parseTitleEpisode(self, content_dict):
+        """Resolves season_number/episode_number/series_imdb_id for every id in content_dict that
+        turns out to be an episode, by scanning title.episode.tsv once. An id with no matching row
+        simply isn't an episode -- unlike parseTitleBasics/parseTitleRatings, membership in this
+        file is what DEFINES an id as an episode here, not something checked against an
+        already-known type. IMDb's "\\N" (no season/episode number, e.g. an uncategorized episode)
+        maps to None for both fields, never to 0 -- 0 is a legitimate real episode number, and real
+        season numbers are always >= 1, so None stays unambiguous regardless of what season/episode
+        number IMDb might use in the future.
+
+        Must run before parseTitleBasics: __insertTitleBasics's fail-loud type-consistency check
+        relies on series_imdb_id already being set to know an id is expected to be an episode."""
+
+        if len(content_dict) == 0:
+            return content_dict
+
+        with open(os.path.join(self.dataset_directory, self.title_episode_filename), "r", encoding="utf8") as f:
+            c = csv.reader(f, delimiter="\t")
+            next(c, None) # read from second line
+            for row in c: # row: tconst || parentTconst || seasonNumber || episodeNumber
+                current_imdb_id = int(row[0][2:])
+                if current_imdb_id not in content_dict:
+                    continue
+                seasonRaw, episodeRaw = row[2], row[3]
+                if (seasonRaw == "\\N") != (episodeRaw == "\\N"):
+                    raise OfflineDatasetError("episode " + row[0] + " has a season/episode number mismatch (one is unknown, the other isn't): " + seasonRaw + "/" + episodeRaw)
+                media_obj = content_dict[current_imdb_id]
+                media_obj.series_imdb_id = int(row[1][2:])
+                media_obj.season_number = int(seasonRaw) if seasonRaw != "\\N" else None
+                media_obj.episode_number = int(episodeRaw) if episodeRaw != "\\N" else None
+
+        return content_dict
     
     def __parseIMDbOfflineFile(self, content_dict, file_type, remove_illegal): # file_type: 0 -> TitleRatings, 1 -> TitleBasics
         if len(content_dict) == 0:
@@ -85,6 +122,12 @@ class ScrapeIMDbOffline:
                         continue
                 
                 if file_type == 1 and x.titleType in (None, "localMovie", "localSeries"): # titleType still unset or still the local-scrape placeholder: no matching row was found in title.basics
+                    if x.series_imdb_id is not None:
+                        # known to be an episode via title.episode.tsv, but missing from title.basics.tsv --
+                        # the two offline dataset files disagree with each other. Always an error, regardless
+                        # of ownership (unlike movies/series, a referenced-only episode is never silently
+                        # discarded -- catalog completeness for a series' episodes is the whole point)
+                        raise OfflineDatasetError("episode " + x.getIDString() + " found in title.episode.tsv but missing from title.basics.tsv")
                     if x.subdir == None:
                         # referenced-only title missing from the dataset: not worth an online fallback scrape, discard
                         illegal_ids.append(x.imdb_id)
@@ -94,7 +137,7 @@ class ScrapeIMDbOffline:
                         x.needsOnlineFallback = True
                         continue
 
-                if file_type == 1 and x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes:
+                if file_type == 1 and x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes + Media.episodeTitleTypes:
                     # found in the dataset, but not an acceptable title type (e.g. a TV episode ending up in the movie library)
                     illegal_ids.append(x.imdb_id)
             
@@ -123,10 +166,13 @@ class ScrapeIMDbOffline:
     
     def __insertTitleBasics(self, media_obj, row): # row: imdb_id || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
         
-        localTitleType = media_obj.titleType # result of local parsing (movie or series)
+        localTitleType = media_obj.titleType # result of local parsing (movie or series), or None for referenced-only media and episodes
         if ((localTitleType == "localMovie" and row[1] not in Media.movieTitleTypes)
-            or (localTitleType == "localSeries" and row[1] not in Media.seriesTitleTypes)):
-            raise OfflineDatasetError("title type " + row[1] + " not acceptable for local parsing result " + localTitleType)
+            or (localTitleType == "localSeries" and row[1] not in Media.seriesTitleTypes)
+            or (media_obj.series_imdb_id is not None and row[1] not in Media.episodeTitleTypes)):
+            # the third condition catches title.basics.tsv disagreeing with title.episode.tsv about
+            # whether this id is actually an episode (series_imdb_id is only ever set by parseTitleEpisode)
+            raise OfflineDatasetError("title type " + row[1] + " not acceptable for local parsing result " + str(localTitleType))
         if (row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N"):
             media_obj.titleType = "ILLEGAL" # set illegal title type so that object will be removed later
             return media_obj

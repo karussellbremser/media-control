@@ -4,11 +4,21 @@ from exceptions import LocalLibraryError
 
 class Media:
 
-    # accepted IMDb titleType values for locally-scraped movies/series respectively, used by both
-    # scrapeimdboffline.py and scrapeimdbonline.py to validate a scraped type against how a title
-    # was locally parsed
+    # accepted IMDb titleType values for locally-scraped movies/series respectively; part of the
+    # fail-loud methodology (see scrapeimdboffline.py/scrapeimdbonline.py), catching when IMDb's
+    # own titleType disagrees with the local structural convention a title was parsed under (a
+    # files-only folder is expected to be a movie, a dirs-only folder a series -- see
+    # ScrapeLocal.__scrapeSingleMedia)
     movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
-    seriesTitleTypes = [] # TBD
+    seriesTitleTypes = ["tvSeries", "tvMiniSeries"]
+
+    # accepted IMDb titleType value(s) for episodes. Narrower purpose than the two lists above:
+    # episodes are never locally placeholder-guessed (their media row comes from title.episode.tsv
+    # via ScrapeIMDbOffline.parseTitleEpisode, not from local folder structure), so this doesn't
+    # feed that same local-vs-IMDb consistency check -- it's used to seed title_type_enum, and to
+    # catch a different fail-loud case: title.basics.tsv disagreeing with title.episode.tsv about
+    # whether a given id is actually an episode.
+    episodeTitleTypes = ["tvEpisode"]
 
     # fixed vocabulary for a mediaVersion's source(s), used by dbcontrol.py to seed
     # source_type_enum/source_role_enum and by sourceparser.py
@@ -37,7 +47,10 @@ class Media:
             self.titleType = "localMovie" if not isSeries else "localSeries"
         
         self.primaryTitle = None
-        self.plotSummary = None # scraped from the title's IMDb main page; only set for locally-owned media
+        self.plotSummary = None # scraped from the title's IMDb main page; only set for locally-owned movies/series, never for episodes
+        self.season_number = None # None unless this is an episode (titleType in episodeTitleTypes); None also covers IMDb's own "unnumbered" episodes, never conflated with a real season/episode number (see ScrapeIMDbOffline.parseTitleEpisode)
+        self.episode_number = None
+        self.series_imdb_id = None # imdb_id of the parent series; None unless this is an episode
         self.endYear = None
         self.rating_mul10 = None
         self.numVotes = None

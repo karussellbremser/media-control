@@ -18,7 +18,13 @@ class DBControl:
 
     def createMediaDB(self):
         with self.conn:
-            # media table holds both media present in library and those only linked by IMDb connections. differentiator if medium is actually present is subdir not being NULL
+            # media table holds both media present in library and those only linked by IMDb connections. differentiator if medium is actually present is subdir not being NULL.
+            # covers movies, series, and episodes alike. subdir is not UNIQUE: an episode's subdir is
+            # its season folder's path, shared by every sibling episode in that season (see
+            # ScrapeLocal.__scrapeSingleSeries) -- ownership is per-episode via imdb_id, not subdir.
+            # season_number/episode_number/series_imdb_id are only ever set for episodes (titleType
+            # in Media.episodeTitleTypes); NULL there means IMDb has no season/episode number for
+            # this episode (never conflated with a real number -- see ScrapeIMDbOffline.parseTitleEpisode)
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
             title_type_id integer NOT NULL,
@@ -30,9 +36,12 @@ class DBControl:
             numVotes integer,
             releaseMonth integer,
             releaseDay integer,
-            subdir text UNIQUE,
+            subdir text,
             language_id integer NOT NULL DEFAULT 0,
             plotSummary text,
+            season_number integer,
+            episode_number integer,
+            series_imdb_id integer,
             PRIMARY KEY (imdb_id),
             FOREIGN KEY (title_type_id)
                 REFERENCES title_type_enum (title_type_id)
@@ -40,6 +49,10 @@ class DBControl:
                     ON DELETE RESTRICT,
             FOREIGN KEY (language_id)
                 REFERENCES language_enum (imdb_interest_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (series_imdb_id)
+                REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
@@ -96,7 +109,7 @@ class DBControl:
             PRIMARY KEY (title_type_id)
             )""")
             i = 1
-            for titleType in Media.movieTitleTypes + Media.seriesTitleTypes:
+            for titleType in Media.movieTitleTypes + Media.seriesTitleTypes + Media.episodeTitleTypes:
                 self.c.execute("INSERT INTO title_type_enum VALUES (?, ?)", (i, titleType))
                 i += 1
 
@@ -247,9 +260,9 @@ class DBControl:
             self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
             data = self.c.fetchall()
             if len(data) == 0:
-                self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary))
+                self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id))
             elif data[0][1] == None:
-                self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.imdb_id))
+                self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=?, season_number=?, episode_number=?, series_imdb_id=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.imdb_id))
             else:
                 raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
             for imdb_interest_id in thisMedia.interests:
@@ -622,7 +635,7 @@ class DBControl:
             return(self.c.fetchall())
 
     def __getMovieObjectFromDBRow(self, dbRow):
-        # imdb_id, title_type_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir, language_id, plotSummary
+        # imdb_id, title_type_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir, language_id, plotSummary, season_number, episode_number, series_imdb_id
         mediaObject = Media(None, None, dbRow[0])
         mediaObject.originalTitle = dbRow[2]
         mediaObject.primaryTitle = dbRow[3]
@@ -635,6 +648,9 @@ class DBControl:
         mediaObject.subdir = dbRow[10]
         mediaObject.language_id = dbRow[11]
         mediaObject.plotSummary = dbRow[12]
+        mediaObject.season_number = dbRow[13]
+        mediaObject.episode_number = dbRow[14]
+        mediaObject.series_imdb_id = dbRow[15]
         mediaObject.titleType = self.__getTitleTypeNameByTitleTypeID(dbRow[1])
         mediaObject.interests = self.__getInterestIDList(dbRow[0])
         mediaObject.mediaVersions = self.__getMediaVersionList(dbRow[0])
