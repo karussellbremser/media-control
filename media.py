@@ -61,6 +61,7 @@ class Media:
         self.language_id = 0 # imdb_interest_id into language_enum; 0 = English (the reserved default id), overwritten if a language-type interest is attached
         self.mediaVersions = []
         self.mediaConnections = []
+        self.episodes = [] # list of Episode, only ever populated for a locally-scraped series (see ScrapeLocal.__scrapeSingleSeries)
         self.needsOnlineFallback = False # set when locally-owned media is missing from the IMDb offline datasets
 
     def __str__(self):

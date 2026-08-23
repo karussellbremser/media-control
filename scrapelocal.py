@@ -1,6 +1,7 @@
-import sys, os
+import sys, os, re
 from media import Media
 from mediaversion import MediaVersion
+from episode import Episode
 from exceptions import LocalLibraryError
 
 class ScrapeLocal:
@@ -63,9 +64,83 @@ class ScrapeLocal:
         
         return currentMovie
     
-    def __scrapeSingleSeries(self, subdir): # TBD
-        return
-    
+    def __scrapeSingleSeries(self, subdir):
+        currentSeries = Media(subdir, True)
+
+        root, seasonDirs, files = next(os.walk(self.__complDirPath(subdir)))
+        # files is already known to be empty here -- __scrapeSingleMedia only routes a subdir here
+        # when it contains no files directly, only subdirectories
+
+        for seasonDir in seasonDirs:
+            self.__scrapeSingleSeason(currentSeries, subdir, seasonDir)
+
+        return currentSeries
+
+    def __scrapeSingleSeason(self, currentSeries, subdir, seasonDir):
+        seasonMatch = re.fullmatch(r"S(\d+)", seasonDir)
+        if not seasonMatch:
+            raise LocalLibraryError('Bad season folder name ' + seasonDir + ' in subdirectory ' + subdir)
+        season_number = int(seasonMatch.group(1))
+
+        seasonPath = os.path.join(subdir, seasonDir)
+        root, dirs, files = next(os.walk(self.__complDirPath(seasonPath)))
+        if len(dirs) != 0:
+            raise LocalLibraryError('Bad content of season folder ' + seasonPath)
+
+        mkv_files, sources_file, versions_exists = self.__checkSeasonFilenames(subdir, seasonDir, files)
+
+        src_dict = self.__parseDictFile(seasonPath, sources_file)
+        if versions_exists:
+            versions_dict = self.__parseDictFile(seasonPath, "versions.txt")
+
+        # group this season's files by episode number; each mkv_file's suffix (the part between
+        # SxxExx and .mkv, if any) is either a version name (looked up in versions_dict below) or
+        # an "Intro"/"IntroN" special-version marker, exempt from needing a versions.txt entry
+        episodeFiles = {}
+        for mkv_file in mkv_files:
+            filenameMatch = re.fullmatch(r"(.+)_S(\d+)E(\d+)(?:_(.+))?", mkv_file[:-4])
+            if not filenameMatch:
+                raise LocalLibraryError('Bad episode filename ' + mkv_file + ' in season folder ' + seasonPath)
+            file_season_number = int(filenameMatch.group(2))
+            episode_number = int(filenameMatch.group(3))
+            suffix = filenameMatch.group(4)
+            if file_season_number != season_number:
+                raise LocalLibraryError('Episode filename ' + mkv_file + ' does not match season folder ' + seasonPath)
+            episodeFiles.setdefault(episode_number, []).append((mkv_file, suffix))
+
+        for episode_number, fileList in episodeFiles.items():
+            nonIntroCount = sum(1 for _, suffix in fileList if not (suffix and re.fullmatch(r"Intro\d*", suffix)))
+            if nonIntroCount > 1 and not versions_exists:
+                raise LocalLibraryError('Episode S' + str(season_number) + 'E' + str(episode_number) + ' in season folder ' + seasonPath + ' has multiple versions but no versions.txt')
+
+            mediaVersions = []
+            for mkv_file, suffix in fileList:
+                if mkv_file in src_dict:
+                    src = src_dict[mkv_file]
+                elif "OTHER" in src_dict:
+                    src = src_dict["OTHER"]
+                else:
+                    raise LocalLibraryError('Bad source file in season folder ' + seasonPath)
+
+                isIntro = bool(suffix) and re.fullmatch(r"Intro\d*", suffix)
+                if isIntro:
+                    version = suffix
+                elif nonIntroCount == 1:
+                    # this episode's lone non-Intro file needs no disambiguation, regardless of
+                    # whether versions.txt exists at all (it may, for some other episode in this
+                    # season) -- but respect an explicit entry if the user gave one anyway
+                    version = versions_dict.get(mkv_file) if versions_exists else None
+                elif mkv_file in versions_dict:
+                    version = versions_dict[mkv_file]
+                elif "OTHER" in versions_dict:
+                    version = versions_dict["OTHER"]
+                else:
+                    raise LocalLibraryError('Bad versions file in season folder ' + seasonPath)
+
+                mediaVersions.append(MediaVersion(mkv_file, src, version))
+
+            currentSeries.episodes.append(Episode(season_number, episode_number, mediaVersions))
+
     def __complDirPath(self, subdir):
         return(os.path.join(self.rootdir, subdir))
     
@@ -110,9 +185,47 @@ class ScrapeLocal:
             
         if sources_file == "" or len(mkv_files) == 0 or (len(mkv_files) > 1 and versions_exists == False):
             raise LocalLibraryError('Bad content of subdirectory ' + subdir)
-        
+
         return mkv_files, sources_file, versions_exists
-    
+
+    def __checkSeasonFilenames(self, subdir, seasonDir, files): # returns mkv_files, sources_file, versions_exists
+        # same file-type rules as __checkMovieFilenames, except versions.txt isn't mandated just
+        # because the season folder has more than one .mkv file overall -- multiple episodes
+        # naturally means multiple files; that requirement is instead checked per episode, once
+        # files are grouped by episode number (see __scrapeSingleSeason)
+        seasonPath = os.path.join(subdir, seasonDir)
+        mkv_files = []
+        sources_file = ""
+        versions_exists = False
+
+        for file in files:
+            file_split = file.rsplit('.', 1)
+            if len(file_split) != 2:
+                raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
+
+            if file_split[1] == "torrent": # torrent file
+                continue
+            elif file_split[1] == "txt":
+                if file_split[0].startswith("check"): # check file
+                    continue
+                elif file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
+                    if sources_file != "":
+                        raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
+                    sources_file = file
+                elif file_split[0] == "versions": # versions file
+                    versions_exists = True
+                else:
+                    raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
+            elif file_split[1] == "mkv": # mkv files
+                mkv_files.append(file)
+            else:
+                raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
+
+        if sources_file == "" or len(mkv_files) == 0:
+            raise LocalLibraryError('Bad content of season folder ' + seasonPath)
+
+        return mkv_files, sources_file, versions_exists
+
     def __parseDictFile(self, subdir, dictFile):
         pathToFile = self.__complFilePath(subdir, dictFile)
         
