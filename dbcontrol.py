@@ -21,7 +21,7 @@ class DBControl:
             # media table holds both media present in library and those only linked by IMDb connections. differentiator if medium is actually present is subdir not being NULL
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
-            titleType_id integer NOT NULL,
+            title_type_id integer NOT NULL,
             originalTitle text NOT NULL,
             primaryTitle text NOT NULL,
             startYear integer NOT NULL,
@@ -34,8 +34,8 @@ class DBControl:
             language_id integer NOT NULL DEFAULT 0,
             plotSummary text,
             PRIMARY KEY (imdb_id),
-            FOREIGN KEY (titleType_id)
-                REFERENCES titleType_enum (titleType_id)
+            FOREIGN KEY (title_type_id)
+                REFERENCES title_type_enum (title_type_id)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT,
             FOREIGN KEY (language_id)
@@ -90,14 +90,14 @@ class DBControl:
             # real IMDb interest ids (in\d+) are always 1 or greater and can never collide with it
             self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", (0, "English", "English-language cinema encompasses a vast and influential body of filmmaking, from Hollywood's genre-defining blockbusters to British drama and independent voices across the English-speaking world. It has driven major innovations in visual effects, narrative structure, and global distribution, shaping how audiences everywhere experience film. Its reach and influence remain unmatched, setting trends that ripple through the international film industry."))
 
-            self.c.execute("""CREATE TABLE titleType_enum (
-            titleType_id integer NOT NULL,
-            titleType_name text NOT NULL UNIQUE,
-            PRIMARY KEY (titleType_id)
+            self.c.execute("""CREATE TABLE title_type_enum (
+            title_type_id integer NOT NULL,
+            title_type_name text NOT NULL UNIQUE,
+            PRIMARY KEY (title_type_id)
             )""")
             i = 1
             for titleType in Media.movieTitleTypes + Media.seriesTitleTypes:
-                self.c.execute("INSERT INTO titleType_enum VALUES (?, ?)", (i, titleType))
+                self.c.execute("INSERT INTO title_type_enum VALUES (?, ?)", (i, titleType))
                 i += 1
 
             self.c.execute("""CREATE TABLE media_versions (
@@ -186,7 +186,7 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
-            self.c.execute("""CREATE TABLE mediaConnections (
+            self.c.execute("""CREATE TABLE media_connections (
             imdb_id integer NOT NULL,
             foreign_imdb_id integer NOT NULL,
             connection_type_id integer NOT NULL,
@@ -238,7 +238,7 @@ class DBControl:
             if len(data) == 0:
                 self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary))
             elif data[0][1] == None:
-                self.c.execute("UPDATE media SET titleType_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.imdb_id))
+                self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.imdb_id))
             else:
                 raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
             for imdb_interest_id in thisMedia.interests:
@@ -266,7 +266,7 @@ class DBControl:
             raise TypeError('no media object')
         with self.conn:
             for mediaConnection in thisMedia.mediaConnections:
-                self.c.execute("INSERT INTO mediaConnections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
+                self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
 
     def addMultipleMedia(self, mediaDict): # media and connections must be separated, so that foreign constraints are always fulfilled during db entry
         for x in mediaDict.values():
@@ -284,12 +284,12 @@ class DBControl:
             self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
-            self.c.execute("SELECT imdb_id, foreign_imdb_id FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            self.c.execute("SELECT imdb_id, foreign_imdb_id FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             referencesToRemove = self.c.fetchall()
-            self.c.execute("DELETE FROM mediaConnections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             #3. check whether there are any connections TO mediumToRemove
-            self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
+            self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
             remainingConnections = self.c.fetchall()
 
             # capture mediumToRemove's current interests and language before they're removed, so
@@ -324,7 +324,7 @@ class DBControl:
                     continue
 
                 #4b. check whether there are any connections TO x
-                self.c.execute("SELECT * FROM mediaConnections WHERE foreign_imdb_id=?", (x[1],))
+                self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (x[1],))
                 remainingConnections = self.c.fetchall()
 
                 #4b1. if yes: continue
@@ -460,7 +460,7 @@ class DBControl:
                 affectedInterestIDs = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (imdb_id,))
                 affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
-                self.c.execute("DELETE FROM mediaConnections WHERE imdb_id=? OR foreign_imdb_id=?", (imdb_id, imdb_id))
+                self.c.execute("DELETE FROM media_connections WHERE imdb_id=? OR foreign_imdb_id=?", (imdb_id, imdb_id))
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
                 self.__pruneOrphanedInterests(affectedInterestIDs)
                 self.__pruneOrphanedLanguages(affectedLanguageIDs)
@@ -506,21 +506,21 @@ class DBControl:
                 AND NOT EXISTS (SELECT 1 FROM media WHERE language_id = ?)
             """, (imdb_interest_id, imdb_interest_id))
 
-    def __getTitleTypeIDByTitleTypeName(self, titleType_name):
+    def __getTitleTypeIDByTitleTypeName(self, title_type_name):
         with self.conn:
-            self.c.execute("SELECT titleType_id FROM titleType_enum WHERE titleType_name=?", (titleType_name,))
-            titleType_id = self.c.fetchone()
-            if not titleType_id or not titleType_id[0]:
-                raise RuntimeError('unknown titleType ' + titleType_name)
-            return(titleType_id[0])
+            self.c.execute("SELECT title_type_id FROM title_type_enum WHERE title_type_name=?", (title_type_name,))
+            title_type_id = self.c.fetchone()
+            if not title_type_id or not title_type_id[0]:
+                raise RuntimeError('unknown titleType ' + title_type_name)
+            return(title_type_id[0])
 
-    def __getTitleTypeNameByTitleTypeID(self, titleType_id):
+    def __getTitleTypeNameByTitleTypeID(self, title_type_id):
         with self.conn:
-            self.c.execute("SELECT titleType_name FROM titleType_enum WHERE titleType_id=?", (titleType_id,))
-            titleType_name = self.c.fetchone()
-            if not titleType_name or not titleType_name[0]:
-                raise RuntimeError('unknown titleType ID ' + str(titleType_id))
-            return(titleType_name[0])
+            self.c.execute("SELECT title_type_name FROM title_type_enum WHERE title_type_id=?", (title_type_id,))
+            title_type_name = self.c.fetchone()
+            if not title_type_name or not title_type_name[0]:
+                raise RuntimeError('unknown titleType ID ' + str(title_type_id))
+            return(title_type_name[0])
 
     def __getConnectionTypeIDByConnectionTypeName(self, connectionType_name):
         with self.conn:
@@ -598,7 +598,7 @@ class DBControl:
             return(self.c.fetchall())
 
     def __getMovieObjectFromDBRow(self, dbRow):
-        # imdb_id, titleType_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir, language_id, plotSummary
+        # imdb_id, title_type_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir, language_id, plotSummary
         mediaObject = Media(None, None, dbRow[0])
         mediaObject.originalTitle = dbRow[2]
         mediaObject.primaryTitle = dbRow[3]
@@ -633,7 +633,7 @@ class DBControl:
 
     def __getMediaConnectionsList(self, imdbID):
         with self.conn:
-            self.c.execute("SELECT * FROM mediaConnections WHERE imdb_id=?", (imdbID,))
+            self.c.execute("SELECT * FROM media_connections WHERE imdb_id=?", (imdbID,))
             dbResult = self.c.fetchall()
             resultList = []
             for mediaConnectionRow in dbResult:

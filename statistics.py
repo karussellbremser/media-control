@@ -84,7 +84,7 @@ class Statistics:
                         if y not in currentIDQueue and y not in currentGroup.imbdIDList:
                             currentIDQueue.append(y)
                     
-                    self.db.c.execute("SELECT imdb_id FROM mediaConnections WHERE foreign_imdb_id=?", (currentImdbID,))
+                    self.db.c.execute("SELECT imdb_id FROM media_connections WHERE foreign_imdb_id=?", (currentImdbID,))
                     dbResult = self.db.c.fetchall()
                     for x in dbResult:
                         y = x[0]
