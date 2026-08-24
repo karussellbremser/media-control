@@ -183,8 +183,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.length === 0) {
                     allLoaded = true;
                 } else {
-                    data.forEach(([imdb_id, originalTitle, startYear, rating_mul10, numVotes, genres]) => {
+                    data.forEach(([imdb_id, originalTitle, startYear, rating_mul10, numVotes, genres, totalEpisodes, ownedEpisodes]) => {
 						const img = document.createElement('img');
+						const isPartialSeries = totalEpisodes > 0 && ownedEpisodes < totalEpisodes;
 
 						const paddedId = String(imdb_id).padStart(7, '0');
 						img.src = `/cover_small/tt${paddedId}.webp`;
@@ -212,7 +213,14 @@ document.addEventListener('DOMContentLoaded', () => {
 							linkElem.classList.add("titleLink");
 							linkElem.textContent = originalTitle + " (" + safeYear + ")";
 							titleElem.appendChild(linkElem);
-							
+
+							if (isPartialSeries) {
+								const badge = document.createElement('span');
+								badge.classList.add("ownershipBadge");
+								badge.textContent = `${ownedEpisodes} / ${totalEpisodes}`;
+								titleElem.appendChild(badge);
+							}
+
 							const wrapper = document.createElement('div');
 							wrapper.classList.add("resultItem");
 
@@ -248,6 +256,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 							imgWrapper.appendChild(img);
 							imgWrapper.appendChild(overlay);
+
+							if (isPartialSeries) {
+								const badge = document.createElement('span');
+								badge.classList.add("ownershipBadge", "ownershipBadge--grid");
+								badge.textContent = `${ownedEpisodes} / ${totalEpisodes}`;
+								imgWrapper.appendChild(badge);
+							}
 
 							linkElem.appendChild(imgWrapper);
 							gridItem.appendChild(linkElem);

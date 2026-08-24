@@ -47,7 +47,13 @@ def query_media(search_query, sort_by, order,
         JOIN interest_enum ie ON mi_show.imdb_interest_id = ie.imdb_interest_id
         WHERE mi_show.imdb_id = m.imdb_id
         ORDER BY ie.name
-    ) as tags
+    ) as tags,
+    (
+        SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id
+    ) as total_episodes,
+    (
+        SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NOT NULL
+    ) as owned_episodes
     FROM media m
     JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
     """
