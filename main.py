@@ -148,14 +148,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # requires the series row to exist, not just nice for display. If the series is itself ignored,
     # drop the episode instead (it can't be added without its series; a locally-owned series being
     # ignored would already have failed the earlier local-scan check, so this can only happen for a
-    # referenced-only episode)
+    # referenced-only episode). A series doesn't need a stub if it already has a row in the DB --
+    # e.g. a new episode of an already-synced series -- checking newlyAddedMediaDict alone isn't
+    # enough, since that only reflects what's newly added *this run*
     scrapeimdboffline.parseTitleEpisode(newlyAddedMediaDict)
+    existingIDs = {row[0] for row in db.getAllMediaIDs()}
     for imdb_id, x in list(newlyAddedMediaDict.items()):
         if x.series_imdb_id is None:
             continue
         if x.series_imdb_id in ignoredIDs:
             del newlyAddedMediaDict[imdb_id]
-        elif x.series_imdb_id not in newlyAddedMediaDict:
+        elif x.series_imdb_id not in newlyAddedMediaDict and x.series_imdb_id not in existingIDs:
             newlyAddedMediaDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
 
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
