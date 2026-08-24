@@ -32,6 +32,7 @@ Then edit `config.ini` with your own paths:
 - `media_dir` — root directory of your local media library
 - `db_path`, `covers_dir`, `covers_small_dir` — where the database and cover images are stored (relative paths resolve against the project directory)
 - `webdriver_path` — path to your chromedriver executable
+- `chrome_profile_dir` — persistent Chrome profile (cookies/session state), reused across runs
 - `imdb_datasets_dir` — directory containing the downloaded IMDb offline datasets
 - `delay` / `max_count` — throttling for online IMDb scraping
 - `host` / `port` — for the Flask web server

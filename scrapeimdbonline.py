@@ -27,7 +27,7 @@ class ScrapeIMDbOnline:
         "TV Short": "tvShort",
     }
 
-    def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0):
+    def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0, profile_dir = None):
         self.cover_directory = cover_directory
         self.thumbnail_directory = thumbnail_directory
         self.webdriver_path = webdriver_path
@@ -45,6 +45,10 @@ class ScrapeIMDbOnline:
         #chrome_options.add_argument('--headless')
         chrome_options.add_argument('--allow-running-insecure-content')
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        if profile_dir is not None:
+            # reuses cookies/session state across runs (created automatically by Chrome if missing),
+            # so IMDb sees a returning browser rather than a brand-new one on every single run
+            chrome_options.add_argument(f'--user-data-dir={profile_dir}')
         self.browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
         self.browser.maximize_window()
         self.browser.implicitly_wait(10)
