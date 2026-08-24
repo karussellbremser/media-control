@@ -108,7 +108,8 @@ class ScrapeIMDbOnline:
     def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
         """For every medium in mediaDict, visits its IMDb main page exactly once and:
         - always scrapes its interests (standard genres and subgenres alike), language and plot summary
-        - downloads its cover if the file doesn't already exist
+        - downloads its cover if the file doesn't already exist, unless it's a series (series covers
+          are always added manually, never auto-downloaded)
 
         knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
         mutated in place as new ones are discovered. knownPseudoGenreIDs is a name -> id map of
@@ -147,10 +148,16 @@ class ScrapeIMDbOnline:
 
             # cover download must happen here, while still on the title's main page from the browser.get()
             # above; classifying newly-discovered interests below navigates away to separate /interest/...
-            # pages, so this ordering keeps the title's own main page visited exactly once per title
-            coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
-            if not os.path.isfile(coverPath):
-                self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
+            # pages, so this ordering keeps the title's own main page visited exactly once per title.
+            # Series are excluded -- IMDb only offers the latest season's cover as a series' "main"
+            # image, which isn't what should represent the whole series locally; a series cover is
+            # always added manually instead (see main.py's downloadCovers call for the matching
+            # exclusion on the cover-backfill path). titleType is still the local-scrape placeholder
+            # here ("localSeries"), since offline parsing hasn't resolved it to a real IMDb type yet.
+            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes:
+                coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
+                if not os.path.isfile(coverPath):
+                    self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
             attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID, newFranchiseRegs = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
             currentMedia.interests = attachedInterestIDs

@@ -105,7 +105,9 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 1b) are excluded --
-    # they get none of this: no cover, no interests, no language, no plot summary
+    # they get none of this: no cover, no interests, no language, no plot summary. Series do get
+    # interests/language/plot summary here, but scrapeMainPages itself skips the cover download for
+    # them -- see its docstring
     moviesAndSeriesDict = {k: v for k, v in newlyAddedMediaDict.items() if v.series_imdb_id is None}
     knownInterestIDs = db.getAllKnownInterestIDs()
     knownLanguageIDs = db.getAllKnownLanguageIDs()
