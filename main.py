@@ -179,6 +179,21 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         if x.subdir == None:
             print(x.originalTitle + " " + str(x.startYear))
 
+    # strip any dangling connection edges before writing. A referenced episode dropped above because
+    # its series is ignored (step 6) is the known case: other kept items' mediaConnections can still
+    # point at it, and since media_connections.foreign_imdb_id has an FK back to media.imdb_id,
+    # inserting such an edge would crash addMultipleMedia. Only prune targets that are neither being
+    # added this run nor already in the DB -- an already-existing target's row satisfies the FK
+    # regardless of whether this run touches it.
+    referencedIDs = {y.foreignIMDbID for x in newlyAddedMediaDict.values() for y in x.mediaConnections}
+    missingIDs = referencedIDs - set(newlyAddedMediaDict.keys())
+    if missingIDs:
+        existingIDs = {row[0] for row in db.getAllMediaIDs()}
+        danglingIDs = missingIDs - existingIDs
+        if danglingIDs:
+            for x in newlyAddedMediaDict.values():
+                x.mediaConnections = [y for y in x.mediaConnections if y.foreignIMDbID not in danglingIDs]
+
     # persist newly-discovered interests/languages/franchises now, right alongside the media that
     # triggered them -- interest_enum rows must exist before addMultipleMedia's media_interests
     # inserts below (FK), and keeping this adjacent to that call minimizes the window in which an

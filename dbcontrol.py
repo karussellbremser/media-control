@@ -298,7 +298,12 @@ class DBControl:
                 self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
 
     def addMultipleMedia(self, mediaDict): # media and connections must be separated, so that foreign constraints are always fulfilled during db entry
-        for x in mediaDict.values():
+        # a series must exist before any of its episodes are inserted (series_imdb_id's FK); the
+        # caller's dict order doesn't guarantee this -- a referenced-only episode of a brand-new
+        # series can end up ordered before that series' own stub entry (its stub is only appended
+        # once the episode is found to need it). Sorting movies/series (series_imdb_id is None)
+        # ahead of episodes here guarantees the dependency regardless of insertion order.
+        for x in sorted(mediaDict.values(), key=lambda m: m.series_imdb_id is not None):
             self.addSingleMediaWoConnections(x)
         for x in mediaDict.values():
             self.addSingleMediaConnections(x)
