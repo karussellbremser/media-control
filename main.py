@@ -218,22 +218,37 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     db.addMultipleMedia(newlyAddedMediaDict)
 
-    # 7b. for every series touched by step 1b, make sure its FULL episode catalog (per
-    # title.episode.tsv) is represented in the DB now -- not just the locally-owned episodes
-    # resolved there. Every other episode of these series gets a referenced-only stub instead, so
-    # the DB always reflects which episodes exist for a partially-owned series and which of those
-    # are actually owned, without waiting for a --refresh. Purely offline-dataset-driven, like
-    # refreshTitleData's equivalent completeness check -- these stubs never go through
-    # scrapeMainPages/parseMediaConnections, so a large series doesn't turn into a large scraping
-    # bill just because a few of its episodes were added locally. This has to run down here, after
-    # the main write above: a series' own row must already exist before any of its episode stubs
-    # can satisfy the series_imdb_id FK, so readySeries below checks the DB directly rather than
-    # assuming every series in localSeries made it in -- it might not have (e.g. excluded by the
-    # scrape budget in 2b), and whichever series didn't just gets this treatment on a later sync
+    # 7b. for every series that had something new happen to it this run (the series itself newly
+    # added, or at least one of its locally-resolved episodes newly added -- checked against
+    # newlyAddedMediaDictOriginal, the snapshot of what was missing from the DB at the start of this
+    # sync), make sure its FULL episode catalog (per title.episode.tsv) is represented in the DB
+    # now -- not just the locally-owned episodes resolved in step 1b. Every other episode of these
+    # series gets a referenced-only stub instead, so the DB always reflects which episodes exist for
+    # a partially-owned series and which of those are actually owned, without waiting for a
+    # --refresh. Skipping series with nothing new matters: without it, a series with e.g. an unaired
+    # special or an announced-but-unscheduled episode (missing/incomplete data, discarded rather
+    # than added -- see __insertTitleBasics's "\N" handling) would re-derive and re-attempt that
+    # same discard, including its online isInDevelopment() check, on every single sync that happens
+    # to touch the series at all, even when nothing actually changed. Purely offline-dataset-driven
+    # otherwise, like refreshTitleData's equivalent completeness check -- these stubs never go
+    # through scrapeMainPages/parseMediaConnections, so a large series doesn't turn into a large
+    # scraping bill just because a few of its episodes were added locally. This has to run down
+    # here, after the main write above: a series' own row must already exist before any of its
+    # episode stubs can satisfy the series_imdb_id FK, so readySeries below checks the DB directly
+    # rather than assuming every touched series made it in -- it might not have (e.g. excluded by
+    # the scrape budget in 2b), and whichever series didn't just gets this treatment on a later sync
     # instead, once it actually has a row.
     if localSeries:
+        localEpisodeIDsBySeriesID = {}
+        for m in mediaDictOriginal.values():
+            if m.series_imdb_id is not None:
+                localEpisodeIDsBySeriesID.setdefault(m.series_imdb_id, []).append(m.imdb_id)
+        touchedSeries = [series for series in localSeries
+                          if series.imdb_id in newlyAddedMediaDictOriginal
+                          or any(ep_id in newlyAddedMediaDictOriginal for ep_id in localEpisodeIDsBySeriesID.get(series.imdb_id, []))]
+
         existingIDs = {row[0] for row in db.getAllMediaIDs()}
-        readySeries = [series for series in localSeries if series.imdb_id in existingIDs]
+        readySeries = [series for series in touchedSeries if series.imdb_id in existingIDs]
         if readySeries:
             offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
             fullEpisodeLists = offlineForCompleteness.getFullEpisodeListForSeries({series.imdb_id for series in readySeries})
