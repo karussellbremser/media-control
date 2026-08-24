@@ -218,6 +218,42 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     db.addMultipleMedia(newlyAddedMediaDict)
 
+    # 7b. for every series touched by step 1b, make sure its FULL episode catalog (per
+    # title.episode.tsv) is represented in the DB now -- not just the locally-owned episodes
+    # resolved there. Every other episode of these series gets a referenced-only stub instead, so
+    # the DB always reflects which episodes exist for a partially-owned series and which of those
+    # are actually owned, without waiting for a --refresh. Purely offline-dataset-driven, like
+    # refreshTitleData's equivalent completeness check -- these stubs never go through
+    # scrapeMainPages/parseMediaConnections, so a large series doesn't turn into a large scraping
+    # bill just because a few of its episodes were added locally. This has to run down here, after
+    # the main write above: a series' own row must already exist before any of its episode stubs
+    # can satisfy the series_imdb_id FK, so readySeries below checks the DB directly rather than
+    # assuming every series in localSeries made it in -- it might not have (e.g. excluded by the
+    # scrape budget in 2b), and whichever series didn't just gets this treatment on a later sync
+    # instead, once it actually has a row.
+    if localSeries:
+        existingIDs = {row[0] for row in db.getAllMediaIDs()}
+        readySeries = [series for series in localSeries if series.imdb_id in existingIDs]
+        if readySeries:
+            offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
+            fullEpisodeLists = offlineForCompleteness.getFullEpisodeListForSeries({series.imdb_id for series in readySeries})
+            newEpisodeStubs = {}
+            for series in readySeries:
+                for season, episode, episode_imdb_id in fullEpisodeLists[series.imdb_id]:
+                    if episode_imdb_id not in mediaDictOriginal and episode_imdb_id not in existingIDs and episode_imdb_id not in newEpisodeStubs:
+                        stub = Media(None, None, episode_imdb_id)
+                        stub.series_imdb_id = series.imdb_id
+                        stub.season_number = season
+                        stub.episode_number = episode
+                        newEpisodeStubs[episode_imdb_id] = stub
+            if newEpisodeStubs:
+                newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
+                newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
+                seriesTitlesByID = {series.imdb_id: series.originalTitle for series in readySeries}
+                for episode_imdb_id, stub in newEpisodeStubs.items():
+                    print("Cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
+                db.addMultipleMedia(newEpisodeStubs)
+
     # 8. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
     # thumbnails. Series covers are deliberately never fetched automatically -- IMDb only offers the latest
     # season's cover as a series' "main" image, which isn't what should represent the whole series locally;
