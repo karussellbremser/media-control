@@ -118,21 +118,13 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     knownLanguageIDs = db.getAllKnownLanguageIDs()
     knownPseudoGenreIDs = db.getAllKnownPseudoGenreIDs()
     knownFranchiseIDs = db.getAllKnownFranchiseIDs()
+    # newly-discovered interests/languages/franchises are NOT persisted here -- ensureInterestExists
+    # etc. are deferred until just before addMultipleMedia (see below), so an aborted sync can never
+    # leave a subgenre/language registered in the DB without the title that triggered it actually
+    # being added. knownInterestIDs/knownLanguageIDs/knownPseudoGenreIDs/knownFranchiseIDs are mutated
+    # in place regardless, so this deferral costs nothing within this run -- a title later in the same
+    # loop that hits the same new interest still recognizes it as already known.
     newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
-    for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
-        if imdb_interest_id < 0:
-            print("New pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
-        elif parent_imdb_interest_id is None:
-            print("New genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
-        else:
-            print("New subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
-        db.ensureInterestExists(imdb_interest_id, name, description, parent_imdb_interest_id)
-    for imdb_interest_id, name, description in newLanguageRegistrations:
-        print("New language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
-        db.ensureLanguageExists(imdb_interest_id, name, description)
-    for imdb_interest_id, name in newFranchiseRegistrations:
-        print("New franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
-        db.ensureFranchiseInterestExists(imdb_interest_id)
 
     # 4. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
@@ -186,6 +178,25 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     for x in newlyAddedMediaDict.values():
         if x.subdir == None:
             print(x.originalTitle + " " + str(x.startYear))
+
+    # persist newly-discovered interests/languages/franchises now, right alongside the media that
+    # triggered them -- interest_enum rows must exist before addMultipleMedia's media_interests
+    # inserts below (FK), and keeping this adjacent to that call minimizes the window in which an
+    # aborted sync could leave one registered without the corresponding title ever being added
+    for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
+        if imdb_interest_id < 0:
+            print("New pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+        elif parent_imdb_interest_id is None:
+            print("New genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+        else:
+            print("New subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
+        db.ensureInterestExists(imdb_interest_id, name, description, parent_imdb_interest_id)
+    for imdb_interest_id, name, description in newLanguageRegistrations:
+        print("New language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
+        db.ensureLanguageExists(imdb_interest_id, name, description)
+    for imdb_interest_id, name in newFranchiseRegistrations:
+        print("New franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
+        db.ensureFranchiseInterestExists(imdb_interest_id)
 
     db.addMultipleMedia(newlyAddedMediaDict)
 
