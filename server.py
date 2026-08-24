@@ -72,8 +72,14 @@ def query_media(search_query, sort_by, order,
 
     # filter years -- movies match on an exact startYear range; series match if the filter range
     # overlaps the series' production span (startYear..endYear, or startYear..currentYear if the
-    # series is still running, i.e. endYear is NULL)
+    # series is still running, i.e. endYear is NULL). Cast to int explicitly rather than relying on
+    # SQLite's column-affinity coercion of the raw query-string values: that coercion only applies
+    # to a bare column reference, not to COALESCE(m.endYear, ...) below (a function call has no
+    # affinity), so an uncast string parameter there would silently never match (SQLite's storage-
+    # class ordering puts every INTEGER below every TEXT value).
     if year_from or year_to:
+        year_from = int(year_from) if year_from else None
+        year_to = int(year_to) if year_to else None
         yearBranches = []
         if show_movies:
             movieCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.movieTitleTypes) + ")"
