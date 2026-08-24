@@ -69,6 +69,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	let isLoading = false;
 	let allLoaded = false;
 	
+	function formatYearRange(startYear, endYear, isSeries) {
+		if (!isSeries) return startYear ?? '—';
+		return startYear + ' -' + (endYear ? ' ' + endYear : '');
+	}
+
 	function formatNumVotes(num) {
 		if (num < 1000) {
 			return num.toString();
@@ -183,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.length === 0) {
                     allLoaded = true;
                 } else {
-                    data.forEach(([imdb_id, originalTitle, startYear, rating_mul10, numVotes, genres, totalEpisodes, ownedEpisodes]) => {
+                    data.forEach(([imdb_id, originalTitle, startYear, endYear, rating_mul10, numVotes, genres, totalEpisodes, ownedEpisodes, isSeries]) => {
 						const img = document.createElement('img');
 						const isPartialSeries = totalEpisodes > 0 && ownedEpisodes < totalEpisodes;
 
@@ -201,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
 						linkElem.rel = "noopener noreferrer";
 						
                         const ratingsElem = document.createElement('div');
-						const safeYear = startYear ?? '—';
+						const safeYear = formatYearRange(startYear, endYear, isSeries);
 						const safeRating = rating_mul10 ? (rating_mul10 / 10).toFixed(1) : '—';
 						const safeVotes = numVotes ? formatNumVotes(numVotes) : '—';
                         ratingsElem.textContent = safeRating + " (" + safeVotes + " votes)";

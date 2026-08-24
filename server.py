@@ -40,7 +40,7 @@ def query_media(search_query, sort_by, order,
     cursor = conn.cursor()
 
     sql = """
-    SELECT m.imdb_id, m.originalTitle, m.startYear, m.rating_mul10, m.numVotes,
+    SELECT m.imdb_id, m.originalTitle, m.startYear, m.endYear, m.rating_mul10, m.numVotes,
     (
         SELECT GROUP_CONCAT(ie.name, ', ')
         FROM media_interests mi_show
@@ -53,11 +53,12 @@ def query_media(search_query, sort_by, order,
     ) as total_episodes,
     (
         SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NOT NULL
-    ) as owned_episodes
+    ) as owned_episodes,
+    CASE WHEN tt.title_type_name IN (""" + ",".join("?" for _ in Media.seriesTitleTypes) + """) THEN 1 ELSE 0 END as is_series
     FROM media m
     JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
     """
-    params = []
+    params = list(Media.seriesTitleTypes)
 
     # filter genres/interests (selected_interest_ids may mix genre and subgenre ids)
     if selected_interest_ids:
