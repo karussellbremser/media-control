@@ -397,13 +397,15 @@ class ScrapeIMDbOnline:
         return plotSummary
 
     def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
-        """Classifies every (imdb_interest_id, name) in chips as a genre, subgenre, language, or
-        franchise, visiting each not-yet-known id's IMDb interest page to determine which and
-        scrape its description text. A subgenre's parent genre is NOT necessarily among the same
-        title's other chips (a title can carry a subgenre without also being tagged with its parent
-        genre directly), so the parent's id is resolved against IMDb's full interest directory
-        instead. The parent is registered first if it too is new. knownInterestIDs/knownLanguageIDs
-        are mutated in place.
+        """Classifies every (imdb_interest_id, name) in chips as a top-level interest (IMDb's hero
+        page labels these "Genre" for most, but "Form" for e.g. Documentary/Short and "Style" for
+        Anime -- all three are treated identically here, just different IMDb labels for the same
+        parentless-interest role), subgenre, language, or franchise, visiting each not-yet-known
+        id's IMDb interest page to determine which and scrape its description text. A subgenre's
+        parent is NOT necessarily among the same title's other chips (a title can carry a subgenre
+        without also being tagged with its parent directly), so the parent's id is resolved against
+        IMDb's full interest directory instead. The parent is registered first if it too is new.
+        knownInterestIDs/knownLanguageIDs are mutated in place.
 
         Franchise-type interests (e.g. "Evil Dead") are recognized but deliberately ignored --
         never attached to the title and never registered in interest_enum at all -- since that
@@ -439,6 +441,14 @@ class ScrapeIMDbOnline:
         newFranchiseRegistrations = []
         languageID = None
 
+        # IMDb labels a top-level (parentless) interest's hero type differently depending on what
+        # kind of category it is -- "Genre" for most (Drama, Comedy, ...), but "Form" for things
+        # like Documentary/Short and "Style" for Anime. All three behave identically here: no real
+        # parent category, registered the same way in interest_enum. A "Style"-type interest's
+        # breadcrumb is a self-reference to its own name rather than empty (seen for Anime) -- still
+        # not a real parent, so that's tolerated below rather than treated as one.
+        topLevelTypes = ("Genre", "Form", "Style")
+
         def classify(interest_id, name):
             self.browser.get("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
             time.sleep(4)
@@ -447,7 +457,7 @@ class ScrapeIMDbOnline:
                 const el = document.querySelector('[data-testid="interest-hero-type"]');
                 return el ? el.innerText.trim() : null;
             """)
-            if typeText not in ("Genre", "Subgenre", "Language", "Franchise"):
+            if typeText not in topLevelTypes + ("Subgenre", "Language", "Franchise"):
                 raise ScrapingError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
 
             if typeText == "Franchise":
@@ -470,8 +480,9 @@ class ScrapeIMDbOnline:
             if not description:
                 raise ScrapingError("could not find description text for interest " + str(interest_id) + " (" + name + ")")
 
-            if typeText in ("Genre", "Language"):
-                if len(categoryTexts) != 0:
+            if typeText in topLevelTypes or typeText == "Language":
+                realParents = set(categoryTexts) - {name}
+                if len(realParents) != 0:
                     raise ScrapingError(typeText + "-type interest unexpectedly has a parent category: " + str(interest_id))
                 return (typeText, None, description)
             else:
@@ -501,7 +512,7 @@ class ScrapeIMDbOnline:
                 knownFranchiseIDs.add(chip_id)
                 continue
 
-            if typeText == "Genre":
+            if typeText in topLevelTypes:
                 newInterestRegistrations.append((chip_id, chip_name, description, None))
                 knownInterestIDs.add(chip_id)
                 attachedInterestIDs.append(chip_id)
@@ -523,7 +534,7 @@ class ScrapeIMDbOnline:
 
                 if parent_id not in knownInterestIDs:
                     parentType, parentParentName, parentDescription = classify(parent_id, parentName)
-                    if parentType != "Genre":
+                    if parentType not in topLevelTypes:
                         raise ScrapingError("expected '" + parentName + "' to be a top-level genre, but it is a " + parentType)
                     newInterestRegistrations.append((parent_id, parentName, parentDescription, None))
                     knownInterestIDs.add(parent_id)
