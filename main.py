@@ -72,6 +72,11 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                 episodeMedia.series_imdb_id = series.imdb_id
                 episodeMedia.mediaVersions = localEpisode.mediaVersions
                 episodeMedia.intended_order = localEpisode.intended_order
+                # temporary placeholder, same role as a movie/series' locally-parsed originalTitle:
+                # used for progress printing before offline parsing (step 6) unconditionally
+                # overwrites it with the real title from title.basics
+                episodeMedia.originalTitle = (series.originalTitle + " S" + str(episodeMedia.season_number).zfill(2) + "E" + str(episodeMedia.episode_number).zfill(2)
+                                               if episodeMedia.season_number is not None else series.originalTitle + " " + episodeMedia.getIDString())
                 mediaDictOriginal[episode_imdb_id] = episodeMedia
             series.episodes = [] # consumed -- resolved episodes now live as their own top-level entries
 
