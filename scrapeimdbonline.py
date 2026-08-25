@@ -786,10 +786,22 @@ class ScrapeIMDbOnline:
         return resultDict
 
     def isInDevelopment(self, imdb_id):
-        # scrape IMDb media main page
+        # scrape IMDb media main page. IMDb apparently shows an in-production title's status via
+        # one of two independent, coexisting mechanisms depending on the title -- checked here as
+        # two separate signals, OR'd together, since neither alone covers every case (confirmed
+        # against real occurrences: tt16744566 "Sonic the Hedgehog 4" only has the older badge
+        # below, "Post-production"; tt14722868 "10,000 Ships" only has the newer link, "In
+        # development: More at IMDbPro"; tt0903747 "Breaking Bad" has neither, a normal released
+        # title):
+        # 1. the older [data-testid="tm-box-up-title"] badge, matched against a known status
+        #    vocabulary (case-sensitive as IMDb renders it here, e.g. "Post-production")
+        # 2. the hero subnav's IMDbPro link, which reads plain "IMDbPro" normally but
+        #    "<status>: More at IMDbPro" (e.g. "In development: More at IMDbPro", lowercase 'd' --
+        #    a different casing convention than #1's vocabulary, treated as a separate signal
+        #    rather than folded into the same vocabulary check) when in production; presence of a
+        #    colon is the signal, not an exact-vocabulary match
         self.__navigate("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
         soup = BeautifulSoup(self.browser.page_source, 'html.parser')
-
 
         expectedValues = {
             "In Development",
@@ -800,22 +812,18 @@ class ScrapeIMDbOnline:
             "Completed"
         }
 
-        divs = soup.find_all("div", attrs={"data-testid": "tm-box-up-title"})
-
-        foundExpected = False
-        foundOther = False
-
-        for div in divs:
-            text = div.get_text(strip=True)
+        statusBadge = soup.find("div", attrs={"data-testid": "tm-box-up-title"})
+        if statusBadge is not None:
+            text = statusBadge.get_text(strip=True)
             if text in expectedValues:
-                foundExpected = True
-            else:
-                foundOther = True
+                return True
+            print("WARNING: unknown production status '" + text + "' for IMDb ID " + str(imdb_id))
 
-        if foundExpected:
+        proLink = soup.find(attrs={"data-testid": "hero-subnav-bar-imdb-pro-link"})
+        if proLink is None:
+            print("WARNING: could not find IMDbPro link to determine production status for IMDb ID " + str(imdb_id))
+        elif ":" in proLink.get_text(strip=True):
             return True
-        if foundOther:
-            print("WARNING: unknown production status for IMDb ID " + str(imdb_id))
 
         return False
 
