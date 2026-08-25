@@ -809,7 +809,8 @@ class ScrapeIMDbOnline:
             "Post-production",
             "Pre-production",
             "Coming soon",
-            "Completed"
+            "Completed",
+            "Abandoned" # never finished/released, so never getting real rating data either -- see tt6857128
         }
 
         statusBadge = soup.find("div", attrs={"data-testid": "tm-box-up-title"})
