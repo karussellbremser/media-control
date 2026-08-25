@@ -27,36 +27,77 @@ class ScrapeIMDbOnline:
         "TV Short": "tvShort",
     }
 
-    def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0, profile_dir = None):
+    def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0, profile_dir = None, headless = False, page_load_wait = 4):
         self.cover_directory = cover_directory
         self.thumbnail_directory = thumbnail_directory
         self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
+        self.profile_dir = profile_dir
+        self.headless = headless
+        self.page_load_wait = page_load_wait # seconds to wait after each __navigate for the page to render before scraping its DOM
         self.__interestNameMap = None # lazily-fetched cache, see __getGlobalInterestNameMap
 
-        # instantiate chrome browser
+        # the browser itself is started lazily, on first __navigate call -- a sync run that never
+        # needs to scrape anything online (nothing newly added) never has to launch Chrome at all
+        self.browser = None
+
+    def __launchBrowser(self, headless):
         chrome_options = Options()
         user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36'
         chrome_options.add_argument(f'user-agent={user_agent}')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument("--start-maximized")
-        #chrome_options.add_argument('--headless')
+        if headless:
+            chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--allow-running-insecure-content')
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        if profile_dir is not None:
+        if self.profile_dir is not None:
             # reuses cookies/session state across runs (created automatically by Chrome if missing),
             # so IMDb sees a returning browser rather than a brand-new one on every single run
-            chrome_options.add_argument(f'--user-data-dir={profile_dir}')
-        self.browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
-        self.browser.maximize_window()
-        self.browser.implicitly_wait(10)
-        self.browser.get("https://www.imdb.com/")
-        time.sleep(20)
+            chrome_options.add_argument(f'--user-data-dir={self.profile_dir}')
+        browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+        browser.maximize_window()
+        browser.implicitly_wait(10)
+        time.sleep(5)
+        return browser
+
+    def __isHumanVerificationPage(self):
+        # IMDb's bot-detection challenge is a standard AWS WAF CAPTCHA page: <title>Human
+        # Verification</title> plus a #captcha-container div the awswaf.com scripts render into.
+        # Both are checked (rather than the title alone) since it's the more specific, harder to
+        # coincidentally collide with signal -- see a real captured occurrence for tt31195136.
+        if self.browser.title != "Human Verification":
+            return False
+        return len(self.browser.find_elements("id", "captcha-container")) > 0
+
+    def __handleHumanVerification(self, url):
+        print("Human verification required -- reopening the browser so you can solve it...")
+        self.browser.quit()
+        self.browser = self.__launchBrowser(False)
+        self.browser.get(url)
+        input("Solve the verification in the browser window, then press Enter here to continue...")
+        if self.__isHumanVerificationPage():
+            raise ScrapingError("human verification still present after manual solve attempt")
+        self.browser.quit()
+        self.browser = self.__launchBrowser(self.headless)
+        self.browser.get(url)
+        time.sleep(self.page_load_wait)
+        if self.__isHumanVerificationPage():
+            raise ScrapingError("human verification still present after browser restart")
+
+    def __navigate(self, url):
+        if self.browser is None:
+            self.browser = self.__launchBrowser(self.headless)
+        self.browser.get(url)
+        time.sleep(self.page_load_wait)
+        if self.__isHumanVerificationPage():
+            self.__handleHumanVerification(url)
 
     def __del__(self):
-        self.browser.quit()
+        if self.browser is not None:
+            self.browser.quit()
 
     def restrictToScrapeBudget(self, mediaDict):
         """Restricts mediaDict to at most self.maxCount 'units' before any online scraping starts,
@@ -98,8 +139,7 @@ class ScrapeIMDbOnline:
                 continue
 
             # scrape IMDb media main page
-            self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
-            time.sleep(4)
+            self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
             self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
@@ -144,8 +184,7 @@ class ScrapeIMDbOnline:
             else:
                 self.__sleep()
 
-            self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
-            time.sleep(4)
+            self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
             chips = self.__scrapeInterestChips()
             currentMedia.plotSummary = self.__scrapePlotSummary()
@@ -199,8 +238,7 @@ class ScrapeIMDbOnline:
 
             print("Filling missing basics online for " + currentMedia.getIDString() + " (not found in offline dataset)")
 
-            self.browser.get("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
-            time.sleep(4)
+            self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
             # title type, from the document title's "(<type> <year>) - IMDb" suffix
             localTitleType = currentMedia.titleType # "localMovie" or "localSeries", set during local scraping
@@ -323,8 +361,7 @@ class ScrapeIMDbOnline:
             raise ScrapingError("no unique cover tag found")
 
         # scrape cover page
-        self.browser.get("https://www.imdb.com" + matches[0])
-        time.sleep(4)
+        self.__navigate("https://www.imdb.com" + matches[0])
 
         matches = self.browser.execute_script("""
             return Array.from(document.querySelectorAll('[property]'))
@@ -454,8 +491,7 @@ class ScrapeIMDbOnline:
         topLevelTypes = ("Genre", "Form", "Style")
 
         def classify(interest_id, name):
-            self.browser.get("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
-            time.sleep(4)
+            self.__navigate("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
 
             typeText = self.browser.execute_script("""
                 const el = document.querySelector('[data-testid="interest-hero-type"]');
@@ -568,8 +604,7 @@ class ScrapeIMDbOnline:
         if self.__interestNameMap is not None:
             return self.__interestNameMap
 
-        self.browser.get("https://www.imdb.com/interest/all/")
-        time.sleep(4)
+        self.__navigate("https://www.imdb.com/interest/all/")
 
         links = self.browser.execute_script("""
             return Array.from(document.querySelectorAll('a[href^="/interest/in"]'))
@@ -670,8 +705,7 @@ class ScrapeIMDbOnline:
             # scrape IMDb media movie connections page
             url = "https://www.imdb.com/title/" + currentMedia.getIDString() + "/movieconnections"
 
-            self.browser.get(url)
-            time.sleep(4)
+            self.__navigate(url)
             soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
             if len(soup.find_all("h1", string="Connections")) != 1:
@@ -753,8 +787,7 @@ class ScrapeIMDbOnline:
 
     def isInDevelopment(self, imdb_id):
         # scrape IMDb media main page
-        self.browser.get("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
-        time.sleep(4)
+        self.__navigate("https://www.imdb.com/title/tt" + str(imdb_id).zfill(7) + "/")
         soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
 

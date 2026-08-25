@@ -29,6 +29,8 @@ HIDDEN_INTEREST_IDS_PATH = _resolve(_config["paths"]["hidden_interest_ids_path"]
 
 SCRAPE_DELAY = _config.getint("scraping", "delay")
 SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")
+SCRAPE_HEADLESS = _config.getboolean("scraping", "headless")
+SCRAPE_PAGE_LOAD_WAIT = _config.getint("scraping", "page_load_wait")
 
 SERVER_HOST = _config["server"]["host"]
 SERVER_PORT = _config.getint("server", "port")
