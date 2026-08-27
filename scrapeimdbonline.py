@@ -819,11 +819,11 @@ class ScrapeIMDbOnline:
             text = statusBadge.get_text(strip=True)
             if text in expectedValues:
                 return True
-            print("WARNING: unknown production status '" + text + "' for IMDb ID " + str(imdb_id))
+            raise ScrapingError("unknown production status '" + text + "' for IMDb ID " + str(imdb_id))
 
         proLink = soup.find(attrs={"data-testid": "hero-subnav-bar-imdb-pro-link"})
         if proLink is None:
-            print("WARNING: could not find IMDbPro link to determine production status for IMDb ID " + str(imdb_id))
+            raise ScrapingError("could not find IMDbPro link to determine production status for IMDb ID " + str(imdb_id))
         elif ":" in proLink.get_text(strip=True):
             return True
 
