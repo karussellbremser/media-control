@@ -20,9 +20,12 @@ def readIDList(path):
 def printStep(number, description):
     """Prints a step-header line for syncLocal's console output, matching the step numbering in
     syncLocal's own comments. Only ever called once a step is already known to have something to
-    do this run -- a run that finds nothing new stays short instead of listing all 16 steps
-    unconditionally. Steps 7/8/9/12/16 print their own matching header instead (see
-    ScrapeIMDbOnline.__printStepHeader), since each of those is owned by a single method there."""
+    do this run -- a run that finds nothing new stays short instead of listing all 15 steps
+    unconditionally. Steps 6/7/8/11/15 print their own matching header instead (see
+    ScrapeIMDbOnline.__printStepHeader), since each of those is owned by a single method there.
+    The fail-fast validation right after step 2 has no number of its own -- it never has anything
+    to print on success, only ever an exception on failure, so a step number for it would never
+    correspond to anything appearing in this output."""
     print("\nStep " + str(number) + ": " + description)
 
 def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
@@ -45,7 +48,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
     # 2. resolve locally-found episodes (season/episode number, from each series' raw .episodes)
     # to their real IMDb episode ids, via the offline title.episode.tsv dataset -- purely local, so
-    # this belongs before any scraping too, same as the checks in step 3. Resolved episodes become
+    # this belongs before any scraping too, same as the fail-fast validation right below. Resolved episodes become
     # ordinary top-level entries in mediaDictOriginal, just like movies/series, so every check and
     # sync step from here on already applies to them with no further special-casing.
     localSeries = [m for m in mediaDictOriginal.values() if m.episodes]
@@ -85,14 +88,16 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                 episodeMedia.mediaVersions = localEpisode.mediaVersions
                 episodeMedia.intended_order = localEpisode.intended_order
                 # temporary placeholder, same role as a movie/series' locally-parsed originalTitle:
-                # used for progress printing before offline parsing (step 11) unconditionally
+                # used for progress printing before offline parsing (step 10) unconditionally
                 # overwrites it with the real title from title.basics
                 episodeMedia.originalTitle = (series.originalTitle + " S" + str(episodeMedia.season_number).zfill(2) + "E" + str(episodeMedia.episode_number).zfill(2)
                                                if episodeMedia.season_number is not None else series.originalTitle + " " + episodeMedia.getIDString())
                 mediaDictOriginal[episode_imdb_id] = episodeMedia
             series.episodes = [] # consumed -- resolved episodes now live as their own top-level entries
 
-    # 3. fail-fast local validation, before any scraping starts
+    # fail-fast local validation, before any scraping starts -- no step number of its own (see
+    # printStep's docstring): the ignored/wontadd/web-provider checks below never produce any
+    # output on success, only ever an exception on failure
     # - any locally-owned title on the ignored/wontadd list is a configuration error
     violating = [m for m in mediaDictOriginal.values() if m.imdb_id in ignoredIDs or m.imdb_id in wontaddIDs]
     if violating:
@@ -102,31 +107,31 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # - any locally-owned source referencing an unknown web provider is also a configuration error
     db.checkWebProvidersKnown(mediaDictOriginal)
 
-    # 4. determine newly added media
+    # 3. determine newly added media
     newlyAddedMediaDict = db.determineNewlyAddedMedia(mediaDictOriginal)
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
-    printStep(4, str(len(newlyAddedMediaDict)) + " newly-added title(s) found")
+    printStep(3, str(len(newlyAddedMediaDict)) + " newly-added title(s) found")
 
     scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT)
 
-    # 5. restrict to the configured per-run budget before any scraping starts, bounding both how many
+    # 4. restrict to the configured per-run budget before any scraping starts, bounding both how many
     # new movies/series get added this run and the online main-page/connections scraping below (steps
-    # 7+8) that goes with them. A series (together with all of its resolved episodes) counts as a single
+    # 6+7) that goes with them. A series (together with all of its resolved episodes) counts as a single
     # unit against the cap, so a sync run is never cut off midway through a series -- see
-    # restrictToScrapeBudget. Referenced-only stub media (step 10, discovered from these items'
+    # restrictToScrapeBudget. Referenced-only stub media (step 9, discovered from these items'
     # connections) fall outside this budget entirely -- they're cheap, offline-dataset-only additions:
     # a stub missing from the offline dataset is discarded outright rather than ever being scraped
-    # online (see scrapeimdboffline.py's dataset-illegal handling), so they can never reach step 12's
+    # online (see scrapeimdboffline.py's dataset-illegal handling), so they can never reach step 11's
     # online fallback either. Anything excluded here is simply not "newly added" yet as far as the rest
     # of this run is concerned; it's still missing from the DB afterwards, so it's picked up again on
     # the next sync.
     beforeBudgetCount = len(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdbonline.restrictToScrapeBudget(newlyAddedMediaDict)
     if len(newlyAddedMediaDict) < beforeBudgetCount:
-        printStep(5, "restricted to " + str(len(newlyAddedMediaDict)) + " title(s) this run (scrape budget = " +
+        printStep(4, "restricted to " + str(len(newlyAddedMediaDict)) + " title(s) this run (scrape budget = " +
                   str(config.SCRAPE_MAX_COUNT) + "; " + str(beforeBudgetCount - len(newlyAddedMediaDict)) + " deferred to a later sync)")
 
-    # 6. run MediaInfo analysis on every file belonging to a title that's both newly added and
+    # 5. run MediaInfo analysis on every file belonging to a title that's both newly added and
     # survived the scrape budget above -- movies' own mediaVersions, plus already-resolved episodes'
     # (from step 2); series themselves and any later-discovered referenced-only stub media have no
     # mediaVersions at all, so nothing extra needs excluding here. A missing file is a
@@ -140,7 +145,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # erroring (the reverse mismatch -- a .kscape-extension file with a non-kscape source -- already
     # can't happen, since ScrapeLocal requires every .kscape file to be empty regardless of source).
     if any(m.mediaVersions for m in newlyAddedMediaDict.values()):
-        printStep(6, "analyzing local media files with MediaInfo")
+        printStep(5, "analyzing local media files with MediaInfo")
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
     for currentMedia in newlyAddedMediaDict.values():
         for mediaVersion in currentMedia.mediaVersions:
@@ -152,7 +157,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                 continue
             scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
 
-    # 7. scrape main pages of newly added media: download covers if missing, scrape interests/language.
+    # 6. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 2) are excluded --
     # they get none of this: no cover, no interests, no language, no plot summary. Series do get
     # interests/language/plot summary here, but scrapeMainPages itself skips the cover download for
@@ -170,19 +175,19 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # loop that hits the same new interest still recognizes it as already known.
     newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
 
-    # 8. parse media connections
+    # 7. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
-    # 9. scrape full credits (director/writer/actor) for every locally-owned newly-added medium,
-    # including episodes -- unlike step 7, which explicitly excludes them (a series' director/writer/
-    # cast can and does vary per episode). Wired the same way as step 8, directly on
+    # 8. scrape full credits (director/writer/actor) for every locally-owned newly-added medium,
+    # including episodes -- unlike step 6, which explicitly excludes them (a series' director/writer/
+    # cast can and does vary per episode). Wired the same way as step 7, directly on
     # newlyAddedMediaDict with no movies-and-series-only filtering: at this point in the pipeline
     # that dict only ever contains locally-owned media anyway, since referenced-only stubs aren't
-    # added until step 10, right after this.
+    # added until step 9, right after this.
     knownPersonIDs = db.getAllKnownPersonIDs()
     newPersonRegistrations = scrapeimdbonline.scrapeFullCredits(newlyAddedMediaDict, knownPersonIDs)
 
-    # 10. add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
+    # 9. add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
     beforeReferencedCount = len(newlyAddedMediaDict)
     newlyAddedMediaDictCopy = newlyAddedMediaDict.copy()
     for x in newlyAddedMediaDictCopy.values():
@@ -192,13 +197,13 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             if y.foreignIMDbID not in mediaDictOriginal or (y.foreignIMDbID in newlyAddedMediaDictOriginal and y.foreignIMDbID not in newlyAddedMediaDictCopy):
                 newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
     if len(newlyAddedMediaDict) > beforeReferencedCount:
-        printStep(10, str(len(newlyAddedMediaDict) - beforeReferencedCount) + " referenced-only title(s) added from connections")
+        printStep(9, str(len(newlyAddedMediaDict) - beforeReferencedCount) + " referenced-only title(s) added from connections")
 
-    # 11. offline parsing; flags locally-owned titles missing from the dataset for online fallback (step 12),
+    # 10. offline parsing; flags locally-owned titles missing from the dataset for online fallback (step 11),
     # discards referenced-only titles missing from the dataset. Also resolves name/birth_year/death_year
-    # for every person newly discovered in step 9's credits scrape (see ScrapeIMDbOffline.parsePeople).
+    # for every person newly discovered in step 8's credits scrape (see ScrapeIMDbOffline.parsePeople).
     if newlyAddedMediaDict:
-        printStep(11, "offline dataset parsing (ratings, basics, episode resolution, new people)")
+        printStep(10, "offline dataset parsing (ratings, basics, episode resolution, new people)")
     scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
 
     newPeopleDict = {p.imdb_id: p for p in newPersonRegistrations}
@@ -226,26 +231,26 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
     newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
 
-    # 12. online fallback for locally-owned titles missing from the offline dataset (should happen very
+    # 11. online fallback for locally-owned titles missing from the offline dataset (should happen very
     # infrequently). No cap of its own -- needsOnlineFallback is only ever set for locally-owned media
     # (see ScrapeIMDbOffline's dataset-illegal handling: a referenced-only title missing from the
     # dataset is discarded outright, never flagged), so flaggedMediaDict is already a subset of the
-    # step-5-restricted newlyAddedMediaDict and is bounded by the same per-run budget as everything else.
+    # step-4-restricted newlyAddedMediaDict and is bounded by the same per-run budget as everything else.
     flaggedMediaDict = {k: v for k, v in newlyAddedMediaDict.items() if v.needsOnlineFallback}
     if len(flaggedMediaDict) > 0:
         scrapeimdbonline.fillMissingBasics(flaggedMediaDict)
 
-    # 13. apply local removals -- entirely unaffected by the scrape budget, since they're driven by
+    # 12. apply local removals -- entirely unaffected by the scrape budget, since they're driven by
     # mediaDictOriginal (the full local scan), not newlyAddedMediaDict, and never involve online
     # scraping in the first place
     removedDict = db.determineLocallyRemovedMedia(mediaDictOriginal)
     if removedDict:
-        printStep(13, "removing " + str(len(removedDict)) + " title(s) no longer locally owned")
+        printStep(12, "removing " + str(len(removedDict)) + " title(s) no longer locally owned")
     db.removeMultipleMedia(removedDict)
 
-    # 14. finalize and write newly-added media (plus this run's new credits/people) to the DB
+    # 13. finalize and write newly-added media (plus this run's new credits/people) to the DB
     if newlyAddedMediaDict:
-        printStep(14, "finalizing and writing " + str(len(newlyAddedMediaDict)) + " newly-added title(s) to the DB")
+        printStep(13, "finalizing and writing " + str(len(newlyAddedMediaDict)) + " newly-added title(s) to the DB")
 
     # - print newly-added media that isn't locally owned (referenced-only additions), for visibility
     for x in newlyAddedMediaDict.values():
@@ -253,7 +258,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             print("  adding referenced-only: " + x.originalTitle + " (" + str(x.startYear) + ")")
 
     # - strip any dangling connection edges before writing. A referenced episode dropped above because
-    # its series is ignored (step 11) is the known case: other kept items' mediaConnections can still
+    # its series is ignored (step 10) is the known case: other kept items' mediaConnections can still
     # point at it, and since media_connections.foreign_imdb_id has an FK back to media.imdb_id,
     # inserting such an edge would crash addMultipleMedia. Only prune targets that are neither being
     # added this run nor already in the DB -- an already-existing target's row satisfies the FK
@@ -267,7 +272,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             for x in newlyAddedMediaDict.values():
                 x.mediaConnections = [y for y in x.mediaConnections if y.foreignIMDbID not in danglingIDs]
 
-    # - persist newly-discovered people now, right alongside the media whose credits (step 9)
+    # - persist newly-discovered people now, right alongside the media whose credits (step 8)
     # reference them -- people rows must exist before addMultipleMedia's credits inserts below (FK),
     # and keeping this adjacent to that call minimizes the window in which an aborted sync could
     # leave one registered without the corresponding title/credit ever being added. Same reasoning
@@ -298,7 +303,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # - the write itself
     db.addMultipleMedia(newlyAddedMediaDict)
 
-    # 15. for every series that had something new happen to it this run (the series itself newly
+    # 14. for every series that had something new happen to it this run (the series itself newly
     # added, or at least one of its locally-resolved episodes newly added -- checked against
     # newlyAddedMediaDictOriginal, the snapshot of what was missing from the DB at the start of this
     # sync), make sure its FULL episode catalog (per title.episode.tsv) is represented in the DB
@@ -313,10 +318,10 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # otherwise, like refreshTitleData's equivalent completeness check -- these stubs never go
     # through scrapeMainPages/parseMediaConnections/scrapeFullCredits, so a large series doesn't turn
     # into a large scraping bill just because a few of its episodes were added locally. This has to
-    # run down here, strictly after step 14's write: a series' own row must already exist before any
+    # run down here, strictly after step 13's write: a series' own row must already exist before any
     # of its episode stubs can satisfy the series_imdb_id FK, so readySeries below checks the DB
     # directly rather than assuming every touched series made it in -- it might not have (e.g.
-    # excluded by the scrape budget in step 5), and whichever series didn't just gets this treatment
+    # excluded by the scrape budget in step 4), and whichever series didn't just gets this treatment
     # on a later sync instead, once it actually has a row.
     if localSeries:
         localEpisodeIDsBySeriesID = {}
@@ -330,7 +335,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         existingIDs = {row[0] for row in db.getAllMediaIDs()}
         readySeries = [series for series in touchedSeries if series.imdb_id in existingIDs]
         if readySeries:
-            printStep(15, "completing episode catalogs for " + str(len(readySeries)) + " series touched this run")
+            printStep(14, "completing episode catalogs for " + str(len(readySeries)) + " series touched this run")
             offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
             fullEpisodeLists = offlineForCompleteness.getFullEpisodeListForSeries({series.imdb_id for series in readySeries})
             newEpisodeStubs = {}
@@ -350,7 +355,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                     print("  cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
                 db.addMultipleMedia(newEpisodeStubs)
 
-    # 16. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
+    # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
     # thumbnails. Series covers are deliberately never fetched automatically -- IMDb only offers the latest
     # season's cover as a series' "main" image, which isn't what should represent the whole series locally;
     # a missing series cover is instead flagged below, for the user to source and place manually. A series
