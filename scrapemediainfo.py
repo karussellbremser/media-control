@@ -48,7 +48,13 @@ class ScrapeMediaInfo:
         general = generalTracks[0]
         video = videoTracks[0]
 
-        mediaVersion.duration = round(float(self.__require(general, "Duration", filepath)))
+        generalDuration = float(self.__require(general, "Duration", filepath))
+        videoDuration = float(self.__require(video, "Duration", filepath))
+        if generalDuration - videoDuration > 2:
+            raise LocalLibraryError("General.Duration (" + str(generalDuration) + "s) exceeds Video.Duration (" +
+                                     str(videoDuration) + "s) by more than 2 seconds for " + filepath)
+
+        mediaVersion.duration = round(generalDuration)
 
         mediaVersion.format = self.__require(video, "Format", filepath)
         mediaVersion.format_profile = video.get("Format_Profile")
