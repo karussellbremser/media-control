@@ -100,6 +100,20 @@ class ScrapeIMDbOnline:
         if self.browser is not None:
             self.browser.quit()
 
+    def __printStepHeader(self, number, description):
+        """Prints a step-header line matching main.py's syncLocal step numbering, for the steps
+        (7, 8, 11, 15) that are owned by a single method here rather than inline in main.py. Only
+        ever called once a method has already confirmed it has something to do -- see each
+        caller's own emptiness/todo check."""
+        print("\nStep " + str(number) + ": " + description)
+
+    def __printProgress(self, index, total, media):
+        """Prints a uniform per-title progress line for an online-scraping loop -- used by every
+        method here that visits one IMDb page per title (downloadCovers, scrapeMainPages,
+        parseMediaConnections, fillMissingBasics), so the same title/id/count format shows up
+        regardless of which of those is currently running."""
+        print("  [" + str(index) + "/" + str(total) + "] " + str(media.originalTitle) + " (" + media.getIDString() + ")")
+
     def restrictToScrapeBudget(self, mediaDict):
         """Restricts mediaDict to at most self.maxCount 'units' before any online scraping starts,
         so a sync run can never be cut off midway through a series: an episode always counts
@@ -124,22 +138,22 @@ class ScrapeIMDbOnline:
         return result
 
     def downloadCovers(self, mediaDict):
+        """Downloads a cover for every medium in mediaDict that doesn't already have one on disk.
+        Silent (no step header, no output at all) if every medium already has a cover file --
+        matches every other step's "only announce it if there's actually something to do" rule."""
 
-        if len(mediaDict) == 0:
+        todo = [m for m in mediaDict.values() if not os.path.isfile(os.path.join(self.cover_directory, m.getIDString() + ".jpg"))]
+        if len(todo) == 0:
             return
 
-        print("downloading covers...")
+        self.__printStepHeader(15, "recovering missing covers")
 
         count = 0
 
-        for currentMedia in mediaDict.values():
+        for i, currentMedia in enumerate(todo, 1):
+            self.__printProgress(i, len(todo), currentMedia)
 
-            # check if file exists, in this case skip this media
             coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
-            if os.path.isfile(coverPath):
-                continue
-
-            # scrape IMDb media main page
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
             self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
@@ -175,18 +189,20 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return [], [], []
 
-        print("scraping main pages...")
+        self.__printStepHeader(7, "scraping main pages (interests, language, covers)")
 
         newInterestRegistrations = []
         newLanguageRegistrations = []
         newFranchiseRegistrations = []
         first = True
 
-        for currentMedia in mediaDict.values():
+        for i, currentMedia in enumerate(mediaDict.values(), 1):
             if first:
                 first = False
             else:
                 self.__sleep()
+
+            self.__printProgress(i, len(mediaDict), currentMedia)
 
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
@@ -235,16 +251,16 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return
 
-        print("filling missing basics for titles absent from the offline dataset...")
+        self.__printStepHeader(11, "online fallback for titles missing from the offline dataset")
 
         first = True
-        for currentMedia in mediaDict.values():
+        for i, currentMedia in enumerate(mediaDict.values(), 1):
             if first:
                 first = False
             else:
                 self.__sleep()
 
-            print("Filling missing basics online for " + currentMedia.getIDString() + " (not found in offline dataset)")
+            self.__printProgress(i, len(mediaDict), currentMedia)
 
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
@@ -671,28 +687,36 @@ class ScrapeIMDbOnline:
             # Schritt 3: Als WebP speichern
             img.save(out_path, "WEBP", quality=90, method=6)
 
-    def generateThumbnails(self): # generate every missing thumbnail
-        print("generating thumbnails...")
-
+    def generateThumbnails(self): # generate every missing/outdated thumbnail
+        todo = []
         for filename in os.listdir(self.cover_directory):
             if not filename.lower().endswith(".jpg"):
                 continue
 
             in_path = os.path.join(self.cover_directory, filename)
-
             out_filename = os.path.splitext(filename)[0] + ".webp"
             out_path = os.path.join(self.thumbnail_directory, out_filename)
 
-            if os.path.exists(out_path):
-                if os.path.getmtime(in_path) <= os.path.getmtime(out_path):
-                    continue
-                else:
-                    os.remove(out_path)
+            if os.path.exists(out_path) and os.path.getmtime(in_path) <= os.path.getmtime(out_path):
+                continue
+            todo.append((filename, in_path, out_path))
 
+        if len(todo) == 0:
+            return
+
+        print("  generating thumbnails...")
+
+        for filename, in_path, out_path in todo:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+
+            # a corrupt/unreadable cover file is not worth aborting the whole sync over -- thumbnails
+            # are a derived, non-critical asset, unlike the structural DB data everything else here
+            # fails loudly over -- so this is deliberately caught broadly and just reported
             try:
                 self.__makeThumbnail(in_path, out_path)
             except Exception as e:
-                print("Error:", filename, e)
+                print("WARNING: failed to generate thumbnail for " + filename + ": " + str(e))
 
     def parseMediaConnections(self, mediaDict):
 
@@ -700,19 +724,18 @@ class ScrapeIMDbOnline:
             return mediaDict
 
         resultDict = {}
-        count = 0
 
-        print("parsing media connections...")
+        self.__printStepHeader(8, "parsing media connections")
 
         first = True
-        for currentMedia in mediaDict.values():
+        for i, currentMedia in enumerate(mediaDict.values(), 1):
 
             if first:
                 first = False
             else:
                 self.__sleep()
 
-            print(str(count+1) + " / " + str(len(mediaDict)) + " " + currentMedia.originalTitle)
+            self.__printProgress(i, len(mediaDict), currentMedia)
 
             # enter medium into result dict
             resultDict[currentMedia.imdb_id] = currentMedia
@@ -795,8 +818,6 @@ class ScrapeIMDbOnline:
                         continue
 
                     resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), connectionType))
-
-            count += 1
 
         return resultDict
 
