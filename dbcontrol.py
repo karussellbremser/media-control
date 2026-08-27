@@ -118,15 +118,116 @@ class DBControl:
                 self.c.execute("INSERT INTO title_type_enum VALUES (?, ?)", (i, titleType))
                 i += 1
 
+            # video-track fields (format/width/height/HDR/etc.) live directly on this table rather
+            # than a separate one-to-one child table, since a file has exactly one video track --
+            # unlike audio/subtitles (media_audio_tracks/media_subtitle_tracks below), which are
+            # genuinely one-to-many and need their own tables. All of it is populated by
+            # ScrapeMediaInfo.analyzeMediaVersion, only ever for a title newly added this sync run.
             self.c.execute("""CREATE TABLE media_versions (
             imdb_id integer NOT NULL,
             filename text NOT NULL,
             source text NOT NULL,
             version text,
+            duration integer NOT NULL,
+            mediainfo_version text NOT NULL,
+            format text NOT NULL,
+            format_profile text,
+            format_level text,
+            format_tier text,
+            multiview_count integer,
+            multiview_layout text,
+            hdr_format text,
+            hdr_format_version text,
+            hdr_format_profile text,
+            hdr_format_level text,
+            hdr_format_settings text,
+            hdr_format_compression text,
+            hdr_format_compatibility text,
+            variable_bitrate integer,
+            bitrate integer,
+            bitrate_maximum integer,
+            width integer NOT NULL,
+            height integer NOT NULL,
+            stored_width integer,
+            stored_height integer,
+            sampled_width integer,
+            sampled_height integer,
+            pixel_aspect_ratio real,
+            display_aspect_ratio real,
+            variable_framerate integer,
+            frame_rate real,
+            frame_rate_num integer,
+            frame_rate_den integer,
+            color_space text,
+            chroma_subsampling text,
+            chroma_subsampling_position text,
+            bit_depth integer,
+            interlaced integer,
+            language text,
+            title text,
+            color_description_present integer,
+            color_range text,
+            color_primaries text,
+            transfer_characteristics text,
+            matrix_coefficients text,
+            mastering_display_color_primaries text,
+            mastering_display_luminance_min real,
+            mastering_display_luminance_max integer,
+            max_cll integer,
+            max_fall integer,
             PRIMARY KEY (imdb_id, filename),
             UNIQUE (imdb_id, version),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE
+            )""")
+
+            # genuinely one-to-many track types (unlike video, see media_versions above) -- one row
+            # per audio/subtitle track, keyed by MediaInfo's own "ID" field (unique per file across
+            # all track types, not just this one)
+            self.c.execute("""CREATE TABLE media_audio_tracks (
+            imdb_id integer NOT NULL,
+            filename text NOT NULL,
+            track_id integer NOT NULL,
+            format text NOT NULL,
+            format_commercial text,
+            format_settings_mode text,
+            format_additional_features text,
+            matrix_format text,
+            variable_bitrate integer,
+            bitrate integer,
+            bitrate_maximum integer,
+            channels integer,
+            matrix_channels integer,
+            channel_positions text,
+            matrix_channel_positions text,
+            channel_layout text,
+            sampling_rate integer,
+            bit_depth integer,
+            lossless integer,
+            language text NOT NULL,
+            title text,
+            default_track integer NOT NULL,
+            PRIMARY KEY (imdb_id, filename, track_id),
+            FOREIGN KEY (imdb_id, filename)
+                REFERENCES media_versions (imdb_id, filename)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE
+            )""")
+
+            self.c.execute("""CREATE TABLE media_subtitle_tracks (
+            imdb_id integer NOT NULL,
+            filename text NOT NULL,
+            track_id integer NOT NULL,
+            format text NOT NULL,
+            language text NOT NULL,
+            title text,
+            default_track integer NOT NULL,
+            forced_track integer NOT NULL,
+            PRIMARY KEY (imdb_id, filename, track_id),
+            FOREIGN KEY (imdb_id, filename)
+                REFERENCES media_versions (imdb_id, filename)
                     ON UPDATE CASCADE
                     ON DELETE CASCADE
             )""")
@@ -273,7 +374,48 @@ class DBControl:
             for imdb_interest_id in thisMedia.interests:
                 self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
             for mediaVersion in thisMedia.mediaVersions:
-                self.c.execute("INSERT INTO media_versions VALUES (?, ?, ?, ?)", (thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version))
+                # built from explicit column/value lists (rather than a hardcoded run of "?"
+                # placeholders, as elsewhere in this file) since this table is wide enough that
+                # miscounting placeholders by hand would be an easy, silent mistake
+                versionColumns = [
+                    "imdb_id", "filename", "source", "version", "duration", "mediainfo_version",
+                    "format", "format_profile", "format_level", "format_tier",
+                    "multiview_count", "multiview_layout",
+                    "hdr_format", "hdr_format_version", "hdr_format_profile", "hdr_format_level",
+                    "hdr_format_settings", "hdr_format_compression", "hdr_format_compatibility",
+                    "variable_bitrate", "bitrate", "bitrate_maximum",
+                    "width", "height", "stored_width", "stored_height", "sampled_width", "sampled_height",
+                    "pixel_aspect_ratio", "display_aspect_ratio",
+                    "variable_framerate", "frame_rate", "frame_rate_num", "frame_rate_den",
+                    "color_space", "chroma_subsampling", "chroma_subsampling_position", "bit_depth", "interlaced",
+                    "language", "title",
+                    "color_description_present", "color_range", "color_primaries",
+                    "transfer_characteristics", "matrix_coefficients",
+                    "mastering_display_color_primaries", "mastering_display_luminance_min",
+                    "mastering_display_luminance_max", "max_cll", "max_fall",
+                ]
+                versionValues = [
+                    thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version,
+                    mediaVersion.duration, mediaVersion.mediainfo_version,
+                    mediaVersion.format, mediaVersion.format_profile, mediaVersion.format_level, mediaVersion.format_tier,
+                    mediaVersion.multiview_count, mediaVersion.multiview_layout,
+                    mediaVersion.hdr_format, mediaVersion.hdr_format_version, mediaVersion.hdr_format_profile, mediaVersion.hdr_format_level,
+                    mediaVersion.hdr_format_settings, mediaVersion.hdr_format_compression, mediaVersion.hdr_format_compatibility,
+                    mediaVersion.variable_bitrate, mediaVersion.bitrate, mediaVersion.bitrate_maximum,
+                    mediaVersion.width, mediaVersion.height, mediaVersion.stored_width, mediaVersion.stored_height, mediaVersion.sampled_width, mediaVersion.sampled_height,
+                    mediaVersion.pixel_aspect_ratio, mediaVersion.display_aspect_ratio,
+                    mediaVersion.variable_framerate, mediaVersion.frame_rate, mediaVersion.frame_rate_num, mediaVersion.frame_rate_den,
+                    mediaVersion.color_space, mediaVersion.chroma_subsampling, mediaVersion.chroma_subsampling_position, mediaVersion.bit_depth, mediaVersion.interlaced,
+                    mediaVersion.language, mediaVersion.title,
+                    mediaVersion.color_description_present, mediaVersion.color_range, mediaVersion.color_primaries,
+                    mediaVersion.transfer_characteristics, mediaVersion.matrix_coefficients,
+                    mediaVersion.mastering_display_color_primaries, mediaVersion.mastering_display_luminance_min,
+                    mediaVersion.mastering_display_luminance_max, mediaVersion.max_cll, mediaVersion.max_fall,
+                ]
+                self.c.execute(
+                    "INSERT INTO media_versions (" + ", ".join(versionColumns) + ") VALUES (" + ", ".join("?" for _ in versionColumns) + ")",
+                    versionValues
+                )
                 for source in mediaVersion.sources:
                     self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
                         thisMedia.imdb_id,
@@ -288,6 +430,29 @@ class DBControl:
                         int(source.downmixed),
                         int(source.core),
                         int(source.fanres),
+                    ))
+                for audioTrack in mediaVersion.audioTracks:
+                    self.c.execute("""INSERT INTO media_audio_tracks (
+                        imdb_id, filename, track_id, format, format_commercial, format_settings_mode,
+                        format_additional_features, matrix_format, variable_bitrate, bitrate, bitrate_maximum,
+                        channels, matrix_channels, channel_positions, matrix_channel_positions, channel_layout,
+                        sampling_rate, bit_depth, lossless, language, title, default_track
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                        thisMedia.imdb_id, mediaVersion.filename, audioTrack.track_id, audioTrack.format,
+                        audioTrack.format_commercial, audioTrack.format_settings_mode,
+                        audioTrack.format_additional_features, audioTrack.matrix_format, audioTrack.variable_bitrate,
+                        audioTrack.bitrate, audioTrack.bitrate_maximum,
+                        audioTrack.channels, audioTrack.matrix_channels, audioTrack.channel_positions,
+                        audioTrack.matrix_channel_positions, audioTrack.channel_layout,
+                        audioTrack.sampling_rate, audioTrack.bit_depth, audioTrack.lossless, audioTrack.language,
+                        audioTrack.title, audioTrack.default_track,
+                    ))
+                for subtitleTrack in mediaVersion.subtitleTracks:
+                    self.c.execute("""INSERT INTO media_subtitle_tracks (
+                        imdb_id, filename, track_id, format, language, title, default_track, forced_track
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", (
+                        thisMedia.imdb_id, mediaVersion.filename, subtitleTrack.track_id, subtitleTrack.format,
+                        subtitleTrack.language, subtitleTrack.title, subtitleTrack.default_track, subtitleTrack.forced_track,
                     ))
 
     def addSingleMediaConnections(self, thisMedia):

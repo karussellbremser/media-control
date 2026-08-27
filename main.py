@@ -3,6 +3,7 @@ from dbcontrol import DBControl
 from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
+from scrapemediainfo import ScrapeMediaInfo
 from statistics import Statistics
 from exceptions import LocalLibraryError, OfflineDatasetError
 import config
@@ -107,6 +108,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # of this run is concerned; it's still missing from the DB afterwards, so it's picked up again on
     # the next sync.
     newlyAddedMediaDict = scrapeimdbonline.restrictToScrapeBudget(newlyAddedMediaDict)
+
+    # 2c. run MediaInfo analysis on every file belonging to a title that's both newly added and
+    # survived the scrape budget above -- movies' own mediaVersions, plus already-resolved episodes'
+    # (from step 1b); series themselves and any later-discovered referenced-only stub media have no
+    # mediaVersions at all, so nothing extra needs excluding here. A missing file is a
+    # LocalLibraryError, malformed/unexpected MediaInfo output is a MediaInfoError -- both propagate
+    # and abort the sync, same fail-loud treatment as everything else that doesn't match expectations.
+    scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
+    for currentMedia in newlyAddedMediaDict.values():
+        for mediaVersion in currentMedia.mediaVersions:
+            scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
 
     # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 1b) are excluded --
