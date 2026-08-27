@@ -115,9 +115,22 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # mediaVersions at all, so nothing extra needs excluding here. A missing file is a
     # LocalLibraryError, malformed/unexpected MediaInfo output is a MediaInfoError -- both propagate
     # and abort the sync, same fail-loud treatment as everything else that doesn't match expectations.
+    # Kaleidescape-sourced versions are skipped entirely -- there's no local file to analyze, just an
+    # empty .kscape placeholder (see MediaVersion.isKaleidescapeOnly); duration/mediainfo_version/
+    # format/width/height etc. stay None until a future online Kaleidescape scraper fills them in.
+    # The size check below guards the one dangerous mismatch: a real, non-empty file whose source was
+    # mistakenly declared as kscape would otherwise have its analysis silently skipped rather than
+    # erroring (the reverse mismatch -- a .kscape-extension file with a non-kscape source -- already
+    # can't happen, since ScrapeLocal requires every .kscape file to be empty regardless of source).
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
     for currentMedia in newlyAddedMediaDict.values():
         for mediaVersion in currentMedia.mediaVersions:
+            if mediaVersion.isKaleidescapeOnly():
+                filepath = os.path.join(mediaDir, currentMedia.subdir, mediaVersion.filename)
+                if os.path.isfile(filepath) and os.path.getsize(filepath) > 0:
+                    raise LocalLibraryError("Kaleidescape-sourced file is not empty: " + filepath)
+                print("Skipping MediaInfo analysis for Kaleidescape-owned file (no local file to analyze): " + filepath)
+                continue
             scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
 
     # 3. scrape main pages of newly added media: download covers if missing, scrape interests/language.

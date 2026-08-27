@@ -129,8 +129,8 @@ class DBControl:
             source text NOT NULL,
             version text,
             duration integer NOT NULL,
-            mediainfo_version text NOT NULL,
-            format text NOT NULL,
+            mediainfo_version text,
+            format text,
             format_profile text,
             format_level text,
             format_tier text,
@@ -281,6 +281,7 @@ class DBControl:
             source_type_id integer NOT NULL,
             disc_id integer,
             disc_corrected integer,
+            kaleidescape_id text,
             web_provider_id integer,
             base_layer integer,
             downmixed integer,
@@ -417,7 +418,7 @@ class DBControl:
                     versionValues
                 )
                 for source in mediaVersion.sources:
-                    self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                    self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
                         thisMedia.imdb_id,
                         mediaVersion.filename,
                         self.__getSourceRoleIDByName(source.role),
@@ -425,6 +426,7 @@ class DBControl:
                         self.__getSourceTypeIDByName(source.source_type),
                         source.disc_id,
                         int(source.disc_corrected),
+                        source.kaleidescape_id,
                         self.__getWebProviderIDByAbbreviation(source.web_provider) if source.web_provider is not None else None,
                         int(source.base_layer),
                         int(source.downmixed),

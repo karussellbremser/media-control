@@ -11,7 +11,10 @@ class MediaVersion:
 
         # everything below is populated by ScrapeMediaInfo.analyzeMediaVersion, once this version's
         # file is about to be added to the DB (only ever run for newly-added, budget-surviving
-        # titles -- see main.py's syncLocal); None/empty until then
+        # titles -- see main.py's syncLocal); None/empty until then. Unless it's Kaleidescape-only
+        # (see isKaleidescapeOnly): there's no local file for ScrapeMediaInfo to analyze, so all of
+        # it just stays None -- duration/width/height are instead meant to come from a future online
+        # Kaleidescape scraper, not yet implemented
 
         self.duration = None # General.Duration, rounded to whole seconds
         self.mediainfo_version = None # creatingLibrary.version
@@ -69,3 +72,9 @@ class MediaVersion:
 
         self.audioTracks = [] # list of AudioTrack
         self.subtitleTracks = [] # list of SubtitleTrack
+
+    def isKaleidescapeOnly(self):
+        """True if this version's main-role source is Kaleidescape -- i.e. there's no real local
+        file to run MediaInfo on, just an empty placeholder (see ScrapeLocal's .kscape convention)."""
+        mainSource = next((s for s in self.sources if s.role == "main"), None)
+        return mainSource is not None and mainSource.source_type == "kscape"

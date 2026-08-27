@@ -3,8 +3,13 @@ from mediasource import MediaSource
 
 # all keyword/structural tokens are matched case-insensitively; only a web provider abbreviation
 # (user-defined data, matched against config.WEB_PROVIDERS later) is kept verbatim
-_BARE_TYPE_TOKENS = ("tv", "vhs", "hifivhs", "ld", "di", "kscape", "hddvd")
-_DISC_TYPE_TOKENS = ("dvd", "br", "uhd")
+_BARE_TYPE_TOKENS = ("tv", "vhs", "hifivhs", "ld", "di", "hddvd")
+# types requiring an identifier token right after the type token. dvd/br/uhd's is a numeric disc id
+# (also supports the -corrected modifier, a disc-pressing-correction concept); kscape's is a
+# free-form string (its Kaleidescape catalog identifier, kept verbatim like a web provider
+# abbreviation -- no -corrected support, since that concept doesn't apply)
+_IDENTIFIED_TYPE_TOKENS = ("dvd", "br", "uhd", "kscape")
+_NUMERIC_IDENTIFIED_TYPES = ("dvd", "br", "uhd")
 
 def parseSourceString(raw_string):
     """Parses a 'src-...' source identifier (see scrapelocal.py's sources.txt/src-*.txt
@@ -104,18 +109,27 @@ def _parseLeafSourceCandidates(tokens, role, fanres, seq):
     first = tokens[0]
     firstLower = first.lower()
 
-    if firstLower in _DISC_TYPE_TOKENS:
-        if len(tokens) < 2 or not tokens[1].isdigit():
-            raise LocalLibraryError("expected a numeric disc id after '" + first + "-'")
-        disc_id = int(tokens[1])
-        rest = tokens[2:]
+    if firstLower in _IDENTIFIED_TYPE_TOKENS:
+        if len(tokens) < 2 or tokens[1] == "":
+            raise LocalLibraryError("expected an identifier after '" + first + "-'")
+        disc_id = None
         disc_corrected = False
-        if rest[:1] and rest[0].lower() == "corrected":
-            disc_corrected = True
-            rest = rest[1:]
+        kaleidescape_id = None
+        if firstLower in _NUMERIC_IDENTIFIED_TYPES:
+            if not tokens[1].isdigit():
+                raise LocalLibraryError("expected a numeric disc id after '" + first + "-'")
+            disc_id = int(tokens[1])
+            rest = tokens[2:]
+            if rest[:1] and rest[0].lower() == "corrected":
+                disc_corrected = True
+                rest = rest[1:]
+        else: # kscape -- a free-form string identifier, kept verbatim, no -corrected support
+            kaleidescape_id = tokens[1]
+            rest = tokens[2:]
         base_layer, downmixed, core, rest = _parseModifiers(rest)
         return [(MediaSource(role, firstLower, disc_id=disc_id, disc_corrected=disc_corrected,
-                              base_layer=base_layer, downmixed=downmixed, core=core, fanres=fanres, seq=seq), rest)]
+                              kaleidescape_id=kaleidescape_id, base_layer=base_layer, downmixed=downmixed,
+                              core=core, fanres=fanres, seq=seq), rest)]
 
     if firstLower in _BARE_TYPE_TOKENS:
         rest = tokens[1:]
