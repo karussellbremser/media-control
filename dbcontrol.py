@@ -507,13 +507,14 @@ class DBControl:
             affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
 
             #3a. if yes: only "light-remove" mediumToRemove (remove subdir, interests, intended
-            # episode order, and reset language to the default; these are only valid for
-            # locally-owned media -- intended_order in particular is purely local data, unlike
-            # season_number/episode_number/series_imdb_id which come from IMDb and stay valid
-            # regardless of ownership)
+            # episode order, manually-entered release day/month, and reset language to the default;
+            # these are only valid for locally-owned media -- intended_order and releaseMonth/Day in
+            # particular are purely local data (release day/month are only ever entered manually,
+            # see Media.__init__), unlike season_number/episode_number/series_imdb_id which come
+            # from IMDb and stay valid regardless of ownership)
             if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
                 print("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
-                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, releaseMonth = NULL, releaseDay = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             #3b. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
