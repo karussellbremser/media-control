@@ -151,10 +151,13 @@ class ScrapeIMDbOnline:
             self.__sleep()
 
     def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
-        """For every medium in mediaDict, visits its IMDb main page exactly once and:
+        """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
+        more /interest/<id>/ pages while classifying newly-discovered chips) and:
         - always scrapes its interests (standard genres and subgenres alike), language and plot summary
-        - downloads its cover if the file doesn't already exist, unless it's a series (series covers
-          are always added manually, never auto-downloaded)
+        - downloads its cover if the file doesn't already exist, unless it's a series or its
+          language turns out non-English (covers for both are always added manually, never
+          auto-downloaded -- see main.py's downloadCovers call for the matching exclusion on the
+          cover-backfill path)
 
         knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
         mutated in place as new ones are discovered. knownPseudoGenreIDs is a name -> id map of
@@ -190,26 +193,30 @@ class ScrapeIMDbOnline:
             chips = self.__scrapeInterestChips()
             currentMedia.plotSummary = self.__scrapePlotSummary()
 
-            # cover download must happen here, while still on the title's main page from the browser.get()
-            # above; classifying newly-discovered interests below navigates away to separate /interest/...
-            # pages, so this ordering keeps the title's own main page visited exactly once per title.
-            # Series are excluded -- IMDb only offers the latest season's cover as a series' "main"
-            # image, which isn't what should represent the whole series locally; a series cover is
-            # always added manually instead (see main.py's downloadCovers call for the matching
-            # exclusion on the cover-backfill path). titleType is still the local-scrape placeholder
-            # here ("localSeries"), since offline parsing hasn't resolved it to a real IMDb type yet.
-            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes:
-                coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
-                if not os.path.isfile(coverPath):
-                    self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
-
-            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID, newFranchiseRegs = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
+            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID, newFranchiseRegs, navigatedAway = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
             currentMedia.interests = attachedInterestIDs
             if languageID is not None:
                 currentMedia.language_id = languageID
             newInterestRegistrations.extend(newInterestRegs)
             newLanguageRegistrations.extend(newLanguageRegs)
             newFranchiseRegistrations.extend(newFranchiseRegs)
+
+            # cover download needs the browser back on the title's own main page -- classifying
+            # newly-discovered interests above may have navigated away to separate /interest/...
+            # pages, so only re-navigate (an extra page load) when that actually happened. Series
+            # are excluded -- IMDb only offers the latest season's cover as a series' "main" image,
+            # which isn't what should represent the whole series locally. Non-English movies get
+            # the same manual-only treatment as series (by explicit choice, not auto-downloaded);
+            # in both cases a cover is instead added manually (see main.py's downloadCovers call
+            # for the matching exclusion on the cover-backfill path). titleType is still the
+            # local-scrape placeholder here ("localSeries"), since offline parsing hasn't resolved
+            # it to a real IMDb type yet.
+            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes and currentMedia.language_id == 0:
+                coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
+                if not os.path.isfile(coverPath):
+                    if navigatedAway:
+                        self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
+                    self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
         return newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations
 
@@ -466,13 +473,17 @@ class ScrapeIMDbOnline:
         shared across the whole sync so the same category always resolves to the same id).
 
         Returns (attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations,
-        languageID, newFranchiseRegistrations): attachedInterestIDs are the genre/subgenre ids
-        actually attached to this title (for media_interests -- language ids are never included);
-        newInterestRegistrations is a list of (imdb_interest_id, name, description,
-        parent_imdb_interest_id) tuples; newLanguageRegistrations is a list of (imdb_interest_id,
-        name, description) tuples; languageID is this title's language_id if a language chip was
-        found, else None; newFranchiseRegistrations is a list of (imdb_interest_id, name) tuples --
-        persist via DBControl.ensureFranchiseInterestExists() in the order returned.
+        languageID, newFranchiseRegistrations, navigatedAway): attachedInterestIDs are the
+        genre/subgenre ids actually attached to this title (for media_interests -- language ids
+        are never included); newInterestRegistrations is a list of (imdb_interest_id, name,
+        description, parent_imdb_interest_id) tuples; newLanguageRegistrations is a list of
+        (imdb_interest_id, name, description) tuples; languageID is this title's language_id if a
+        language chip was found, else None; newFranchiseRegistrations is a list of
+        (imdb_interest_id, name) tuples -- persist via DBControl.ensureFranchiseInterestExists()
+        in the order returned; navigatedAway is True if classifying any chip navigated the browser
+        away from the title's own main page (to a /interest/<id>/ page), False if every chip was
+        already known and the browser never left -- callers that need to be back on the main page
+        afterwards (e.g. to download the cover) should check this rather than assume either way.
 
         Raises on any unexpected structure (unknown type, missing description, ambiguous parent,
         more than two genre/subgenre taxonomy levels, more than one language attached)."""
@@ -482,6 +493,7 @@ class ScrapeIMDbOnline:
         newLanguageRegistrations = []
         newFranchiseRegistrations = []
         languageID = None
+        navigatedAway = False
 
         # IMDb labels a top-level (parentless) interest's hero type differently depending on what
         # kind of category it is -- "Genre" for most (Drama, Comedy, ...), but "Form" for things
@@ -492,6 +504,8 @@ class ScrapeIMDbOnline:
         topLevelTypes = ("Genre", "Form", "Style")
 
         def classify(interest_id, name):
+            nonlocal navigatedAway
+            navigatedAway = True
             self.__navigate("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
 
             typeText = self.browser.execute_script("""
@@ -594,7 +608,7 @@ class ScrapeIMDbOnline:
             knownInterestIDs.add(chip_id)
             attachedInterestIDs.append(chip_id)
 
-        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageID, newFranchiseRegistrations
+        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageID, newFranchiseRegistrations, navigatedAway
 
     def __getGlobalInterestNameMap(self):
         """Lazily fetches and caches IMDb's full interest directory (/interest/all/) as a

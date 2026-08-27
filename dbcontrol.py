@@ -628,6 +628,21 @@ class DBControl:
             self.c.execute("SELECT imdb_interest_id FROM language_enum")
             return set(row[0] for row in self.c.fetchall())
 
+    def getNonEnglishLocallyOwnedMovieIDs(self):
+        """Set of imdb_ids for locally-owned movies (subdir IS NOT NULL, title_type_name in
+        Media.movieTitleTypes -- i.e. not a series or episode) whose DB-recorded language_id is
+        not English (id 0). Queries the DB directly rather than trusting a freshly-rescanned Media
+        object's in-memory language_id, which defaults to English for any title not newly scraped
+        this run. Used by main.py's cover-backfill step to give non-English movies the same
+        manual-only cover treatment as series."""
+        with self.conn:
+            self.c.execute("""SELECT m.imdb_id FROM media m
+                JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
+                WHERE m.subdir IS NOT NULL AND m.language_id != 0
+                AND tt.title_type_name IN (""" + ",".join("?" for _ in Media.movieTitleTypes) + ")",
+                tuple(Media.movieTitleTypes))
+            return set(row[0] for row in self.c.fetchall())
+
     def ensureLanguageExists(self, imdb_interest_id, name, description):
         """Insert a newly-discovered language interest into language_enum if not already known."""
         with self.conn:

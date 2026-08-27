@@ -299,16 +299,21 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # season's cover as a series' "main" image, which isn't what should represent the whole series locally;
     # a missing series cover is instead flagged below, for the user to source and place manually. A series
     # not yet resolved by title.basics this run still carries its "localSeries" local-scrape placeholder.
+    # Non-English movies get the same manual-only treatment (see ScrapeIMDbOnline.scrapeMainPages) --
+    # queried directly from the DB rather than trusted from mediaDictOriginal, since a freshly-rescanned
+    # Media object's in-memory language_id defaults to English for any title not newly scraped this run.
     seriesTitleTypesLocal = ["localSeries"] + Media.seriesTitleTypes
-    moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if v.series_imdb_id is None and v.titleType not in seriesTitleTypesLocal}
+    nonEnglishMovieIDs = db.getNonEnglishLocallyOwnedMovieIDs()
+    moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if v.series_imdb_id is None and v.titleType not in seriesTitleTypesLocal and k not in nonEnglishMovieIDs}
     scrapeimdbonline.downloadCovers(moviesOnlyDict)
     scrapeimdbonline.generateThumbnails()
 
     for v in mediaDictOriginal.values():
-        if v.series_imdb_id is None and v.titleType in seriesTitleTypesLocal:
+        if v.series_imdb_id is None and (v.titleType in seriesTitleTypesLocal or v.imdb_id in nonEnglishMovieIDs):
             coverPath = os.path.join(coverDir, v.getIDString() + ".jpg")
             if not os.path.isfile(coverPath):
-                print("WARNING: no cover found for locally-owned series " + str(v.originalTitle) + " (" + v.getIDString() + ") -- series covers must be added manually")
+                kind = "series" if v.titleType in seriesTitleTypesLocal else "non-English movie"
+                print("WARNING: no cover found for locally-owned " + kind + " " + str(v.originalTitle) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
 
     del scrapeimdbonline
 
