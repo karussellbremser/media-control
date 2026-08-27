@@ -217,7 +217,7 @@ class ScrapeIMDbOffline:
                     if x.titleType == "localSeries":
                         # a locally-owned series missing from title.basics.tsv: by this point its local
                         # episodes have already resolved successfully against title.episode.tsv (see
-                        # main.py step 1b), so that file already treats this id as a real, cataloged
+                        # main.py step 2), so that file already treats this id as a real, cataloged
                         # series -- title.basics.tsv disagreeing is a dataset inconsistency, not a
                         # genuinely obscure title worth an online fallback lookup, unlike a movie
                         raise OfflineDatasetError("series " + x.getIDString() + " has episodes in title.episode.tsv but is missing from title.basics.tsv")
