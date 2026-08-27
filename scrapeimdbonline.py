@@ -5,6 +5,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from media import Media
 from mediaconnection import MediaConnection
+from person import Person
+from credit import Credit
 from imdbinterestid import parseInterestID, formatInterestID
 from exceptions import ScrapingError
 from PIL import Image
@@ -102,7 +104,7 @@ class ScrapeIMDbOnline:
 
     def __printStepHeader(self, number, description):
         """Prints a step-header line matching main.py's syncLocal step numbering, for the steps
-        (7, 8, 11, 15) that are owned by a single method here rather than inline in main.py. Only
+        (7, 8, 9, 12, 16) that are owned by a single method here rather than inline in main.py. Only
         ever called once a method has already confirmed it has something to do -- see each
         caller's own emptiness/todo check."""
         print("\nStep " + str(number) + ": " + description)
@@ -110,8 +112,8 @@ class ScrapeIMDbOnline:
     def __printProgress(self, index, total, media):
         """Prints a uniform per-title progress line for an online-scraping loop -- used by every
         method here that visits one IMDb page per title (downloadCovers, scrapeMainPages,
-        parseMediaConnections, fillMissingBasics), so the same title/id/count format shows up
-        regardless of which of those is currently running."""
+        parseMediaConnections, scrapeFullCredits, fillMissingBasics), so the same title/id/count
+        format shows up regardless of which of those is currently running."""
         print("  [" + str(index) + "/" + str(total) + "] " + str(media.originalTitle) + " (" + media.getIDString() + ")")
 
     def restrictToScrapeBudget(self, mediaDict):
@@ -146,7 +148,7 @@ class ScrapeIMDbOnline:
         if len(todo) == 0:
             return
 
-        self.__printStepHeader(15, "recovering missing covers")
+        self.__printStepHeader(16, "recovering missing covers")
 
         count = 0
 
@@ -251,7 +253,7 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return
 
-        self.__printStepHeader(11, "online fallback for titles missing from the offline dataset")
+        self.__printStepHeader(12, "online fallback for titles missing from the offline dataset")
 
         first = True
         for i, currentMedia in enumerate(mediaDict.values(), 1):
@@ -820,6 +822,93 @@ class ScrapeIMDbOnline:
                     resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), connectionType))
 
         return resultDict
+
+    def scrapeFullCredits(self, mediaDict, knownPersonIDs):
+        """For every medium in mediaDict, visits its IMDb fullcredits page and records director/
+        writer/actor credits directly onto that medium's own .credits list (see Credit), as one
+        running `ordering` sequence per medium across all three roles in the page's own order
+        (director(s), then writer(s), then actor(s)). "Actor" covers both actors and actresses,
+        matching IMDb's own "Cast" section label; every other section on the page (producers,
+        composer, etc.) is ignored entirely. Both credited and "(uncredited)" entries are included.
+        A Cast section IMDb splits into a primary list plus a "Rest of cast listed alphabetically"
+        continuation (rendered as a second, separate sub-list) is scraped as one combined sequence,
+        since credit rows are located generically within the whole enclosing section rather than
+        by picking out a single expected sub-list.
+
+        A credited person not yet known (not in knownPersonIDs) is minted here as a Person stub --
+        name is whatever was scraped from this page, a placeholder until
+        ScrapeIMDbOffline.parsePeople resolves the authoritative name.basics.tsv name (see Person).
+        knownPersonIDs is mutated in place, mirroring knownInterestIDs/knownLanguageIDs elsewhere.
+        Returns newPersonRegistrations: a list of such Person stubs, in order of first appearance,
+        for the caller to run through ScrapeIMDbOffline.parsePeople and persist before this run's
+        write.
+
+        Raises ScrapingError on any unexpected structure (missing person link, an unrecognized
+        credits-list-item shape)."""
+
+        if len(mediaDict) == 0:
+            return []
+
+        self.__printStepHeader(9, "scraping full credits (director/writer/actor)")
+
+        newPersonRegistrations = []
+        first = True
+
+        for i, currentMedia in enumerate(mediaDict.values(), 1):
+            if first:
+                first = False
+            else:
+                self.__sleep()
+
+            self.__printProgress(i, len(mediaDict), currentMedia)
+
+            self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/fullcredits/")
+            soup = BeautifulSoup(self.browser.page_source, 'html.parser')
+
+            ordering = 0
+            for creditRole, headingText, exactMatch in (
+                ("director", "Director", False), # "Director" or "Directors"
+                ("writer", "Writer", False),      # "Writer" or "Writers"
+                ("actor", "Cast", True),
+            ):
+                matchingHeadings = [h for h in soup.find_all("h3") if
+                                     (h.get_text(strip=True) == headingText if exactMatch
+                                      else h.get_text(strip=True).startswith(headingText))]
+                if len(matchingHeadings) == 0:
+                    continue # e.g. no credited writer at all -- tolerated, not every title has one
+                if len(matchingHeadings) > 1:
+                    raise ScrapingError("multiple '" + headingText + "' headings found on " + currentMedia.getIDString() + "/fullcredits/")
+                section = matchingHeadings[0].find_parent("section")
+                if section is None:
+                    raise ScrapingError("could not find enclosing section for '" + headingText + "' heading on " + currentMedia.getIDString() + "/fullcredits/")
+
+                for li in section.find_all("li", attrs={"data-testid": "name-credits-list-item"}):
+                    # every credits-list-item observed carries the person's name twice (once from
+                    # each of two duplicate links IMDb renders), followed optionally by role/detail
+                    # text (a character name for cast, a credit qualifier like "original story by &"
+                    # for writers, "(uncredited)"/"(voice)" suffixes, etc.) -- reading this generically
+                    # via stripped_strings rather than hard-coding which element holds what text is
+                    # what lets the same code handle director/writer/cast rows uniformly, split-cast
+                    # continuations, and any of these qualifier variants without special-casing them
+                    texts = list(li.stripped_strings)
+                    if len(texts) < 2 or texts[0] != texts[1]:
+                        raise ScrapingError("unexpected credits list item structure on " + currentMedia.getIDString() + "/fullcredits/: " + str(texts))
+
+                    nameLink = li.find("a", href=re.compile(r"^/name/nm\d+/"))
+                    if nameLink is None:
+                        raise ScrapingError("no person link found in credits list item on " + currentMedia.getIDString() + "/fullcredits/: " + str(texts))
+                    person_id = int(re.match(r"^/name/nm(\d+)/", nameLink["href"]).group(1))
+
+                    creditDetails = " ".join(texts[2:]) if len(texts) > 2 else None
+
+                    if person_id not in knownPersonIDs:
+                        knownPersonIDs.add(person_id)
+                        newPersonRegistrations.append(Person(person_id, texts[0]))
+
+                    ordering += 1
+                    currentMedia.credits.append(Credit(person_id, ordering, creditRole, creditDetails))
+
+        return newPersonRegistrations
 
     def isInDevelopment(self, imdb_id):
         # scrape IMDb media main page. IMDb apparently shows an in-production title's status via

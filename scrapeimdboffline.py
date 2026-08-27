@@ -10,6 +10,7 @@ class ScrapeIMDbOffline:
     title_ratings_filename = "title.ratings.tsv"
     title_basics_filename = "title.basics.tsv"
     title_episode_filename = "title.episode.tsv"
+    name_basics_filename = "name.basics.tsv"
 
     def __init__(self, scrapeimdbonline, dataset_directory):
         self.dataset_directory = dataset_directory
@@ -43,6 +44,9 @@ class ScrapeIMDbOffline:
         # update Title Episode
         self.__updateDataset(os.path.join(self.dataset_directory, self.title_episode_filename), "https://datasets.imdbws.com/title.episode.tsv.gz")
 
+        # update Name Basics
+        self.__updateDataset(os.path.join(self.dataset_directory, self.name_basics_filename), "https://datasets.imdbws.com/name.basics.tsv.gz")
+
         return
     
     def parseTitleRatings(self, content_dict):
@@ -61,6 +65,49 @@ class ScrapeIMDbOffline:
         near-immutable instead -- see __insertTitleBasicsRefresh for exactly what's allowed to
         change and what raises OfflineDatasetError."""
         return self.__parseIMDbOfflineFile(content_dict, 2, False)
+
+    def parsePeople(self, content_dict):
+        """Resolves name/birth_year/death_year for every newly-discovered person in content_dict
+        (a {imdb_id: Person} dict) from name.basics.tsv. Unlike parseTitleBasics/parseTitleRatings,
+        a person missing from the dataset (e.g. added to IMDb more recently than the dataset
+        snapshot) is tolerated rather than treated as an error or discarded -- a person record is
+        supplementary to a credit, not structural the way a title's own basics are, so this just
+        leaves the person's name as whatever was scraped from the credits page (see Person), with
+        birth_year/death_year staying None."""
+        return self.__parseNameBasics(content_dict)
+
+    def refreshPeople(self, content_dict):
+        """Like refreshTitleBasics, but for name.basics: name/birth_year/death_year are silently
+        updated to whatever the dataset currently says (a living person's death_year becomes known,
+        names get corrected). A person missing from the dataset keeps their current DB values
+        unchanged, same tolerance as parsePeople."""
+        return self.__parseNameBasics(content_dict)
+
+    def __parseNameBasics(self, content_dict):
+        if len(content_dict) == 0:
+            return content_dict
+
+        foundIDs = set()
+        with open(os.path.join(self.dataset_directory, self.name_basics_filename), "r", encoding="utf8") as f:
+            c = csv.reader(f, delimiter="\t")
+            next(c, None) # read from second line
+            for row in c: # row: nconst || primaryName || birthYear || deathYear || primaryProfession || knownForTitles
+                current_person_id = int(row[0][2:])
+                if current_person_id in content_dict:
+                    person = content_dict[current_person_id]
+                    person.name = row[1]
+                    person.birth_year = int(row[2]) if row[2] != "\\N" else None
+                    person.death_year = int(row[3]) if row[3] != "\\N" else None
+                    foundIDs.add(current_person_id)
+
+        # flagged, not raised (see parsePeople/refreshPeople's docstrings) -- but still worth
+        # surfacing, since it's the one case where a person's name.basics.tsv data was actually
+        # expected and didn't show up
+        for missing_id in content_dict.keys() - foundIDs:
+            print("WARNING: person " + content_dict[missing_id].getIDString() + " (" + str(content_dict[missing_id].name) +
+                  ") not found in name.basics.tsv -- keeping existing data unchanged")
+
+        return content_dict
 
     def parseTitleEpisode(self, content_dict):
         """Resolves season_number/episode_number/series_imdb_id for every id in content_dict that

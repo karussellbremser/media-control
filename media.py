@@ -62,6 +62,7 @@ class Media:
         self.language_id = 0 # imdb_interest_id into language_enum; 0 = English (the reserved default id), overwritten if a language-type interest is attached
         self.mediaVersions = []
         self.mediaConnections = []
+        self.credits = [] # list of Credit (director/writer/actor); only ever populated for locally-owned media (see ScrapeIMDbOnline.scrapeFullCredits), including episodes
         self.episodes = [] # list of Episode, only ever populated for a locally-scraped series (see ScrapeLocal.__scrapeSingleSeries)
         self.needsOnlineFallback = False # set when locally-owned media is missing from the IMDb offline datasets
 
@@ -69,6 +70,9 @@ class Media:
         return_str = str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.interests)
         if (len(self.mediaConnections) > 0): return_str += " mediaConnections:"
         for x in self.mediaConnections:
+            return_str += str(" " + str(x))
+        if (len(self.credits) > 0): return_str += " credits:"
+        for x in self.credits:
             return_str += str(" " + str(x))
         return return_str
     

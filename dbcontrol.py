@@ -2,6 +2,8 @@ import sqlite3
 from media import Media
 from mediaversion import MediaVersion
 from mediaconnection import MediaConnection
+from person import Person
+from credit import Credit
 from exceptions import LocalLibraryError, OfflineDatasetError
 
 class DBControl:
@@ -360,6 +362,60 @@ class DBControl:
             PRIMARY KEY (imdb_interest_id)
             )""")
 
+            # people credited (director/writer/actor) on locally-owned media, keyed by the integer
+            # form of IMDb's own "nmXXXXXXX" person id. name/birth_year/death_year come from the
+            # offline name.basics.tsv dataset (see ScrapeIMDbOffline.parsePeople/refreshPeople), not
+            # from the credits scrape itself -- name starts out as whatever was scraped from the
+            # credits page and is only overwritten once/if parsePeople resolves the real dataset
+            # row (see Person). A person only stays here as long as at least one credits row still
+            # references them (see DBControl.__pruneOrphanedPeople).
+            self.c.execute("""CREATE TABLE people (
+            imdb_id integer NOT NULL,
+            name text NOT NULL,
+            birth_year integer,
+            death_year integer,
+            PRIMARY KEY (imdb_id)
+            )""")
+
+            self.c.execute("""CREATE TABLE credit_role_enum (
+            credit_role_id integer NOT NULL,
+            credit_role_name text NOT NULL UNIQUE,
+            PRIMARY KEY (credit_role_id)
+            )""")
+            i = 1
+            for credit_role in Credit.creditRoleList:
+                self.c.execute("INSERT INTO credit_role_enum VALUES (?, ?)", (i, credit_role))
+                i += 1
+
+            # director/writer/actor credits, scraped from a locally-owned medium's own fullcredits
+            # page (see ScrapeIMDbOnline.scrapeFullCredits) -- only ever populated for locally-owned
+            # media (subdir NOT NULL), including episodes (unlike media_interests, which skips
+            # episodes entirely). ordering is one running sequence per medium, in the page's own
+            # order (director(s), then writer(s), then actor(s)) -- not scoped per role, so it
+            # doubles as a natural, always-unique primary key alongside imdb_id (a person can
+            # legitimately appear more than once for the same medium, e.g. a director who also
+            # acts, or an actor playing a dual role under two separate cast entries).
+            self.c.execute("""CREATE TABLE credits (
+            imdb_id integer NOT NULL,
+            ordering integer NOT NULL,
+            person_id integer NOT NULL,
+            credit_role_id integer NOT NULL,
+            credit_details text,
+            PRIMARY KEY (imdb_id, ordering),
+            FOREIGN KEY (imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (person_id)
+                REFERENCES people (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT,
+            FOREIGN KEY (credit_role_id)
+                REFERENCES credit_role_enum (credit_role_id)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
+            )""")
+
     def addSingleMediaWoConnections(self, thisMedia):
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
@@ -464,7 +520,18 @@ class DBControl:
             for mediaConnection in thisMedia.mediaConnections:
                 self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
 
-    def addMultipleMedia(self, mediaDict): # media and connections must be separated, so that foreign constraints are always fulfilled during db entry
+    def addSingleMediaCredits(self, thisMedia):
+        # unlike media_connections, a credit only ever references thisMedia.imdb_id itself (never
+        # another medium), so -- as long as every credited person's row already exists in people,
+        # which addMultipleMedia guarantees by calling this only after main.py has persisted new
+        # people -- this has no cross-medium ordering dependency the way addSingleMediaConnections does.
+        if not isinstance(thisMedia, Media):
+            raise TypeError('no media object')
+        with self.conn:
+            for credit in thisMedia.credits:
+                self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, credit.ordering, credit.person_id, self.__getCreditRoleIDByCreditRoleName(credit.creditRole), credit.creditDetails))
+
+    def addMultipleMedia(self, mediaDict): # media, connections and credits must be separated, so that foreign constraints are always fulfilled during db entry
         # a series must exist before any of its episodes are inserted (series_imdb_id's FK); the
         # caller's dict order doesn't guarantee this -- a referenced-only episode of a brand-new
         # series can end up ordered before that series' own stub entry (its stub is only appended
@@ -474,6 +541,8 @@ class DBControl:
             self.addSingleMediaWoConnections(x)
         for x in mediaDict.values():
             self.addSingleMediaConnections(x)
+        for x in mediaDict.values():
+            self.addSingleMediaCredits(x)
 
     def removeMultipleMedia(self, removedDict):
         for x in removedDict.values():
@@ -499,31 +568,35 @@ class DBControl:
             # the series as still-referenced if any episode remains afterward
             seriesHasNeededEpisodes = not self.__removeUnneededSeriesEpisodes(mediumToRemove.imdb_id)
 
-            # capture mediumToRemove's current interests and language before they're removed, so
-            # anything left with no remaining attachments afterward can be pruned
+            # capture mediumToRemove's current interests, language and credited people before
+            # they're removed, so anything left with no remaining attachments afterward can be pruned
             self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedInterestIDs = [row[0] for row in self.c.fetchall()]
             self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
+            self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
-            #3a. if yes: only "light-remove" mediumToRemove (remove subdir, interests, intended
-            # episode order, manually-entered release day/month, and reset language to the default;
-            # these are only valid for locally-owned media -- intended_order and releaseMonth/Day in
-            # particular are purely local data (release day/month are only ever entered manually,
-            # see Media.__init__), unlike season_number/episode_number/series_imdb_id which come
-            # from IMDb and stay valid regardless of ownership)
+            #3a. if yes: only "light-remove" mediumToRemove (remove subdir, interests, credits,
+            # intended episode order, manually-entered release day/month, and reset language to the
+            # default; these are only valid for locally-owned media -- intended_order and
+            # releaseMonth/Day in particular are purely local data (release day/month are only ever
+            # entered manually, see Media.__init__), unlike season_number/episode_number/
+            # series_imdb_id which come from IMDb and stay valid regardless of ownership)
             if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
                 print("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
                 self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, releaseMonth = NULL, releaseDay = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("DELETE FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
-            #3b. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
+            #3b. if no: remove media entry (media_interests/credits rows are removed via ON DELETE CASCADE)
             else:
                 print("Removing " + mediumToRemove.originalTitle + " from DB")
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             self.__pruneOrphanedInterests(affectedInterestIDs)
             self.__pruneOrphanedLanguages(affectedLanguageIDs)
+            self.__pruneOrphanedPeople(affectedPersonIDs)
 
             # if mediumToRemove was itself an episode, its parent series might now be orphaned
             if mediumToRemove.series_imdb_id is not None:
@@ -583,6 +656,14 @@ class DBControl:
             for imdbID, media in mediaDict.items():
                 self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, endYear=? WHERE imdb_id=?",
                                 (self.__getTitleTypeIDByTitleTypeName(media.titleType), media.originalTitle, media.primaryTitle, media.endYear, imdbID))
+
+    def refreshPeople(self, peopleDict):
+        """Writes back name/birth_year/death_year for every Person in peopleDict -- the people
+        analogue of refreshTitleBasics, paired with ScrapeIMDbOffline.refreshPeople."""
+        with self.conn:
+            for imdbID, person in peopleDict.items():
+                self.c.execute("UPDATE people SET name=?, birth_year=?, death_year=? WHERE imdb_id=?",
+                                (person.name, person.birth_year, person.death_year, imdbID))
 
     def getAllMediaIDs(self):
         with self.conn:
@@ -647,6 +728,33 @@ class DBControl:
         """Insert a newly-discovered language interest into language_enum if not already known."""
         with self.conn:
             self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
+
+    def getAllKnownPersonIDs(self):
+        """Set of all person imdb_ids already present in people."""
+        with self.conn:
+            self.c.execute("SELECT imdb_id FROM people")
+            return set(row[0] for row in self.c.fetchall())
+
+    def ensurePersonExists(self, person):
+        """Insert a newly-discovered person into people if not already known. Takes a Person object
+        (rather than plain fields, unlike ensureInterestExists/ensureLanguageExists) since a person
+        always carries all three fields together, resolved as a unit by
+        ScrapeIMDbOffline.parsePeople before this is ever called."""
+        with self.conn:
+            self.c.execute("INSERT OR IGNORE INTO people VALUES (?, ?, ?, ?)", (person.imdb_id, person.name, person.birth_year, person.death_year))
+
+    def getAllPersonObjects(self):
+        """All people currently in the DB, as {imdb_id: Person} -- used by refreshTitleData to
+        refresh name/birth_year/death_year against the current name.basics.tsv."""
+        with self.conn:
+            self.c.execute("SELECT imdb_id, name, birth_year, death_year FROM people")
+            result = {}
+            for imdb_id, name, birth_year, death_year in self.c.fetchall():
+                person = Person(imdb_id, name)
+                person.birth_year = birth_year
+                person.death_year = death_year
+                result[imdb_id] = person
+            return result
 
     def getAllKnownFranchiseIDs(self):
         """Set of all IMDb interest ids already known to be franchise-type (in franchise_interest_ids
@@ -731,6 +839,8 @@ class DBControl:
                 affectedInterestIDs = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (imdb_id,))
                 affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
+                self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (imdb_id,))
+                affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
                 # an ignored series must go regardless of any episode still needing it -- unlike
                 # normal removal, "ignored" means gone no matter what, so its episodes are forced
@@ -744,6 +854,7 @@ class DBControl:
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
                 self.__pruneOrphanedInterests(affectedInterestIDs)
                 self.__pruneOrphanedLanguages(affectedLanguageIDs)
+                self.__pruneOrphanedPeople(affectedPersonIDs)
 
                 # if imdb_id was itself an episode, its parent series might now be orphaned
                 if series_imdb_id is not None:
@@ -789,6 +900,16 @@ class DBControl:
                 WHERE imdb_interest_id = ?
                 AND NOT EXISTS (SELECT 1 FROM media WHERE language_id = ?)
             """, (imdb_interest_id, imdb_interest_id))
+
+    def __pruneOrphanedPeople(self, person_ids):
+        """Removes any of the given people from people once no credits row references them anymore
+        -- the credits/people analogue of __pruneOrphanedInterests/__pruneOrphanedLanguages."""
+        for person_id in person_ids:
+            self.c.execute("""
+                DELETE FROM people
+                WHERE imdb_id = ?
+                AND NOT EXISTS (SELECT 1 FROM credits WHERE person_id = ?)
+            """, (person_id, person_id))
 
     def __removeUnneededSeriesEpisodes(self, series_imdb_id):
         """Removes every episode of the given series that's neither locally owned nor referenced by
@@ -864,6 +985,16 @@ class DBControl:
             if not connection_type_name or not connection_type_name[0]:
                 raise RuntimeError('unknown connection type ' + str(connectionType_id))
             return(connection_type_name[0])
+
+    def __getCreditRoleIDByCreditRoleName(self, credit_role_name):
+        # credit_role_name always comes from Credit.creditRoleList, which is what seeds this enum,
+        # so a miss here means the two have drifted -- an internal bug, not bad local data
+        with self.conn:
+            self.c.execute("SELECT credit_role_id FROM credit_role_enum WHERE credit_role_name=?", (credit_role_name,))
+            credit_role_id = self.c.fetchone()
+            if not credit_role_id:
+                raise RuntimeError('unknown credit role ' + credit_role_name)
+            return(credit_role_id[0])
 
     def __getSourceTypeIDByName(self, source_type_name):
         # source_type_name always comes from Media.source_type_list, which is what seeds this
