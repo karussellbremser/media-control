@@ -54,6 +54,13 @@ class ScrapeMediaInfo:
             raise LocalLibraryError("General.Duration (" + str(generalDuration) + "s) exceeds Video.Duration (" +
                                      str(videoDuration) + "s) by more than 2 seconds for " + filepath)
 
+        for audioTrackData in audioTracks:
+            audioDuration = float(self.__require(audioTrackData, "Duration", filepath))
+            if videoDuration - audioDuration > 2:
+                print("WARNING: Video.Duration (" + str(videoDuration) + "s) exceeds Audio.Duration (" +
+                      str(audioDuration) + "s) by more than 2 seconds for " + filepath +
+                      " (audio track ID " + str(audioTrackData.get("ID")) + ")")
+
         mediaVersion.duration = round(generalDuration)
 
         mediaVersion.format = self.__require(video, "Format", filepath)
