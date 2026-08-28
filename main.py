@@ -98,8 +98,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # fail-fast local validation, before any scraping starts -- no step number of its own (see
     # printStep's docstring): the ignored/wontadd/web-provider checks below never produce any
     # output on success, only ever an exception on failure
-    # - any locally-owned title on the ignored/wontadd list is a configuration error
-    violating = [m for m in mediaDictOriginal.values() if m.imdb_id in ignoredIDs or m.imdb_id in wontaddIDs]
+    # - any locally-owned title on the ignored list is always a configuration error (ignored_ids is
+    # about whether a title deserves to exist in the DB at all, regardless of type). On wontadd_ids
+    # it's only a violation if it's not a series -- wontadd_ids is about local-ownership effort, not
+    # DB-worthiness, and for a series specifically it only ever means "no more episodes of this
+    # series are planned to be added", not a ban on the series (or any of its episodes) being
+    # locally owned -- see DBControl.enforceIgnoredAndWontaddIDs for the fuller reasoning. titleType
+    # is already reliably "localSeries" vs "localMovie" at this point, straight from the local scan.
+    violating = [m for m in mediaDictOriginal.values()
+                 if m.imdb_id in ignoredIDs or (m.imdb_id in wontaddIDs and m.titleType != "localSeries")]
     if violating:
         raise LocalLibraryError("locally-owned media found on the ignored/wontadd list(s): " +
                                  ", ".join(m.originalTitle + " (" + m.getIDString() + ")" for m in violating))

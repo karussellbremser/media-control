@@ -37,7 +37,7 @@ Then edit `config.ini` with your own paths:
 - `mediainfo_path` — path to the MediaInfo CLI executable
 - `chrome_profile_dir` — persistent Chrome profile (cookies/session state), reused across runs
 - `imdb_datasets_dir` — directory containing the downloaded IMDb offline datasets
-- `ignored_ids_path` / `wontadd_ids_path` — text files of IMDb ids (one per line) to keep out of the database entirely, or to allow only as referenced (not locally-owned) media
+- `ignored_ids_path` / `wontadd_ids_path` — text files of IMDb ids (one per line): ignored ids must never appear in the DB at all; wontadd ids are fine to have (and, for a series, to partially own) but aren't worth actively adding locally
 - `hidden_interest_ids_path` — text file of subgenre interest ids to keep out of the web UI's filter list
 - `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title)
 - `headless` / `page_load_wait` — Chrome headless mode and per-page render wait for online scraping

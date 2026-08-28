@@ -337,15 +337,20 @@ class DBControl:
                 self.c.execute("INSERT INTO connection_type_enum VALUES (?, ?)", (i, connection_type))
                 i += 1
 
-            # imdb ids that must never appear in the DB at all; kept in sync (non-additively) from
-            # config.IGNORED_IDS_PATH (see syncIgnoredAndWontaddIDs/enforceIgnoredAndWontaddIDs)
+            # imdb ids deemed not worth cataloguing at all (e.g. an amateur/fan production) -- must
+            # never appear in the DB in any form, mainly to keep media_connections free of entries
+            # not worth surfacing; kept in sync (non-additively) from config.IGNORED_IDS_PATH (see
+            # syncIgnoredAndWontaddIDs/enforceIgnoredAndWontaddIDs)
             self.c.execute("""CREATE TABLE ignored_ids (
             imdb_id integer NOT NULL,
             PRIMARY KEY (imdb_id)
             )""")
 
-            # imdb ids allowed to reside in the DB as referenced-only media, but never intended to
-            # be added as local media; kept in sync (non-additively) from config.WONTADD_IDS_PATH
+            # imdb ids whose existence in the DB is honored (may reside as referenced-only media, or
+            # -- for a series specifically, see enforceIgnoredAndWontaddIDs -- even be partially
+            # locally owned), but that aren't worth the effort of chasing down locally; mainly used
+            # to keep a to-be-added list generated from the DB free of entries not worth adding.
+            # Kept in sync (non-additively) from config.WONTADD_IDS_PATH
             self.c.execute("""CREATE TABLE wontadd_ids (
             imdb_id integer NOT NULL,
             PRIMARY KEY (imdb_id)
@@ -811,19 +816,33 @@ class DBControl:
 
     def enforceIgnoredAndWontaddIDs(self):
         """Enforces ignored_ids/wontadd_ids against the current DB state: raises LocalLibraryError
-        if any locally-owned medium's id is on either list (this is a configuration error the user
-        needs to fix), and removes any referenced-only medium whose id is on ignored_ids -- fully,
-        regardless of what still references it, unlike removeSingleMedia's "light-remove" (which
-        exists for media that merely stopped being locally owned, not for media that must never be
-        in the DB at all). Meant to be called right after syncIgnoredAndWontaddIDs, at the very
-        start of every sync (before any local scanning/scraping) -- this reconciles drift left over
-        from a list edited since the last sync. New violations introduced during the rest of the
-        sync itself are instead caught on the go: newly-added local media are checked right after
-        the local scan, and newly-discovered referenced ids on ignored_ids are simply never added
-        in the first place, so nothing new for this method to clean up accumulates by the end."""
+        if any locally-owned medium's id is on ignored_ids (this list is about whether a title
+        deserves to exist in the DB at all -- never allowed to be locally owned, regardless of
+        type), or on wontadd_ids while not being a series (wontadd_ids is about local-ownership
+        effort, not worthiness of existing in the DB -- honoring a title's existence but declining
+        to chase it down locally; for a series specifically this only ever means "no more episodes
+        of this series are planned to be added", not a blanket ban -- an already- or newly-owned
+        episode is fine, and the rest still get cataloged as referenced-only stubs like any other
+        partially-owned series, same as if the series weren't on the list at all; wontadd here only
+        keeps such a series' still-unowned episodes out of any to-be-added list generated from the
+        DB). Also removes any referenced-only medium whose id is on ignored_ids -- fully, regardless
+        of what still references it, unlike removeSingleMedia's "light-remove" (which exists for
+        media that merely stopped being locally owned, not for media that must never be in the DB
+        at all). Meant to be called right after syncIgnoredAndWontaddIDs, at the very start of every
+        sync (before any local scanning/scraping) -- this reconciles drift left over from a list
+        edited since the last sync. New violations introduced during the rest of the sync itself are
+        instead caught on the go: newly-added local media are checked right after the local scan,
+        and newly-discovered referenced ids on ignored_ids are simply never added in the first place,
+        so nothing new for this method to clean up accumulates by the end."""
         with self.conn:
-            self.c.execute("""SELECT imdb_id, originalTitle FROM media WHERE subdir IS NOT NULL
-                AND imdb_id IN (SELECT imdb_id FROM ignored_ids UNION SELECT imdb_id FROM wontadd_ids)""")
+            self.c.execute("""SELECT m.imdb_id, m.originalTitle FROM media m
+                JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
+                WHERE m.subdir IS NOT NULL
+                AND (
+                    m.imdb_id IN (SELECT imdb_id FROM ignored_ids)
+                    OR (m.imdb_id IN (SELECT imdb_id FROM wontadd_ids)
+                        AND tt.title_type_name NOT IN (""" + ",".join("?" for _ in Media.seriesTitleTypes) + """))
+                )""", tuple(Media.seriesTitleTypes))
             violatingLocal = self.c.fetchall()
         if violatingLocal:
             raise LocalLibraryError("locally-owned media found on the ignored/wontadd list(s): " +
