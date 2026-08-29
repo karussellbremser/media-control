@@ -327,9 +327,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # into a large scraping bill just because a few of its episodes were added locally. This has to
     # run down here, strictly after step 13's write: a series' own row must already exist before any
     # of its episode stubs can satisfy the series_imdb_id FK, so readySeries below checks the DB
-    # directly rather than assuming every touched series made it in -- it might not have (e.g.
-    # excluded by the scrape budget in step 4), and whichever series didn't just gets this treatment
-    # on a later sync instead, once it actually has a row.
+    # directly for genuine local ownership (subdir NOT NULL) rather than assuming every touched
+    # series made it in as owned -- it might not have (e.g. excluded by the scrape budget in step
+    # 4), and whichever series didn't just gets this treatment on a later sync instead, once it's
+    # actually locally owned. Merely having *a* row isn't enough of a test here: a series referenced
+    # by a connection from some other budget-surviving medium can end up with a bare referenced-only
+    # stub row of its own mid-sync (see step 9's connection-target fallback) despite being locally
+    # owned -- that stub must not be mistaken for "ready", or this series' full episode catalog
+    # would get completed a sync early, while its own row still (temporarily) claims it's unowned.
     if localSeries:
         localEpisodeIDsBySeriesID = {}
         for m in mediaDictOriginal.values():
@@ -340,7 +345,8 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                           or any(ep_id in newlyAddedMediaDictOriginal for ep_id in localEpisodeIDsBySeriesID.get(series.imdb_id, []))]
 
         existingIDs = {row[0] for row in db.getAllMediaIDs()}
-        readySeries = [series for series in touchedSeries if series.imdb_id in existingIDs]
+        locallyOwnedIDs = {row[0] for row in db.getAllLocallyOwnedMediaIDs()}
+        readySeries = [series for series in touchedSeries if series.imdb_id in locallyOwnedIDs]
         if readySeries:
             printStep(14, "completing episode catalogs for " + str(len(readySeries)) + " series touched this run")
             offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
