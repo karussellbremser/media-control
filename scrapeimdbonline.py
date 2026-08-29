@@ -104,7 +104,7 @@ class ScrapeIMDbOnline:
 
     def __printStepHeader(self, number, description):
         """Prints a step-header line matching main.py's syncLocal step numbering, for the steps
-        (6, 7, 8, 11, 15) that are owned by a single method here rather than inline in main.py. Only
+        (7, 8, 9, 12, 15) that are owned by a single method here rather than inline in main.py. Only
         ever called once a method has already confirmed it has something to do -- see each
         caller's own emptiness/todo check."""
         print("\nStep " + str(number) + ": " + description)
@@ -191,7 +191,7 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return [], [], []
 
-        self.__printStepHeader(6, "scraping main pages (interests, language, covers)")
+        self.__printStepHeader(7, "scraping main pages (interests, language, covers)")
 
         newInterestRegistrations = []
         newLanguageRegistrations = []
@@ -253,7 +253,7 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return
 
-        self.__printStepHeader(11, "online fallback for titles missing from the offline dataset")
+        self.__printStepHeader(12, "online fallback for titles missing from the offline dataset")
 
         first = True
         for i, currentMedia in enumerate(mediaDict.values(), 1):
@@ -727,7 +727,7 @@ class ScrapeIMDbOnline:
 
         resultDict = {}
 
-        self.__printStepHeader(7, "parsing media connections")
+        self.__printStepHeader(8, "parsing media connections")
 
         first = True
         for i, currentMedia in enumerate(mediaDict.values(), 1):
@@ -849,7 +849,7 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return []
 
-        self.__printStepHeader(8, "scraping full credits (director/writer/actor)")
+        self.__printStepHeader(9, "scraping full credits (director/writer/actor)")
 
         newPersonRegistrations = []
         first = True

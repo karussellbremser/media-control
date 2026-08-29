@@ -679,7 +679,7 @@ class DBControl:
         """Like getAllMediaIDs, but only ids that are genuinely locally owned (subdir IS NOT NULL)
         right now -- unlike getAllMediaIDs, a referenced-only stub row doesn't count. Used where
         "does a row exist" isn't a strong enough test, e.g. main.py's readySeries check: a series
-        can end up with a bare referenced-only stub row mid-sync (see step 9's connection-target
+        can end up with a bare referenced-only stub row mid-sync (see step 10's connection-target
         fallback) despite being locally owned, and shouldn't be mistaken for actually being ready."""
         with self.conn:
             self.c.execute("SELECT imdb_id FROM media WHERE subdir IS NOT NULL")
