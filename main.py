@@ -227,7 +227,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # discards referenced-only titles missing from the dataset. Also resolves name/birth_year/death_year
     # for every person newly discovered in step 9's credits scrape (see ScrapeIMDbOffline.parsePeople).
     if newlyAddedMediaDict:
-        printStep(11, "offline dataset parsing (ratings, basics, episode resolution, new people)")
+        printStep(11, "querying the offline dataset helper DB (ratings, basics, episode resolution, new people)")
     scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
 
     newPeopleDict = {p.imdb_id: p for p in newPersonRegistrations}
@@ -463,7 +463,7 @@ try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Update IMDb offline datasets.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the offline datasets.")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.")
         elif currentArg in ("-c", "--createdb"):
             DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):
