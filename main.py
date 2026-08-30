@@ -54,7 +54,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     localSeries = [m for m in mediaDictOriginal.values() if m.episodes]
     if localSeries:
         printStep(2, "resolving locally-found episodes to IMDb ids")
-        offlineForEpisodes = ScrapeIMDbOffline(None, config.IMDB_DATASETS_DIR)
+        offlineForEpisodes = ScrapeIMDbOffline(None, config.IMDB_HELPER_DB_PATH)
         episodesBySeries = offlineForEpisodes.getEpisodesForSeries({series.imdb_id for series in localSeries})
 
         # unnumbered (S00) episodes already carry their own id from the filename; verify each one
@@ -228,7 +228,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # for every person newly discovered in step 9's credits scrape (see ScrapeIMDbOffline.parsePeople).
     if newlyAddedMediaDict:
         printStep(11, "offline dataset parsing (ratings, basics, episode resolution, new people)")
-    scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
+    scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
 
     newPeopleDict = {p.imdb_id: p for p in newPersonRegistrations}
     newPeopleDict = scrapeimdboffline.parsePeople(newPeopleDict)
@@ -358,7 +358,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         readySeries = [series for series in touchedSeries if series.imdb_id in locallyOwnedIDs]
         if readySeries:
             printStep(14, "completing episode catalogs for " + str(len(readySeries)) + " series touched this run")
-            offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_DATASETS_DIR)
+            offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
             fullEpisodeLists = offlineForCompleteness.getFullEpisodeListForSeries({series.imdb_id for series in readySeries})
             newEpisodeStubs = {}
             for series in readySeries:
@@ -409,7 +409,7 @@ def refreshTitleData():
 
     mediaDict = db.getAllMovieObjects()
 
-    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_DATASETS_DIR)
+    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH)
     mediaDict = offline.refreshTitleRatings(mediaDict)
     mediaDict = offline.refreshTitleBasics(mediaDict)
 
@@ -473,7 +473,7 @@ try:
             stat.printYearlyAverages()
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
-            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_DATASETS_DIR).updateDatasets()
+            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
         elif currentArg in ("-r", "--refresh"):
             refreshTitleData()
 except getopt.error as err:

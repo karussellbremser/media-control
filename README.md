@@ -19,7 +19,7 @@ Management functionality is similar to the ones of Plex or Kodi, but specificall
 - `pip install -r requirements.txt`
 - A Selenium-compatible driver (e.g. [chromedriver](https://chromedriver.chromium.org/)) matching your installed browser
 - The [MediaInfo CLI](https://mediaarea.net/en/MediaInfo/Download) executable, for analyzing locally-owned media files
-- IMDb's [offline dataset files](https://datasets.imdbws.com/) downloaded locally (`title.basics` / `title.ratings` / `title.episode` / `name.basics`)
+- No separate download needed for IMDb's [offline datasets](https://datasets.imdbws.com/) — `python main.py --update` fetches and indexes them into a local helper DB itself
 
 ## Configuration
 
@@ -36,7 +36,7 @@ Then edit `config.ini` with your own paths:
 - `webdriver_path` — path to your chromedriver executable
 - `mediainfo_path` — path to the MediaInfo CLI executable
 - `chrome_profile_dir` — persistent Chrome profile (cookies/session state), reused across runs
-- `imdb_datasets_dir` — directory containing the downloaded IMDb offline datasets
+- `imdb_helper_db_path` — where the indexed IMDb offline-dataset helper DB is stored (built by `--update`)
 - `ignored_ids_path` / `wontadd_ids_path` — text files of IMDb ids (one per line): ignored ids must never appear in the DB at all; wontadd ids are fine to have (and, for a series, to partially own) but aren't worth actively adding locally
 - `hidden_interest_ids_path` — text file of subgenre interest ids to keep out of the web UI's filter list
 - `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title)
