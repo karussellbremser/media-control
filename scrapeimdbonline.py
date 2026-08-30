@@ -151,8 +151,14 @@ class ScrapeIMDbOnline:
         self.__printStepHeader(15, "recovering missing covers")
 
         count = 0
+        first = True
 
         for i, currentMedia in enumerate(todo, 1):
+            if first:
+                first = False
+            else:
+                self.__sleep()
+
             self.__printProgress(i, len(todo), currentMedia)
 
             coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
@@ -163,8 +169,6 @@ class ScrapeIMDbOnline:
             count += 1
             if count == self.maxCount:
                 return
-
-            self.__sleep()
 
     def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
         """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
