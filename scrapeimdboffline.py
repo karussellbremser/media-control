@@ -426,8 +426,15 @@ class ScrapeIMDbOffline:
             # make sure that all items have been touched; mark ones that are illegal for deletion
             illegal_ids = []
             for x in content_dict.values():
-                if mode == "ratings" and x.numVotes == None:
-                    if x.subdir == None and self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
+                if mode == "ratings" and x.numVotes == None and x.subdir == None:
+                    # numVotes missing entirely is otherwise unremarkable (see __insertTitleRatings --
+                    # it's a perfectly normal, nullable field), so this specific combination -- no
+                    # votes at all, and not locally owned -- is the only case worth an online check;
+                    # print it as it happens, since it's the one thing in this whole step that
+                    # actually visits an IMDb page rather than just querying the local helper DB
+                    print("  checking in-development status for " + x.getIDString() + "...")
+                    if self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
+                        print("  discarding referenced-only title " + x.getIDString() + ": in development, no ratings yet")
                         # illegal title. mark for deletion from dict keys and mediaConnections
                         illegal_ids.append(x.imdb_id)
                         continue
@@ -448,6 +455,7 @@ class ScrapeIMDbOffline:
                         raise OfflineDatasetError("series " + x.getIDString() + " has episodes in title.episode.tsv but is missing usable data in title.basics.tsv")
                     if x.subdir == None:
                         # referenced-only title missing usable data: not worth an online fallback scrape, discard
+                        print("  discarding referenced-only title " + x.getIDString() + ": missing usable data in the offline dataset")
                         illegal_ids.append(x.imdb_id)
                         continue
                     else:
@@ -457,6 +465,7 @@ class ScrapeIMDbOffline:
 
                 if mode == "basics" and x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes + Media.episodeTitleTypes:
                     # found in the dataset, but not an acceptable title type (e.g. a TV episode ending up in the movie library)
+                    print("  discarding referenced-only title " + x.getIDString() + ": unacceptable title type '" + str(x.titleType) + "'")
                     illegal_ids.append(x.imdb_id)
 
             # remove illegal media from dict

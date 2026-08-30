@@ -258,6 +258,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         if x.series_imdb_id is None:
             continue
         if x.series_imdb_id in ignoredIDs:
+            print("  dropping referenced episode " + x.getIDString() + ": parent series tt" + str(x.series_imdb_id).zfill(7) + " is ignored")
             del newlyAddedMediaDict[imdb_id]
         elif x.series_imdb_id not in newlyAddedMediaDict and x.series_imdb_id not in existingIDs:
             newlyAddedMediaDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
