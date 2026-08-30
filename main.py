@@ -30,6 +30,16 @@ def printStep(number, description):
 
 def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     print("Starting sync...")
+
+    # fail fast, before any real work starts, if the offline dataset helper DB hasn't been built
+    # yet -- otherwise this would only surface much later (and far less clearly) the first time
+    # something actually queries it, e.g. as a sqlite "no such table" error, sqlite3.connect()
+    # having silently created an empty file at this path in the meantime (see
+    # ScrapeIMDbOffline.__getCursor)
+    if not os.path.isfile(config.IMDB_HELPER_DB_PATH):
+        raise OfflineDatasetError("IMDb offline dataset helper DB not found at " + config.IMDB_HELPER_DB_PATH +
+                                   " -- run 'python main.py -u' (or --update) to build it first")
+
     db = DBControl(config.DB_PATH)
 
     db.syncWebProvidersFromConfig(config.WEB_PROVIDERS)

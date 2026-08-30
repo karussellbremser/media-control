@@ -3,8 +3,8 @@ class LocalLibraryError(Exception):
     pass
 
 class OfflineDatasetError(Exception):
-    """The IMDb offline dataset files (title.basics.tsv, title.ratings.tsv) contain
-    something unexpected, or are inconsistent with locally-known data."""
+    """The IMDb offline dataset helper DB (see ScrapeIMDbOffline.updateIMDbOfflineDB) is missing,
+    or contains something unexpected, or is inconsistent with locally-known data."""
     pass
 
 class ScrapingError(Exception):
