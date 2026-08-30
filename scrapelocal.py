@@ -120,14 +120,25 @@ class ScrapeLocal:
                 episode_key = int(episode_id_str)
                 suffix = filenameMatch.group(3)
             else:
-                filenameMatch = re.fullmatch(r"(.+)_S(\d+)E(\d+)(?:_(.+))?", media_file_stem)
+                # one or more consecutive SxxEyy groups -- more than one means this file merges
+                # multiple distinct IMDb episodes into a single physical release (e.g. a Blu-ray
+                # combining two episodes); episode_key stays a tuple even for the single-episode
+                # case, so both shapes flow through the same code below. Each number becomes its
+                # own fully independent Episode further down (sharing this file group's
+                # mediaVersions) -- nothing downstream of this method needs to know or care that
+                # they came from a merged file at all.
+                filenameMatch = re.fullmatch(r"(.+?)((?:_S\d+E\d+)+)(?:_(.+))?", media_file_stem)
                 if not filenameMatch:
                     raise LocalLibraryError('Bad episode filename ' + media_file + ' in season folder ' + seasonPath)
-                file_season_number = int(filenameMatch.group(2))
-                if file_season_number != season_number:
-                    raise LocalLibraryError('Episode filename ' + media_file + ' does not match season folder ' + seasonPath)
-                episode_key = int(filenameMatch.group(3))
-                suffix = filenameMatch.group(4)
+                episode_numbers = []
+                for season_str, episode_str in re.findall(r"S(\d+)E(\d+)", filenameMatch.group(2)):
+                    if int(season_str) != season_number:
+                        raise LocalLibraryError('Episode filename ' + media_file + ' does not match season folder ' + seasonPath)
+                    episode_numbers.append(int(episode_str))
+                if len(episode_numbers) != len(set(episode_numbers)):
+                    raise LocalLibraryError('Episode filename ' + media_file + ' repeats the same episode number in season folder ' + seasonPath)
+                episode_key = tuple(episode_numbers)
+                suffix = filenameMatch.group(3)
             episodeFiles.setdefault(episode_key, []).append((media_file, suffix))
 
         # intended_order.txt: a comma-separated permutation of this season's own episode numbers,
@@ -145,16 +156,21 @@ class ScrapeLocal:
                 if not rawValue.isdigit():
                     raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + intended_order_file)
                 parsedOrder.append(int(rawValue))
-            if len(parsedOrder) != len(episodeFiles) or set(parsedOrder) != set(episodeFiles.keys()):
+            # episodeFiles' keys are (possibly multi-number) tuples now, but intended_order.txt
+            # still lists every individual locally-present episode number, merged or not -- flatten
+            # back down to compare against it
+            allEpisodeNumbers = {n for key in episodeFiles.keys() for n in key}
+            if len(parsedOrder) != len(allEpisodeNumbers) or set(parsedOrder) != allEpisodeNumbers:
                 raise LocalLibraryError('intended_order.txt in season folder ' + seasonPath +
-                                         ' must be an exact permutation of the locally-present episode numbers ' + str(sorted(episodeFiles.keys())))
+                                         ' must be an exact permutation of the locally-present episode numbers ' + str(sorted(allEpisodeNumbers)))
             for rank, episode_number in enumerate(parsedOrder, start=1):
                 intendedOrderMap[episode_number] = rank
 
         for episode_key, fileList in episodeFiles.items():
+            episode_key_label = episode_key if isUnnumbered else "/".join(str(n) for n in episode_key)
             nonIntroCount = sum(1 for _, suffix in fileList if not (suffix and re.fullmatch(r"Intro\d*", suffix)))
             if nonIntroCount > 1 and not versions_exists:
-                raise LocalLibraryError('Episode ' + str(episode_key) + ' in season folder ' + seasonPath + ' has multiple versions but no versions.txt')
+                raise LocalLibraryError('Episode ' + str(episode_key_label) + ' in season folder ' + seasonPath + ' has multiple versions but no versions.txt')
 
             mediaVersions = []
             for media_file, suffix in fileList:
@@ -185,7 +201,8 @@ class ScrapeLocal:
             if isUnnumbered:
                 currentSeries.episodes.append(Episode(None, None, mediaVersions, seasonPath, imdb_id=episode_key))
             else:
-                currentSeries.episodes.append(Episode(season_number, episode_key, mediaVersions, seasonPath, intended_order=intendedOrderMap.get(episode_key)))
+                for episode_number in episode_key:
+                    currentSeries.episodes.append(Episode(season_number, episode_number, mediaVersions, seasonPath, intended_order=intendedOrderMap.get(episode_number)))
 
     def __complDirPath(self, subdir):
         return(os.path.join(self.rootdir, subdir))
