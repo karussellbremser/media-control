@@ -394,8 +394,10 @@ class DBControl:
 
             # director/writer/actor credits, scraped from a locally-owned medium's own fullcredits
             # page (see ScrapeIMDbOnline.scrapeFullCredits) -- only ever populated for locally-owned
-            # media (subdir NOT NULL), including episodes (unlike media_interests, which skips
-            # episodes entirely). ordering is one running sequence per medium, in the page's own
+            # movies and episodes (subdir NOT NULL); unlike media_interests, which is series/movie-only
+            # and skips episodes entirely, this is the other way around -- series themselves are
+            # skipped (their credits are just IMDb's own rollup of their episodes' credits), while
+            # episodes are included. ordering is one running sequence per medium, in the page's own
             # order (director(s), then writer(s), then actor(s)) -- not scoped per role, so it
             # doubles as a natural, always-unique primary key alongside imdb_id (a person can
             # legitimately appear more than once for the same medium, e.g. a director who also

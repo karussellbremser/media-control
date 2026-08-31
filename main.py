@@ -213,13 +213,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
 
     # 9. scrape full credits (director/writer/actor) for every locally-owned newly-added medium,
-    # including episodes -- unlike step 7, which explicitly excludes them (a series' director/writer/
-    # cast can and does vary per episode). Wired the same way as step 8, directly on
-    # newlyAddedMediaDict with no movies-and-series-only filtering: at this point in the pipeline
-    # that dict only ever contains locally-owned media anyway, since referenced-only stubs aren't
-    # added until step 10, right after this.
+    # excluding series themselves -- the inverse of step 7's filter. A series' own director/writer/
+    # cast credits are just IMDb's own aggregate rollup of its episodes' credits (verified live: every
+    # category scraped here -- director/writer/actor -- is episode-attributable, including
+    # series-wide "created by" writer credits, which IMDb repeats on every individual episode's page,
+    # not just the first), so storing them again at the series level would be redundant for a fully-
+    # owned series, and for a partially-owned one would force scraping (and keeping in sync) the
+    # entire series' cast just to catalog the few owned episodes -- not worth it. Movies and episodes
+    # still get scraped directly, same as before.
+    moviesAndEpisodesDict = {k: v for k, v in newlyAddedMediaDict.items() if v.titleType != "localSeries"}
     knownPersonIDs = db.getAllKnownPersonIDs()
-    newPersonRegistrations = scrapeimdbonline.scrapeFullCredits(newlyAddedMediaDict, knownPersonIDs)
+    newPersonRegistrations = scrapeimdbonline.scrapeFullCredits(moviesAndEpisodesDict, knownPersonIDs)
 
     # 10. add media to dict that are not in local library, but are referenced by local media (per IMDb connection)
     beforeReferencedCount = len(newlyAddedMediaDict)
