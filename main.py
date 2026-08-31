@@ -65,7 +65,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     if localSeries:
         printStep(2, "resolving locally-found episodes to IMDb ids")
         offlineForEpisodes = ScrapeIMDbOffline(None, config.IMDB_HELPER_DB_PATH)
-        episodesBySeries, ambiguousEpisodesBySeries = offlineForEpisodes.getEpisodesForSeries({series.imdb_id for series in localSeries})
+        episodesBySeries = offlineForEpisodes.getEpisodesForSeries({series.imdb_id for series in localSeries})
 
         # unnumbered (S00) episodes already carry their own id from the filename; verify each one
         # in one extra pass rather than trusting it blindly, since getEpisodesForSeries's (season,
@@ -77,7 +77,6 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
 
         for series in localSeries:
             seriesEpisodes = episodesBySeries[series.imdb_id]
-            ambiguousEpisodes = ambiguousEpisodesBySeries[series.imdb_id]
             for localEpisode in series.episodes:
                 if localEpisode.imdb_id is not None:
                     candidate = unnumberedCandidates[localEpisode.imdb_id]
@@ -87,16 +86,6 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                     episode_imdb_id = localEpisode.imdb_id
                 else:
                     key = (localEpisode.season_number, localEpisode.episode_number)
-                    # checked before "not found in seriesEpisodes" -- an ambiguous key is never in
-                    # seriesEpisodes either (see getEpisodesForSeries), and deserves a much more
-                    # specific error than "not found", since it's the opposite problem: found twice
-                    if key in ambiguousEpisodes:
-                        raise LocalLibraryError("locally-found episode S" + str(localEpisode.season_number) + "E" + str(localEpisode.episode_number) +
-                                                 " of " + series.originalTitle + " matches more than one IMDb episode (tt" +
-                                                 str(ambiguousEpisodes[key][0]).zfill(7) + ", tt" + str(ambiguousEpisodes[key][1]).zfill(7) +
-                                                 (", ..." if len(ambiguousEpisodes[key]) > 2 else "") +
-                                                 ") -- a rare title.episode.tsv data quirk (see ScrapeIMDbOffline.updateIMDbOfflineDB); " +
-                                                 localEpisode.subdir + "'s file for this episode can't be resolved automatically")
                     if key not in seriesEpisodes:
                         raise LocalLibraryError("locally-found episode S" + str(localEpisode.season_number) + "E" + str(localEpisode.episode_number) +
                                                  " of " + series.originalTitle + " not found in title.episode.tsv")

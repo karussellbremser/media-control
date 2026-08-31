@@ -327,64 +327,55 @@ class ScrapeIMDbOffline:
         return content_dict
 
     def getEpisodesForSeries(self, series_imdb_ids):
-        """Returns (episodesBySeries, ambiguousBySeries):
-        - episodesBySeries: {series_imdb_id: {(season_number, episode_number): episode_imdb_id}}
-        - ambiguousBySeries: {series_imdb_id: {(season_number, episode_number): [episode_imdb_id, ...]}},
-          only ever containing real numbered keys that turned out ambiguous (see below); usually empty
-        for every series in series_imdb_ids. The reverse direction of parseTitleEpisode -- resolves a
-        known (series, season, episode) to an episode id, rather than a known episode id to its
+        """Returns {series_imdb_id: {(season_number, episode_number): episode_imdb_id}} for every
+        series in series_imdb_ids. The reverse direction of parseTitleEpisode -- resolves a known
+        (series, season, episode) to an episode id, rather than a known episode id to its
         season/episode/series.
 
         An unnumbered episode maps to the (None, None) key like everywhere else, and since a series
         can legitimately have more than one unnumbered episode, only the last one encountered survives
-        under that key (order is whatever SQLite returns, unspecified but consistent within one call)
-        -- (None, None) is never ambiguous. A REAL (season, episode) pair is different: two different
-        episodes genuinely claiming the same real (season, episode) for one series is a live IMDb data
-        quirk, not just a hypothetical (see updateIMDbOfflineDB, which warns about every such case once
-        when the helper DB is built), but unlike the unnumbered case it can't be tolerated with a silent
-        last-one-wins pick here -- this method's one caller (main.py's local-episode-resolution step)
-        uses it to pin down a real local file's actual identity, and "whichever one SQLite happened to
-        return last" isn't just arbitrary, it can silently change across an unrelated -u rebuild (the
-        row order isn't guaranteed stable release to release), flipping which title a local file is
-        associated with on a later sync despite the file itself never having moved. So such a key is
-        left out of episodesBySeries entirely and reported via ambiguousBySeries instead, letting the
-        caller raise a precise, permanent error only when a local file actually needs that exact key --
-        an unrelated local file of the same series (or of a series that isn't affected at all) is
-        completely unaffected. This method isn't meant for enumerating a series' full episode list
-        including every unnumbered episode -- see getFullEpisodeListForSeries for that.
+        under that key (order is whatever SQLite returns, unspecified but consistent within one call).
+        A REAL (season, episode) pair claimed by more than one episode id is different -- a live IMDb
+        data quirk (see updateIMDbOfflineDB), not just a hypothetical, but too consequential to
+        tolerate the same way: this method's one caller (main.py's local-episode-resolution step) uses
+        it to pin down a real local file's actual identity, and picking one silently could flip across
+        an unrelated -u rebuild (row order isn't guaranteed stable release to release), changing which
+        title a local file resolves to on a later sync despite the file itself never having moved. So
+        this raises OfflineDatasetError instead, for the whole affected series -- rare enough in
+        practice (one instance found across the entire IMDb dataset so far) that blocking that series'
+        local episode resolution entirely, rather than pinpointing just the one ambiguous episode, is
+        an acceptable trade for not having to track per-key ambiguity separately. This method isn't
+        meant for enumerating a series' full episode list including every unnumbered episode -- see
+        getFullEpisodeListForSeries for that.
 
-        Still raises OfflineDatasetError if any given series has zero episodes at all (ambiguous ones
-        included) -- a series with nothing there isn't a "just hasn't been catalogued yet" situation
-        worth quietly returning an empty result for, since every caller only ever asks about a series
-        it already has a concrete reason to expect episodes for."""
+        Still raises OfflineDatasetError if any given series has zero episodes at all -- a series
+        with nothing there isn't a "just hasn't been catalogued yet" situation worth quietly
+        returning an empty result for, since every caller only ever asks about a series it already
+        has a concrete reason to expect episodes for."""
 
         if len(series_imdb_ids) == 0:
-            return {}, {}
+            return {}
 
         result = {series_imdb_id: {} for series_imdb_id in series_imdb_ids}
-        ambiguous = {series_imdb_id: {} for series_imdb_id in series_imdb_ids}
 
         c = self.__getCursor()
         for batch in self.__chunks(series_imdb_ids):
             placeholders = ",".join("?" for _ in batch)
             c.execute("SELECT parent_id, season_number, episode_number, imdb_id FROM episodes WHERE parent_id IN (" + placeholders + ")", batch)
             for parent_id, season_number, episode_number, episode_imdb_id in c.fetchall():
-                if season_number is None:
-                    result[parent_id][(None, None)] = episode_imdb_id # last-one-wins, unaffected by ambiguity handling
-                    continue
-                key = (season_number, episode_number)
-                if key in ambiguous[parent_id]:
-                    ambiguous[parent_id][key].append(episode_imdb_id)
-                elif key in result[parent_id]:
-                    ambiguous[parent_id][key] = [result[parent_id].pop(key), episode_imdb_id]
-                else:
-                    result[parent_id][key] = episode_imdb_id
+                key = (season_number, episode_number) if season_number is not None else (None, None)
+                if key != (None, None) and key in result[parent_id]:
+                    raise OfflineDatasetError("series tt" + str(parent_id).zfill(7) + " has more than one episode claiming season " +
+                                               str(season_number) + " episode " + str(episode_number) + " (tt" +
+                                               str(result[parent_id][key]).zfill(7) + ", tt" + str(episode_imdb_id).zfill(7) +
+                                               ") -- a rare title.episode.tsv data quirk (see ScrapeIMDbOffline.updateIMDbOfflineDB)")
+                result[parent_id][key] = episode_imdb_id
 
         for series_imdb_id, episodes in result.items():
-            if len(episodes) == 0 and len(ambiguous[series_imdb_id]) == 0:
+            if len(episodes) == 0:
                 raise OfflineDatasetError("series tt" + str(series_imdb_id).zfill(7) + " has zero episodes in the offline dataset")
 
-        return result, ambiguous
+        return result
 
     def getFullEpisodeListForSeries(self, series_imdb_ids):
         """Returns {series_imdb_id: [(season_number, episode_number, episode_imdb_id), ...]} -- the
