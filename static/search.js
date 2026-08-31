@@ -1,3 +1,11 @@
+// prevent the browser from auto-restoring the previous scroll offset on reload -- combined with
+// resetFilters() being called on every load below (rather than fetchResults('') directly), a plain
+// page reload should always come back to a clean, default state, never whatever was left over from
+// before the reload (this is pure browser behavior, unrelated to and unaffected by server restarts)
+if ('scrollRestoration' in history) {
+	history.scrollRestoration = 'manual';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 	const resetButton = document.getElementById('resetButton');
 	
@@ -338,6 +346,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 	
-	// initially: show everything
-    fetchResults('');
+	// initially: show everything, via resetFilters() rather than fetchResults('') directly -- this
+	// also forces every filter control back to its default, undoing whatever the browser may have
+	// restored into them on this reload (see the scrollRestoration comment above)
+    resetFilters();
 });
