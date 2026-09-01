@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 from datetime import datetime, timedelta
+from verbosity import printAlways
 
 class DBBackup:
     """Creates and prunes timestamped copies of the main DB file in a dedicated backup directory.
@@ -40,7 +41,7 @@ class DBBackup:
             self._createBackup()
             self._prune()
         except Exception as e:
-            print("WARNING: DB backup failed: " + str(e))
+            printAlways("WARNING: DB backup failed: " + str(e))
 
     def forceBackup(self):
         """Creates a new backup unconditionally (ignoring frequency_days), then prunes down to
@@ -77,11 +78,11 @@ class DBBackup:
             backup_path = os.path.join(self.backup_dir, stem + "_" + str(suffix) + ".db")
             suffix += 1
         shutil.copy2(self.db_path, backup_path)
-        print("Created DB backup: " + backup_path)
+        printAlways("Created DB backup: " + backup_path)
 
     def _prune(self):
         backups = self._listBackups()
         while len(backups) > self.max_count:
             _, oldest_path = backups.pop(0)
             os.remove(oldest_path)
-            print("Removed old DB backup: " + oldest_path)
+            printAlways("Removed old DB backup: " + oldest_path)

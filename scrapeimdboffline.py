@@ -2,6 +2,7 @@ import csv, requests, gzip, shutil, os, sqlite3, tempfile
 from media import Media
 from scrapeimdbonline import ScrapeIMDbOnline
 from exceptions import OfflineDatasetError
+from verbosity import printAlways, printDetail
 
 class ScrapeIMDbOffline:
 
@@ -55,7 +56,7 @@ class ScrapeIMDbOffline:
         in for the previous one. Always a full rebuild -- IMDb ships full snapshots, not deltas, so
         there's no meaningful "diff" to apply. Any currently-open lookup connection is closed and
         reopened against the new file afterward."""
-        print("Updating IMDb offline dataset DB...")
+        printAlways("Updating IMDb offline dataset DB...")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             self.__downloadAndDecompress(os.path.join(temp_dir, self.title_basics_filename), "https://datasets.imdbws.com/title.basics.tsv.gz")
@@ -232,7 +233,7 @@ class ScrapeIMDbOffline:
             FROM episodes WHERE season_number IS NOT NULL
             GROUP BY parent_id, season_number, episode_number HAVING COUNT(*) > 1""")
         for parent_id, season, episode, ids in c.fetchall():
-            print("WARNING: duplicate season/episode (" + str(season) + ", " + str(episode) + ") for series tt" +
+            printAlways("WARNING: duplicate season/episode (" + str(season) + ", " + str(episode) + ") for series tt" +
                   str(parent_id).zfill(7) + ": " + ids)
 
     # ------------------------------------------------------------------
@@ -293,7 +294,7 @@ class ScrapeIMDbOffline:
         # surfacing, since it's the one case where a person's dataset data was actually expected
         # and didn't show up
         for missing_id in content_dict.keys() - foundIDs:
-            print("WARNING: person " + content_dict[missing_id].getIDString() + " (" + str(content_dict[missing_id].name) +
+            printAlways("WARNING: person " + content_dict[missing_id].getIDString() + " (" + str(content_dict[missing_id].name) +
                   ") not found in the offline dataset -- keeping existing data unchanged")
 
         return content_dict
@@ -441,9 +442,9 @@ class ScrapeIMDbOffline:
                     # votes at all, and not locally owned -- is the only case worth an online check;
                     # print it as it happens, since it's the one thing in this whole step that
                     # actually visits an IMDb page rather than just querying the local helper DB
-                    print("  checking in-development status for " + x.getIDString() + "...")
+                    printDetail("  checking in-development status for " + x.getIDString() + "...")
                     if self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
-                        print("  discarding referenced-only title " + x.getIDString() + ": in development, no ratings yet")
+                        printDetail("  discarding referenced-only title " + x.getIDString() + ": in development, no ratings yet")
                         # illegal title. mark for deletion from dict keys and mediaConnections
                         illegal_ids.append(x.imdb_id)
                         continue
@@ -464,7 +465,7 @@ class ScrapeIMDbOffline:
                         raise OfflineDatasetError("series " + x.getIDString() + " has episodes in title.episode.tsv but is missing usable data in title.basics.tsv")
                     if x.subdir == None:
                         # referenced-only title missing usable data: not worth an online fallback scrape, discard
-                        print("  discarding referenced-only title " + x.getIDString() + ": missing usable data in the offline dataset")
+                        printDetail("  discarding referenced-only title " + x.getIDString() + ": missing usable data in the offline dataset")
                         illegal_ids.append(x.imdb_id)
                         continue
                     else:
@@ -474,7 +475,7 @@ class ScrapeIMDbOffline:
 
                 if mode == "basics" and x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes + Media.episodeTitleTypes:
                     # found in the dataset, but not an acceptable title type (e.g. a TV episode ending up in the movie library)
-                    print("  discarding referenced-only title " + x.getIDString() + ": unacceptable title type '" + str(x.titleType) + "'")
+                    printDetail("  discarding referenced-only title " + x.getIDString() + ": unacceptable title type '" + str(x.titleType) + "'")
                     illegal_ids.append(x.imdb_id)
 
             # remove illegal media from dict

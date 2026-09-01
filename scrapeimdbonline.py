@@ -9,6 +9,7 @@ from person import Person
 from credit import Credit
 from imdbinterestid import parseInterestID, formatInterestID
 from exceptions import ScrapingError
+from verbosity import printAlways, printDetail
 from PIL import Image
 
 class ScrapeIMDbOnline:
@@ -76,7 +77,7 @@ class ScrapeIMDbOnline:
         return len(self.browser.find_elements("id", "captcha-container")) > 0
 
     def __handleHumanVerification(self, url):
-        print("Human verification required -- reopening the browser so you can solve it...")
+        printAlways("Human verification required -- reopening the browser so you can solve it...")
         self.browser.quit()
         self.browser = self.__launchBrowser(False)
         self.browser.get(url)
@@ -106,15 +107,17 @@ class ScrapeIMDbOnline:
         """Prints a step-header line matching main.py's syncLocal step numbering, for the steps
         (7, 8, 9, 12, 15) that are owned by a single method here rather than inline in main.py. Only
         ever called once a method has already confirmed it has something to do -- see each
-        caller's own emptiness/todo check."""
-        print("\nStep " + str(number) + ": " + description)
+        caller's own emptiness/todo check. Always printed, regardless of config.VERBOSITY -- see
+        verbosity.printAlways."""
+        printAlways("\nStep " + str(number) + ": " + description)
 
     def __printProgress(self, index, total, media):
         """Prints a uniform per-title progress line for an online-scraping loop -- used by every
         method here that visits one IMDb page per title (downloadCovers, scrapeMainPages,
         parseMediaConnections, scrapeFullCredits, fillMissingBasics), so the same title/id/count
-        format shows up regardless of which of those is currently running."""
-        print("  [" + str(index) + "/" + str(total) + "] " + str(media.originalTitle) + " (" + media.getIDString() + ")")
+        format shows up regardless of which of those is currently running. Printed at
+        config.VERBOSITY >= LEVEL_NORMAL -- see verbosity.printDetail."""
+        printDetail("  [" + str(index) + "/" + str(total) + "] " + str(media.originalTitle) + " (" + media.getIDString() + ")")
 
     def restrictToScrapeBudget(self, mediaDict):
         """Restricts mediaDict to at most self.maxCount 'units' before any online scraping starts,
@@ -367,7 +370,7 @@ class ScrapeIMDbOnline:
                     currentMedia.numVotes = round(voteValue)
 
                 if voteSuffix is not None:
-                    print("INFO: vote count for " + currentMedia.getIDString() + " is approximate (" + voteText + " ~= " + str(currentMedia.numVotes) + ")")
+                    printAlways("INFO: vote count for " + currentMedia.getIDString() + " is approximate (" + voteText + " ~= " + str(currentMedia.numVotes) + ")")
             else:
                 raise ScrapingError("inconsistent rating state for " + currentMedia.getIDString() + ": score=" + str(scoreText) + " votes=" + str(voteText))
 
@@ -709,7 +712,7 @@ class ScrapeIMDbOnline:
         if len(todo) == 0:
             return
 
-        print("  generating thumbnails...")
+        printDetail("  generating thumbnails...")
 
         for filename, in_path, out_path in todo:
             if os.path.exists(out_path):
@@ -721,7 +724,7 @@ class ScrapeIMDbOnline:
             try:
                 self.__makeThumbnail(in_path, out_path)
             except Exception as e:
-                print("WARNING: failed to generate thumbnail for " + filename + ": " + str(e))
+                printAlways("WARNING: failed to generate thumbnail for " + filename + ": " + str(e))
 
     def parseMediaConnections(self, mediaDict):
 

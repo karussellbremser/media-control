@@ -42,6 +42,8 @@ HELPER_DB_AUTO_UPDATE_ENABLED = _config.getboolean("helper_db", "auto_update")
 HELPER_DB_UPDATE_FREQUENCY_DAYS = _config.getint("helper_db", "update_frequency_days")
 HELPER_DB_AUTO_REFRESH_ENABLED = _config.getboolean("helper_db", "auto_refresh")
 
+VERBOSITY = _config.getint("output", "verbosity")
+
 SERVER_HOST = _config["server"]["host"]
 SERVER_PORT = _config.getint("server", "port")
 

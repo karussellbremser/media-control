@@ -7,6 +7,7 @@ from scrapeimdbonline import ScrapeIMDbOnline
 from scrapemediainfo import ScrapeMediaInfo
 from statistics import Statistics
 from exceptions import LocalLibraryError, OfflineDatasetError
+from verbosity import printAlways, printDetail, printPerson
 import config
 import getopt, os, sys, time
 
@@ -26,11 +27,12 @@ def printStep(number, description):
     ScrapeIMDbOnline.__printStepHeader), since each of those is owned by a single method there.
     The fail-fast validation right after step 2 has no number of its own -- it never has anything
     to print on success, only ever an exception on failure, so a step number for it would never
-    correspond to anything appearing in this output."""
-    print("\nStep " + str(number) + ": " + description)
+    correspond to anything appearing in this output. Always printed, regardless of
+    config.VERBOSITY -- see verbosity.printAlways."""
+    printAlways("\nStep " + str(number) + ": " + description)
 
 def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
-    print("Starting sync...")
+    printAlways("Starting sync...")
 
     # fail fast, before any real work starts, if the offline dataset helper DB hasn't been built
     # yet -- otherwise this would only surface much later (and far less clearly) the first time
@@ -188,7 +190,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                 filepath = os.path.join(mediaDir, currentMedia.subdir, mediaVersion.filename)
                 if os.path.isfile(filepath) and os.path.getsize(filepath) > 0:
                     raise LocalLibraryError("Kaleidescape-sourced file is not empty: " + filepath)
-                print("  skipping Kaleidescape-owned file (no local file to analyze): " + filepath)
+                printDetail("  skipping Kaleidescape-owned file (no local file to analyze): " + filepath)
                 continue
             scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
 
@@ -263,7 +265,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         if x.series_imdb_id is None:
             continue
         if x.series_imdb_id in ignoredIDs:
-            print("  dropping referenced episode " + x.getIDString() + ": parent series tt" + str(x.series_imdb_id).zfill(7) + " is ignored")
+            printDetail("  dropping referenced episode " + x.getIDString() + ": parent series tt" + str(x.series_imdb_id).zfill(7) + " is ignored")
             del newlyAddedMediaDict[imdb_id]
         elif x.series_imdb_id not in newlyAddedMediaDict and x.series_imdb_id not in existingIDs:
             newlyAddedMediaDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
@@ -287,7 +289,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     # - print newly-added media that isn't locally owned (referenced-only additions), for visibility
     for x in newlyAddedMediaDict.values():
         if x.subdir == None:
-            print("  adding referenced-only: " + x.originalTitle + " (" + str(x.startYear) + ")")
+            printDetail("  adding referenced-only: " + x.originalTitle + " (" + str(x.startYear) + ")")
 
     # - strip any dangling connection edges before writing. A referenced episode dropped above because
     # its series is ignored (step 11) is the known case: other kept items' mediaConnections can still
@@ -319,7 +321,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         # reference them -- people rows must exist before addMultipleMedia's credits inserts below (FK).
         # Same reasoning as the interest/language/franchise registrations right below.
         for person in newPeopleDict.values():
-            print("  new person added: " + str(person.name) + " (" + person.getIDString() + ")")
+            printPerson("  new person added: " + str(person.name) + " (" + person.getIDString() + ")")
             db._ensurePersonExistsNoCommit(person)
 
         # - persist newly-discovered interests/languages/franchises now, right alongside the media that
@@ -327,17 +329,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
         # inserts below (FK)
         for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
             if imdb_interest_id < 0:
-                print("  new pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+                printDetail("  new pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
             elif parent_imdb_interest_id is None:
-                print("  new genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+                printDetail("  new genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
             else:
-                print("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
+                printDetail("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
             db._ensureInterestExistsNoCommit(imdb_interest_id, name, description, parent_imdb_interest_id)
         for imdb_interest_id, name, description in newLanguageRegistrations:
-            print("  new language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
+            printDetail("  new language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
             db._ensureLanguageExistsNoCommit(imdb_interest_id, name, description)
         for imdb_interest_id, name in newFranchiseRegistrations:
-            print("  new franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
+            printDetail("  new franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
             db._ensureFranchiseInterestExistsNoCommit(imdb_interest_id)
 
         # - the write itself
@@ -398,7 +400,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
                     newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
                     seriesTitlesByID = {series.imdb_id: series.originalTitle for series in readySeries}
                     for episode_imdb_id, stub in newEpisodeStubs.items():
-                        print("  cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
+                        printDetail("  cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
                     db._addMultipleMediaNoCommit(newEpisodeStubs)
 
     # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
@@ -420,15 +422,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             coverPath = os.path.join(coverDir, v.getIDString() + ".jpg")
             if not os.path.isfile(coverPath):
                 kind = "series" if v.titleType in seriesTitleTypesLocal else "non-English movie"
-                print("WARNING: no cover found for locally-owned " + kind + " " + str(v.originalTitle) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
+                printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.originalTitle) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
 
     del scrapeimdbonline
 
     referencedOnlyMedia = db.getReferencedOnlyMedia()
-    print("\nSync complete. Referenced-only media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
+    printAlways("\nSync complete. Referenced-only media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
 
 def refreshTitleData():
-    print("Refreshing data...")
+    printAlways("Refreshing data...")
     db = DBControl(config.DB_PATH)
 
     mediaDict = db.getAllMovieObjects()
@@ -465,7 +467,7 @@ def refreshTitleData():
             offline.parseTitleRatings(newEpisodeStubs)
             offline.parseTitleBasics(newEpisodeStubs)
             for episode_imdb_id, stub in newEpisodeStubs.items():
-                print("New episode discovered: " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].originalTitle if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
+                printDetail("New episode discovered: " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].originalTitle if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
             db.addMultipleMedia(newEpisodeStubs)
             mediaDict.update(newEpisodeStubs)
 
@@ -513,16 +515,16 @@ def ensureHelperDBFresh(runAutoRefresh):
         return
 
     try:
-        print("IMDb offline dataset helper DB is " +
+        printAlways("IMDb offline dataset helper DB is " +
               ("missing" if not exists else "over " + str(config.HELPER_DB_UPDATE_FREQUENCY_DAYS) + " days old") +
               " -- rebuilding automatically...")
         ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
     except Exception as e:
-        print("WARNING: automatic helper DB update failed: " + str(e))
+        printAlways("WARNING: automatic helper DB update failed: " + str(e))
         return
 
     if runAutoRefresh and config.HELPER_DB_AUTO_REFRESH_ENABLED:
-        print("Auto-refresh enabled -- refreshing all known media against the freshly-updated helper DB...")
+        printAlways("Auto-refresh enabled -- refreshing all known media against the freshly-updated helper DB...")
         refreshTitleData()
 
 args = sys.argv[1:]
