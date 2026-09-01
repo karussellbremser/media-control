@@ -1,5 +1,6 @@
 from media import Media
 from dbcontrol import DBControl
+from dbbackup import DBBackup
 from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
@@ -471,17 +472,18 @@ def refreshTitleData():
                 db.removeVanishedEpisode(episodeMedia)
 
 args = sys.argv[1:]
-options = "hcstur"
-long_options = ["help", "createdb", "sync", "stats", "update", "refresh"]
+options = "hcsturb"
+long_options = ["help", "createdb", "sync", "stats", "update", "refresh", "backup"]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section).")
         elif currentArg in ("-c", "--createdb"):
             DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):
+            DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
             syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH)
         elif currentArg in ("-t", "--stats"):
             stat = Statistics(DBControl(config.DB_PATH))
@@ -490,6 +492,9 @@ try:
         elif currentArg in ("-u", "--update"):
             ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
         elif currentArg in ("-r", "--refresh"):
+            DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
             refreshTitleData()
+        elif currentArg in ("-b", "--backup"):
+            DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).forceBackup()
 except getopt.error as err:
     print(str(err))

@@ -33,6 +33,10 @@ SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")
 SCRAPE_HEADLESS = _config.getboolean("scraping", "headless")
 SCRAPE_PAGE_LOAD_WAIT = _config.getint("scraping", "page_load_wait")
 
+BACKUP_DIR = _resolve(_config["backup"]["dir"])
+BACKUP_FREQUENCY_DAYS = _config.getint("backup", "frequency_days")
+BACKUP_MAX_COUNT = _config.getint("backup", "max_count")
+
 SERVER_HOST = _config["server"]["host"]
 SERVER_PORT = _config.getint("server", "port")
 
