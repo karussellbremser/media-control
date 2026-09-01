@@ -246,6 +246,26 @@ class DBControl:
                     ON DELETE CASCADE
             )""")
 
+            # one row per detected/declared black-bar reading for a file -- normally just one
+            # (ordering=1), more than one only for a black_bars.txt override describing genuinely
+            # variable aspect ratio content (e.g. IMAX-expansion scenes); see ScrapeBlackBars. Pruned
+            # automatically via the cascade below, same as media_audio_tracks/media_subtitle_tracks --
+            # no removal code of its own needed anywhere
+            self.c.execute("""CREATE TABLE black_bars (
+            imdb_id integer NOT NULL,
+            filename text NOT NULL,
+            ordering integer NOT NULL,
+            top integer NOT NULL,
+            bottom integer NOT NULL,
+            left integer NOT NULL,
+            right integer NOT NULL,
+            PRIMARY KEY (imdb_id, filename, ordering),
+            FOREIGN KEY (imdb_id, filename)
+                REFERENCES media_versions (imdb_id, filename)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE
+            )""")
+
             # fixed, pre-seeded classification of physical/digital media a mediaVersion's source(s)
             # can come from (see Media.source_type_list)
             self.c.execute("""CREATE TABLE source_type_enum (
@@ -535,6 +555,11 @@ class DBControl:
                     thisMedia.imdb_id, mediaVersion.filename, subtitleTrack.track_id, subtitleTrack.format,
                     subtitleTrack.language, subtitleTrack.title, subtitleTrack.default_track, subtitleTrack.forced_track,
                 ))
+            for ordering, (top, bottom, left, right) in enumerate(mediaVersion.blackBars, start=1):
+                self.c.execute(
+                    "INSERT INTO black_bars (imdb_id, filename, ordering, top, bottom, left, right) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (thisMedia.imdb_id, mediaVersion.filename, ordering, top, bottom, left, right)
+                )
 
     def addSingleMediaConnections(self, thisMedia):
         # no transaction of its own -- see addSingleMediaWoConnections

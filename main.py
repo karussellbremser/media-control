@@ -5,6 +5,7 @@ from scrapelocal import ScrapeLocal
 from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from scrapemediainfo import ScrapeMediaInfo
+from scrapeblackbars import ScrapeBlackBars
 from statistics import Statistics
 from exceptions import LocalLibraryError, OfflineDatasetError
 from verbosity import printAlways, printDetail, printPerson
@@ -186,9 +187,16 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # mediaVersions at all, so nothing extra needs excluding here. A missing file is a
     # LocalLibraryError, malformed/unexpected MediaInfo output is a MediaInfoError -- both propagate
     # and abort the sync, same fail-loud treatment as everything else that doesn't match expectations.
+    # Black-bar/aspect-ratio detection (ScrapeBlackBars) runs immediately after, per file, rather than
+    # as its own bulk pass -- it reuses this file's just-computed duration/width/height instead of a
+    # separate ffmpeg probe, and interleaving keeps repeat reads of the same file close together in
+    # time rather than walking the whole file list twice (both MediaInfo and ffmpeg are local-file
+    # reads, unlike the online scraping below).
     # Kaleidescape-sourced versions are skipped entirely -- there's no local file to analyze, just an
     # empty .kscape placeholder (see MediaVersion.isKaleidescapeOnly); duration/mediainfo_version/
     # format/width/height etc. stay None until a future online Kaleidescape scraper fills them in.
+    # blackBars gets a single (0,0,0,0) placeholder row instead, same reasoning as media_versions
+    # itself still getting a row -- there's simply nothing to detect yet.
     # The size check below guards the one dangerous mismatch: a real, non-empty file whose source was
     # mistakenly declared as kscape would otherwise have its analysis silently skipped rather than
     # erroring (the reverse mismatch -- a .kscape-extension file with a non-kscape source -- already
@@ -196,6 +204,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     if any(m.mediaVersions for m in newlyAddedMediaDict.values()):
         printStep(6, "analyzing local media files with MediaInfo")
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
+    scrapeBlackBars = ScrapeBlackBars(config.FFMPEG_PATH)
     for currentMedia in newlyAddedMediaDict.values():
         for mediaVersion in currentMedia.mediaVersions:
             if mediaVersion.isKaleidescapeOnly():
@@ -203,8 +212,10 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 if os.path.isfile(filepath) and os.path.getsize(filepath) > 0:
                     raise LocalLibraryError("Kaleidescape-sourced file is not empty: " + filepath)
                 printDetail("  skipping Kaleidescape-owned file (no local file to analyze): " + filepath)
+                mediaVersion.blackBars = [(0, 0, 0, 0)]
                 continue
             scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
+            scrapeBlackBars.detectBlackBars(mediaDir, currentMedia.subdir, mediaVersion)
 
     # 7. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 2) are excluded --

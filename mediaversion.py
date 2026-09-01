@@ -73,6 +73,14 @@ class MediaVersion:
         self.audioTracks = [] # list of AudioTrack
         self.subtitleTracks = [] # list of SubtitleTrack
 
+        # (top, bottom, left, right) tuples, one per row this version gets in black_bars -- normally
+        # just one (auto-detected or from a black_bars.txt override), more than one only for a
+        # black_bars.txt override describing genuinely variable aspect ratio content (see
+        # ScrapeBlackBars). Populated by ScrapeBlackBars.detectBlackBars alongside
+        # ScrapeMediaInfo.analyzeMediaVersion above -- same newly-added/budget-surviving-only scope,
+        # None/empty until then
+        self.blackBars = []
+
     def isKaleidescapeOnly(self):
         """True if this version's main-role source is Kaleidescape -- i.e. there's no real local
         file to run MediaInfo on, just an empty placeholder (see ScrapeLocal's .kscape convention)."""
