@@ -76,6 +76,19 @@ class ScrapeIMDbOnline:
             return False
         return len(self.browser.find_elements("id", "captcha-container")) > 0
 
+    def __isBlockedResponse(self):
+        # a bare, minimal HTTP-error shell page (title and body both just e.g. "403 Forbidden"),
+        # served at the edge/CDN before ever reaching IMDb's own application -- unlike
+        # __isHumanVerificationPage's AWS WAF CAPTCHA, there's no interactive challenge here to
+        # detect and route to __handleHumanVerification; it's an outright refusal. Confirmed via a
+        # real captured occurrence: headless Chrome navigating to a title page got back exactly a
+        # bare 403 with no further content, no CAPTCHA offered at all -- almost certainly IMDb (or
+        # its CDN) blocking headless Chrome specifically. Matched by shape (title == "<code>
+        # <reason>") rather than hardcoding "403", so a differently-coded block (e.g. 429 Too Many
+        # Requests, 503 Service Unavailable) is caught the same way -- no real IMDb page title is
+        # ever shaped like this.
+        return bool(re.fullmatch(r"\d{3} [A-Za-z ]+", self.browser.title))
+
     def __handleHumanVerification(self, url):
         printAlways("Human verification required -- reopening the browser so you can solve it...")
         self.browser.quit()
@@ -96,6 +109,12 @@ class ScrapeIMDbOnline:
             self.browser = self.__launchBrowser(self.headless)
         self.browser.get(url)
         time.sleep(self.page_load_wait)
+        if self.__isBlockedResponse():
+            raise ScrapingError("IMDb returned a bare '" + self.browser.title + "' response for " + url +
+                                 " -- no interactive challenge was offered, so this can't be solved the way " +
+                                 "human verification can. " +
+                                 ("This is likely IMDb blocking headless Chrome outright; try headless=false in config.ini."
+                                  if self.headless else "Cause unclear -- this wasn't expected outside headless mode."))
         if self.__isHumanVerificationPage():
             self.__handleHumanVerification(url)
 
