@@ -53,14 +53,18 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
 
     db = DBControl(config.DB_PATH)
 
+    # captured before anything else in this run touches the DB (including the ignored/wontadd
+    # enforcement right below, which can itself remove a referenced-only medium) -- otherwise the
+    # final "Sync complete" summary's before/after comparison would miss whatever that enforcement
+    # changed, since both numbers would already reflect its result
+    referencedInitial = len(db.getReferencedOnlyMedia())
+
     db.syncWebProvidersFromConfig(config.WEB_PROVIDERS)
 
     ignoredIDs = readIDList(config.IGNORED_IDS_PATH)
     wontaddIDs = readIDList(config.WONTADD_IDS_PATH)
     db.syncIgnoredAndWontaddIDs(ignoredIDs, wontaddIDs)
     db.enforceIgnoredAndWontaddIDs()
-
-    referencedInitial = len(db.getReferencedOnlyMedia())
 
     # 1. scan local media library
     printStep(1, "scanning local media library")
