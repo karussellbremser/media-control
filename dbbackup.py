@@ -71,9 +71,7 @@ class DBBackup:
         os.makedirs(self.backup_dir, exist_ok=True)
         stem = self.db_basename + "_" + datetime.now().strftime(self._TIMESTAMP_FORMAT)
         backup_path = os.path.join(self.backup_dir, stem + ".db")
-        # two backups landing in the same second (e.g. -s followed immediately by an explicit -b)
-        # would otherwise collide on this exact filename -- disambiguate rather than silently
-        # overwrite the earlier one
+        # disambiguate a same-second collision -- see _TIMESTAMP_FORMAT's comment
         suffix = 1
         while os.path.exists(backup_path):
             backup_path = os.path.join(self.backup_dir, stem + "_" + str(suffix) + ".db")

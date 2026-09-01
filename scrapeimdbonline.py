@@ -189,8 +189,7 @@ class ScrapeIMDbOnline:
         description, parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always
         appears before the subgenre itself); newLanguageRegistrations is a list of (imdb_interest_id,
         name, description) tuples; newFranchiseRegistrations is a list of (imdb_interest_id, name)
-        tuples. Persist via DBControl.ensureInterestExists()/ensureLanguageExists()/
-        ensureFranchiseInterestExists() in the order returned."""
+        tuples. Persist via DBControl (see main.py's step 13) in the order returned."""
 
         if len(mediaDict) == 0:
             return [], [], []
@@ -501,8 +500,8 @@ class ScrapeIMDbOnline:
         description, parent_imdb_interest_id) tuples; newLanguageRegistrations is a list of
         (imdb_interest_id, name, description) tuples; languageID is this title's language_id if a
         language chip was found, else None; newFranchiseRegistrations is a list of
-        (imdb_interest_id, name) tuples -- persist via DBControl.ensureFranchiseInterestExists()
-        in the order returned; navigatedAway is True if classifying any chip navigated the browser
+        (imdb_interest_id, name) tuples -- persist via DBControl (see main.py's step 13) in the
+        order returned; navigatedAway is True if classifying any chip navigated the browser
         away from the title's own main page (to a /interest/<id>/ page), False if every chip was
         already known and the browser never left -- callers that need to be back on the main page
         afterwards (e.g. to download the cover) should check this rather than assume either way.

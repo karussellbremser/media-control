@@ -372,7 +372,8 @@ class DBControl:
             # relationship is already covered via media_connections/MediaConnection); this table
             # exists purely so a franchise doesn't need to be re-classified (an extra IMDb page
             # visit) on every future sync. Populated additively as new ones are discovered, see
-            # ScrapeIMDbOnline.__classifyChips / DBControl.ensureFranchiseInterestExists
+            # ScrapeIMDbOnline.__classifyChips / DBControl.ensureFranchiseInterestExists (or its
+            # _NoCommit variant, when batched -- see DBControl.transaction)
             self.c.execute("""CREATE TABLE franchise_interest_ids (
             imdb_interest_id integer NOT NULL,
             PRIMARY KEY (imdb_interest_id)
