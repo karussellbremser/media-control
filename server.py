@@ -223,23 +223,30 @@ def search():
     limit = 50
     offset = (page - 1) * limit
 
-    media = query_media(
-        args.get('q', ''),
-        args.get('sort', 'year'),
-        args.get('order', 'desc'),
-        args.get('year_from'),
-        args.get('year_to'),
-        args.get('rating_from'),
-        args.get('rating_to'),
-        args.get('votes_from'),
-        args.get('votes_to'),
-        selected_interest_ids,
-        selected_language_id,
-        show_movies,
-        show_series,
-        limit,
-        offset
-    )
+    # a plain sqlite3.Error here (most plausibly "database is locked", from a sync running
+    # concurrently in another terminal -- see DBControl's default 5s busy timeout) is reported to
+    # the client as a clean JSON error instead of Flask's default HTML 500 page, which search.js
+    # can't parse as JSON and would otherwise fail on invisibly (see fetchResults's error handling)
+    try:
+        media = query_media(
+            args.get('q', ''),
+            args.get('sort', 'year'),
+            args.get('order', 'desc'),
+            args.get('year_from'),
+            args.get('year_to'),
+            args.get('rating_from'),
+            args.get('rating_to'),
+            args.get('votes_from'),
+            args.get('votes_to'),
+            selected_interest_ids,
+            selected_language_id,
+            show_movies,
+            show_series,
+            limit,
+            offset
+        )
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 503
     return jsonify(media)
 
 @server.route('/cover_small/<filename>')

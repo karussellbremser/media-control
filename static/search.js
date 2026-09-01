@@ -8,9 +8,10 @@ if ('scrollRestoration' in history) {
 
 document.addEventListener('DOMContentLoaded', () => {
 	const resetButton = document.getElementById('resetButton');
-	
+
     const input = document.getElementById('searchInput');
     const results = document.getElementById('results');
+	const errorBanner = document.getElementById('errorBanner');
 	const sortSelect = document.getElementById('sortSelect');
 	const orderButton = document.getElementById('orderButton');
 	
@@ -181,8 +182,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 
         fetch(`/search?${params.toString()}`)
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('search request failed with status ' + response.status);
+                }
+                return response.json();
+            })
             .then(data => {
+				errorBanner.classList.add('hidden');
+
                 if (!append) {
 					results.innerHTML = '';
 					
@@ -286,7 +294,11 @@ document.addEventListener('DOMContentLoaded', () => {
 					
 					currentPage++;
                 }
-				
+
+				isLoading = false;
+            })
+			.catch(() => {
+				errorBanner.classList.remove('hidden');
 				isLoading = false;
             });
     }

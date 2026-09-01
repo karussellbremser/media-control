@@ -150,6 +150,23 @@
 			background-color: #ddd;
 			cursor: pointer;
 		}
+
+		#errorBanner {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			background-color: #f8d7da;
+			color: #58151c;
+			border: 1px solid #e39aa1;
+			border-radius: 6px;
+			padding: 12px 16px;
+			margin-bottom: 20px;
+			font-size: 14px;
+		}
+
+		#errorBanner.hidden {
+			display: none;
+		}
 		
 		.titleLink {
 			color: inherit;
@@ -411,6 +428,9 @@
 
 	<!-- right side -->
     <div class="content">
+		<div id="errorBanner" class="hidden">
+			⚠️ Couldn't load results. The database may be temporarily busy — try again in a moment.
+		</div>
 		<div id="results">
 			<!-- results appear here -->
 		</div>
