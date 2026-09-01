@@ -21,6 +21,6 @@ class MediaInfoError(Exception):
 
 class FFmpegError(Exception):
     """The ffmpeg CLI tool's own output didn't have the structure/content expected (bad exit
-    code, no cropdetect reading found in its output). A malformed black_bars.txt override is a
+    code, no cropdetect reading found in its output). A malformed cropping.txt override is a
     LocalLibraryError instead -- that's a local-library problem, not an ffmpeg-tool problem."""
     pass

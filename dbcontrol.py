@@ -246,12 +246,12 @@ class DBControl:
                     ON DELETE CASCADE
             )""")
 
-            # one row per detected/declared black-bar reading for a file -- normally just one
-            # (ordering=1), more than one only for a black_bars.txt override describing genuinely
-            # variable aspect ratio content (e.g. IMAX-expansion scenes); see ScrapeBlackBars. Pruned
-            # automatically via the cascade below, same as media_audio_tracks/media_subtitle_tracks --
-            # no removal code of its own needed anywhere
-            self.c.execute("""CREATE TABLE black_bars (
+            # one row per detected/declared cropping reading (the black bars around a file's actual
+            # content) -- normally just one (ordering=1), more than one only for a cropping.txt
+            # override describing genuinely variable aspect ratio content (e.g. IMAX-expansion
+            # scenes); see ScrapeCropping. Pruned automatically via the cascade below, same as
+            # media_audio_tracks/media_subtitle_tracks -- no removal code of its own needed anywhere
+            self.c.execute("""CREATE TABLE cropping (
             imdb_id integer NOT NULL,
             filename text NOT NULL,
             ordering integer NOT NULL,
@@ -555,9 +555,9 @@ class DBControl:
                     thisMedia.imdb_id, mediaVersion.filename, subtitleTrack.track_id, subtitleTrack.format,
                     subtitleTrack.language, subtitleTrack.title, subtitleTrack.default_track, subtitleTrack.forced_track,
                 ))
-            for ordering, (top, bottom, left, right) in enumerate(mediaVersion.blackBars, start=1):
+            for ordering, (top, bottom, left, right) in enumerate(mediaVersion.cropping, start=1):
                 self.c.execute(
-                    "INSERT INTO black_bars (imdb_id, filename, ordering, top, bottom, left, right) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO cropping (imdb_id, filename, ordering, top, bottom, left, right) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (thisMedia.imdb_id, mediaVersion.filename, ordering, top, bottom, left, right)
                 )
 

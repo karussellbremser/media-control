@@ -4,16 +4,17 @@ import subprocess
 
 from exceptions import FFmpegError, LocalLibraryError
 
-class ScrapeBlackBars:
-    """Determines each locally-owned mediaVersion's actual (top, bottom, left, right) black-bar
-    pixel counts -- either from a manual black_bars.txt override sitting alongside the media files
-    (see __parseOverrideFile), or by auto-detecting them via ffmpeg's cropdetect filter, sampled in
-    several bursts spread across the runtime and combined by taking the least black border found on
-    each side independently (a first-pass aggregation, to be refined later). Only ever called for
-    files belonging to titles that are both newly added this sync run and survived the scrape budget
-    -- see main.py's syncLocal, same scope as ScrapeMediaInfo. Always run immediately after
-    ScrapeMediaInfo.analyzeMediaVersion for the same file, so mediaVersion.duration/width/height are
-    already known here -- no separate ffmpeg probe needed for them."""
+class ScrapeCropping:
+    """Determines each locally-owned mediaVersion's actual (top, bottom, left, right) cropping --
+    pixel counts for the black bars around its actual content -- either from a manual cropping.txt
+    override sitting alongside the media files (see __parseOverrideFile), or by auto-detecting them
+    via ffmpeg's cropdetect filter, sampled in several bursts spread across the runtime and combined
+    by taking the least black border found on each side independently (a first-pass aggregation, to
+    be refined later). Only ever called for files belonging to titles that are both newly added this
+    sync run and survived the scrape budget -- see main.py's syncLocal, same scope as
+    ScrapeMediaInfo. Always run immediately after ScrapeMediaInfo.analyzeMediaVersion for the same
+    file, so mediaVersion.duration/width/height are already known here -- no separate ffmpeg probe
+    needed for them."""
 
     BURST_FRAME_COUNT = 200
     RUNTIME_PERCENTAGES = [5, 10, 15, 20, 25, 30, 40, 50, 70, 85]
@@ -21,18 +22,18 @@ class ScrapeBlackBars:
     def __init__(self, ffmpeg_path):
         self.ffmpeg_path = ffmpeg_path
 
-    def detectBlackBars(self, mediaDir, subdir, mediaVersion):
-        """Sets mediaVersion.blackBars to a list of (top, bottom, left, right) tuples -- normally
-        just one, more than one only when a black_bars.txt override supplies several (genuinely
+    def detectCropping(self, mediaDir, subdir, mediaVersion):
+        """Sets mediaVersion.cropping to a list of (top, bottom, left, right) tuples -- normally
+        just one, more than one only when a cropping.txt override supplies several (genuinely
         variable aspect ratio content, e.g. IMAX-expansion scenes)."""
-        overridePath = os.path.join(mediaDir, subdir, "black_bars.txt")
+        overridePath = os.path.join(mediaDir, subdir, "cropping.txt")
         if os.path.isfile(overridePath):
             overrides = self.__parseOverrideFile(overridePath)
             if mediaVersion.filename in overrides:
-                mediaVersion.blackBars = overrides[mediaVersion.filename]
+                mediaVersion.cropping = overrides[mediaVersion.filename]
                 return
             if "OTHER" in overrides:
-                mediaVersion.blackBars = overrides["OTHER"]
+                mediaVersion.cropping = overrides["OTHER"]
                 return
 
         filepath = os.path.join(mediaDir, subdir, mediaVersion.filename)
@@ -42,7 +43,7 @@ class ScrapeBlackBars:
         bottom = min(r[1] for r in readings)
         left = min(r[2] for r in readings)
         right = min(r[3] for r in readings)
-        mediaVersion.blackBars = [(top, bottom, left, right)]
+        mediaVersion.cropping = [(top, bottom, left, right)]
 
     def __runBurst(self, filepath, seekSeconds, width, height):
         """Runs one cropdetect burst seeked to seekSeconds and returns (top, bottom, left, right),
@@ -69,7 +70,7 @@ class ScrapeBlackBars:
         with open(filepath, "r", encoding="utf8") as f:
             lines = f.read().splitlines()
         if len(lines) == 0:
-            raise LocalLibraryError("empty black_bars.txt: " + filepath)
+            raise LocalLibraryError("empty cropping.txt: " + filepath)
 
         result = {}
         for line in lines:
