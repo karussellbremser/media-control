@@ -8,7 +8,7 @@ from scrapemediainfo import ScrapeMediaInfo
 from statistics import Statistics
 from exceptions import LocalLibraryError, OfflineDatasetError
 import config
-import getopt, os, sys
+import getopt, os, sys, time
 
 def readIDList(path):
     """Reads a user-maintained list of imdb ids, one 'tt#######' per line (blank lines ignored).
@@ -479,6 +479,52 @@ def refreshTitleData():
                                                str(series.originalTitle) + " is no longer listed in title.episode.tsv")
                 db.removeVanishedEpisode(episodeMedia)
 
+def ensureHelperDBFresh(runAutoRefresh):
+    """If config.HELPER_DB_AUTO_UPDATE_ENABLED and the IMDb offline dataset helper DB is either
+    missing or older than config.HELPER_DB_UPDATE_FREQUENCY_DAYS, rebuilds it automatically before
+    the caller's sync/refresh proceeds. When auto-update is disabled, this is a complete no-op --
+    a missing helper DB still surfaces via syncLocal's own fail-fast check (or whatever
+    ScrapeIMDbOffline itself raises, for -r), and an existing-but-stale one is silently tolerated,
+    exactly as today.
+
+    Any failure during the update itself is printed as a warning and swallowed, same reasoning as
+    DBBackup.ensureBackup: a failed download isn't a correctness problem for this run -- if the
+    helper DB was merely stale, the run proceeds with what's already there, same as it would with
+    auto-update disabled entirely; if it was missing, the caller's own existing fail-fast handling
+    still catches that afterward with its normal, clearer message.
+
+    If the update actually ran and config.HELPER_DB_AUTO_REFRESH_ENABLED, also runs
+    refreshTitleData() -- unless runAutoRefresh is False, which the -r caller passes since it's
+    about to run its own refresh right after regardless, making a second one here pure waste.
+    Unlike the update itself, a refresh triggered here is NOT wrapped in a try/except: it's capable
+    of raising a genuine data-consistency finding (e.g. a locally-owned episode vanishing from
+    title.episode.tsv), not just an infrastructure hiccup, so it propagates and aborts the run
+    exactly like a manually-invoked -r always does."""
+    if not config.HELPER_DB_AUTO_UPDATE_ENABLED:
+        return
+
+    exists = os.path.isfile(config.IMDB_HELPER_DB_PATH)
+    if exists:
+        ageDays = (time.time() - os.path.getmtime(config.IMDB_HELPER_DB_PATH)) / 86400
+        due = ageDays >= config.HELPER_DB_UPDATE_FREQUENCY_DAYS
+    else:
+        due = True
+    if not due:
+        return
+
+    try:
+        print("IMDb offline dataset helper DB is " +
+              ("missing" if not exists else "over " + str(config.HELPER_DB_UPDATE_FREQUENCY_DAYS) + " days old") +
+              " -- rebuilding automatically...")
+        ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
+    except Exception as e:
+        print("WARNING: automatic helper DB update failed: " + str(e))
+        return
+
+    if runAutoRefresh and config.HELPER_DB_AUTO_REFRESH_ENABLED:
+        print("Auto-refresh enabled -- refreshing all known media against the freshly-updated helper DB...")
+        refreshTitleData()
+
 args = sys.argv[1:]
 options = "hcsturb"
 long_options = ["help", "createdb", "sync", "stats", "update", "refresh", "backup"]
@@ -487,11 +533,13 @@ try:
     arguments, values = getopt.getopt(args, options, long_options)
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section).")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section, auto_backup).")
         elif currentArg in ("-c", "--createdb"):
             DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):
-            DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
+            if config.BACKUP_AUTO_ENABLED:
+                DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
+            ensureHelperDBFresh(runAutoRefresh=True)
             syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH)
         elif currentArg in ("-t", "--stats"):
             stat = Statistics(DBControl(config.DB_PATH))
@@ -499,8 +547,12 @@ try:
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
             ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
+            if config.HELPER_DB_AUTO_REFRESH_ENABLED:
+                refreshTitleData()
         elif currentArg in ("-r", "--refresh"):
-            DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
+            if config.BACKUP_AUTO_ENABLED:
+                DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
+            ensureHelperDBFresh(runAutoRefresh=False)
             refreshTitleData()
         elif currentArg in ("-b", "--backup"):
             DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).forceBackup()
