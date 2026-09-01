@@ -34,6 +34,14 @@ def printStep(number, description):
 def syncLocal(mediaDir, coverDir, thumbnailDir):
     printAlways("Starting sync...")
 
+    # fail fast, before any real work starts, if the main DB hasn't been created yet -- otherwise
+    # DBControl's sqlite3.connect() would silently create an empty file at this path, and the first
+    # real query against it would fail with a confusing "no such table" error instead. Same
+    # reasoning, and same exception type, as DBBackup.forceBackup's equivalent check.
+    if not os.path.isfile(config.DB_PATH):
+        raise FileNotFoundError("DB not found at " + config.DB_PATH +
+                                 " -- run 'python main.py -c' (or --createdb) to create it first")
+
     # fail fast, before any real work starts, if the offline dataset helper DB hasn't been built
     # yet -- otherwise this would only surface much later (and far less clearly) the first time
     # something actually queries it, e.g. as a sqlite "no such table" error, sqlite3.connect()
