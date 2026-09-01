@@ -18,6 +18,17 @@ class DBControl:
         """close sqlite3 connection"""
         self.conn.close()
 
+    def transaction(self):
+        """Returns a context manager for batching several writes into one atomic commit-or-rollback
+        unit, instead of each individual call committing on its own (sqlite3.Connection is already
+        a valid context manager -- __exit__ commits on success, rolls back on any exception; this
+        just gives callers a named, DBControl-owned way to reach it). Only call the "_NoCommit"
+        variant of a method (e.g. _addMultipleMediaNoCommit, _ensurePersonExistsNoCommit) from
+        inside this block -- the public, self-committing form (e.g. addMultipleMedia) would
+        immediately commit everything so far the moment it exits, since Python's sqlite3 context
+        manager doesn't nest. See main.py's step 13/14 for the intended usage."""
+        return self.conn
+
     def createMediaDB(self):
         with self.conn:
             # media table holds both media present in library and those only linked by IMDb connections. differentiator if medium is actually present is subdir not being NULL.
@@ -424,121 +435,132 @@ class DBControl:
             )""")
 
     def addSingleMediaWoConnections(self, thisMedia):
+        # unlike most public methods here, this one manages no transaction of its own -- it's only
+        # ever called from _addMultipleMediaNoCommit (via the public addMultipleMedia or as part of
+        # a larger caller-managed transaction, see DBControl.transaction), which owns the
+        # surrounding "with self.conn:" for the whole batch
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
-        with self.conn:
-            self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
-            data = self.c.fetchall()
-            if len(data) == 0:
-                self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order))
-            elif data[0][1] == None:
-                self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=?, season_number=?, episode_number=?, series_imdb_id=?, intended_order=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order, thisMedia.imdb_id))
-            else:
-                raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
-            for imdb_interest_id in thisMedia.interests:
-                self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
-            for mediaVersion in thisMedia.mediaVersions:
-                # built from explicit column/value lists (rather than a hardcoded run of "?"
-                # placeholders, as elsewhere in this file) since this table is wide enough that
-                # miscounting placeholders by hand would be an easy, silent mistake
-                versionColumns = [
-                    "imdb_id", "filename", "source", "version", "duration", "mediainfo_version",
-                    "format", "format_profile", "format_level", "format_tier",
-                    "multiview_count", "multiview_layout",
-                    "hdr_format", "hdr_format_version", "hdr_format_profile", "hdr_format_level",
-                    "hdr_format_settings", "hdr_format_compression", "hdr_format_compatibility",
-                    "variable_bitrate", "bitrate", "bitrate_maximum",
-                    "width", "height", "stored_width", "stored_height", "sampled_width", "sampled_height",
-                    "pixel_aspect_ratio", "display_aspect_ratio",
-                    "variable_framerate", "frame_rate", "frame_rate_num", "frame_rate_den",
-                    "color_space", "chroma_subsampling", "chroma_subsampling_position", "bit_depth", "interlaced",
-                    "language", "title",
-                    "color_description_present", "color_range", "color_primaries",
-                    "transfer_characteristics", "matrix_coefficients",
-                    "mastering_display_color_primaries", "mastering_display_luminance_min",
-                    "mastering_display_luminance_max", "max_cll", "max_fall",
-                ]
-                versionValues = [
-                    thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version,
-                    mediaVersion.duration, mediaVersion.mediainfo_version,
-                    mediaVersion.format, mediaVersion.format_profile, mediaVersion.format_level, mediaVersion.format_tier,
-                    mediaVersion.multiview_count, mediaVersion.multiview_layout,
-                    mediaVersion.hdr_format, mediaVersion.hdr_format_version, mediaVersion.hdr_format_profile, mediaVersion.hdr_format_level,
-                    mediaVersion.hdr_format_settings, mediaVersion.hdr_format_compression, mediaVersion.hdr_format_compatibility,
-                    mediaVersion.variable_bitrate, mediaVersion.bitrate, mediaVersion.bitrate_maximum,
-                    mediaVersion.width, mediaVersion.height, mediaVersion.stored_width, mediaVersion.stored_height, mediaVersion.sampled_width, mediaVersion.sampled_height,
-                    mediaVersion.pixel_aspect_ratio, mediaVersion.display_aspect_ratio,
-                    mediaVersion.variable_framerate, mediaVersion.frame_rate, mediaVersion.frame_rate_num, mediaVersion.frame_rate_den,
-                    mediaVersion.color_space, mediaVersion.chroma_subsampling, mediaVersion.chroma_subsampling_position, mediaVersion.bit_depth, mediaVersion.interlaced,
-                    mediaVersion.language, mediaVersion.title,
-                    mediaVersion.color_description_present, mediaVersion.color_range, mediaVersion.color_primaries,
-                    mediaVersion.transfer_characteristics, mediaVersion.matrix_coefficients,
-                    mediaVersion.mastering_display_color_primaries, mediaVersion.mastering_display_luminance_min,
-                    mediaVersion.mastering_display_luminance_max, mediaVersion.max_cll, mediaVersion.max_fall,
-                ]
-                self.c.execute(
-                    "INSERT INTO media_versions (" + ", ".join(versionColumns) + ") VALUES (" + ", ".join("?" for _ in versionColumns) + ")",
-                    versionValues
-                )
-                for source in mediaVersion.sources:
-                    self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
-                        thisMedia.imdb_id,
-                        mediaVersion.filename,
-                        self.__getSourceRoleIDByName(source.role),
-                        source.seq,
-                        self.__getSourceTypeIDByName(source.source_type),
-                        source.disc_id,
-                        int(source.disc_corrected),
-                        source.kaleidescape_id,
-                        self.__getWebProviderIDByAbbreviation(source.web_provider) if source.web_provider is not None else None,
-                        int(source.base_layer),
-                        int(source.downmixed),
-                        int(source.core),
-                        int(source.fanres),
-                    ))
-                for audioTrack in mediaVersion.audioTracks:
-                    self.c.execute("""INSERT INTO media_audio_tracks (
-                        imdb_id, filename, track_id, format, format_commercial, format_settings_mode,
-                        format_additional_features, matrix_format, variable_bitrate, bitrate, bitrate_maximum,
-                        channels, matrix_channels, channel_positions, matrix_channel_positions, channel_layout,
-                        sampling_rate, bit_depth, lossless, language, title, default_track
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
-                        thisMedia.imdb_id, mediaVersion.filename, audioTrack.track_id, audioTrack.format,
-                        audioTrack.format_commercial, audioTrack.format_settings_mode,
-                        audioTrack.format_additional_features, audioTrack.matrix_format, audioTrack.variable_bitrate,
-                        audioTrack.bitrate, audioTrack.bitrate_maximum,
-                        audioTrack.channels, audioTrack.matrix_channels, audioTrack.channel_positions,
-                        audioTrack.matrix_channel_positions, audioTrack.channel_layout,
-                        audioTrack.sampling_rate, audioTrack.bit_depth, audioTrack.lossless, audioTrack.language,
-                        audioTrack.title, audioTrack.default_track,
-                    ))
-                for subtitleTrack in mediaVersion.subtitleTracks:
-                    self.c.execute("""INSERT INTO media_subtitle_tracks (
-                        imdb_id, filename, track_id, format, language, title, default_track, forced_track
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", (
-                        thisMedia.imdb_id, mediaVersion.filename, subtitleTrack.track_id, subtitleTrack.format,
-                        subtitleTrack.language, subtitleTrack.title, subtitleTrack.default_track, subtitleTrack.forced_track,
-                    ))
+        self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
+        data = self.c.fetchall()
+        if len(data) == 0:
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order))
+        elif data[0][1] == None:
+            self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=?, season_number=?, episode_number=?, series_imdb_id=?, intended_order=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order, thisMedia.imdb_id))
+        else:
+            raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
+        for imdb_interest_id in thisMedia.interests:
+            self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
+        for mediaVersion in thisMedia.mediaVersions:
+            # built from explicit column/value lists (rather than a hardcoded run of "?"
+            # placeholders, as elsewhere in this file) since this table is wide enough that
+            # miscounting placeholders by hand would be an easy, silent mistake
+            versionColumns = [
+                "imdb_id", "filename", "source", "version", "duration", "mediainfo_version",
+                "format", "format_profile", "format_level", "format_tier",
+                "multiview_count", "multiview_layout",
+                "hdr_format", "hdr_format_version", "hdr_format_profile", "hdr_format_level",
+                "hdr_format_settings", "hdr_format_compression", "hdr_format_compatibility",
+                "variable_bitrate", "bitrate", "bitrate_maximum",
+                "width", "height", "stored_width", "stored_height", "sampled_width", "sampled_height",
+                "pixel_aspect_ratio", "display_aspect_ratio",
+                "variable_framerate", "frame_rate", "frame_rate_num", "frame_rate_den",
+                "color_space", "chroma_subsampling", "chroma_subsampling_position", "bit_depth", "interlaced",
+                "language", "title",
+                "color_description_present", "color_range", "color_primaries",
+                "transfer_characteristics", "matrix_coefficients",
+                "mastering_display_color_primaries", "mastering_display_luminance_min",
+                "mastering_display_luminance_max", "max_cll", "max_fall",
+            ]
+            versionValues = [
+                thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version,
+                mediaVersion.duration, mediaVersion.mediainfo_version,
+                mediaVersion.format, mediaVersion.format_profile, mediaVersion.format_level, mediaVersion.format_tier,
+                mediaVersion.multiview_count, mediaVersion.multiview_layout,
+                mediaVersion.hdr_format, mediaVersion.hdr_format_version, mediaVersion.hdr_format_profile, mediaVersion.hdr_format_level,
+                mediaVersion.hdr_format_settings, mediaVersion.hdr_format_compression, mediaVersion.hdr_format_compatibility,
+                mediaVersion.variable_bitrate, mediaVersion.bitrate, mediaVersion.bitrate_maximum,
+                mediaVersion.width, mediaVersion.height, mediaVersion.stored_width, mediaVersion.stored_height, mediaVersion.sampled_width, mediaVersion.sampled_height,
+                mediaVersion.pixel_aspect_ratio, mediaVersion.display_aspect_ratio,
+                mediaVersion.variable_framerate, mediaVersion.frame_rate, mediaVersion.frame_rate_num, mediaVersion.frame_rate_den,
+                mediaVersion.color_space, mediaVersion.chroma_subsampling, mediaVersion.chroma_subsampling_position, mediaVersion.bit_depth, mediaVersion.interlaced,
+                mediaVersion.language, mediaVersion.title,
+                mediaVersion.color_description_present, mediaVersion.color_range, mediaVersion.color_primaries,
+                mediaVersion.transfer_characteristics, mediaVersion.matrix_coefficients,
+                mediaVersion.mastering_display_color_primaries, mediaVersion.mastering_display_luminance_min,
+                mediaVersion.mastering_display_luminance_max, mediaVersion.max_cll, mediaVersion.max_fall,
+            ]
+            self.c.execute(
+                "INSERT INTO media_versions (" + ", ".join(versionColumns) + ") VALUES (" + ", ".join("?" for _ in versionColumns) + ")",
+                versionValues
+            )
+            for source in mediaVersion.sources:
+                self.c.execute("INSERT INTO media_version_sources VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                    thisMedia.imdb_id,
+                    mediaVersion.filename,
+                    self.__getSourceRoleIDByName(source.role),
+                    source.seq,
+                    self.__getSourceTypeIDByName(source.source_type),
+                    source.disc_id,
+                    int(source.disc_corrected),
+                    source.kaleidescape_id,
+                    self.__getWebProviderIDByAbbreviation(source.web_provider) if source.web_provider is not None else None,
+                    int(source.base_layer),
+                    int(source.downmixed),
+                    int(source.core),
+                    int(source.fanres),
+                ))
+            for audioTrack in mediaVersion.audioTracks:
+                self.c.execute("""INSERT INTO media_audio_tracks (
+                    imdb_id, filename, track_id, format, format_commercial, format_settings_mode,
+                    format_additional_features, matrix_format, variable_bitrate, bitrate, bitrate_maximum,
+                    channels, matrix_channels, channel_positions, matrix_channel_positions, channel_layout,
+                    sampling_rate, bit_depth, lossless, language, title, default_track
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    thisMedia.imdb_id, mediaVersion.filename, audioTrack.track_id, audioTrack.format,
+                    audioTrack.format_commercial, audioTrack.format_settings_mode,
+                    audioTrack.format_additional_features, audioTrack.matrix_format, audioTrack.variable_bitrate,
+                    audioTrack.bitrate, audioTrack.bitrate_maximum,
+                    audioTrack.channels, audioTrack.matrix_channels, audioTrack.channel_positions,
+                    audioTrack.matrix_channel_positions, audioTrack.channel_layout,
+                    audioTrack.sampling_rate, audioTrack.bit_depth, audioTrack.lossless, audioTrack.language,
+                    audioTrack.title, audioTrack.default_track,
+                ))
+            for subtitleTrack in mediaVersion.subtitleTracks:
+                self.c.execute("""INSERT INTO media_subtitle_tracks (
+                    imdb_id, filename, track_id, format, language, title, default_track, forced_track
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    thisMedia.imdb_id, mediaVersion.filename, subtitleTrack.track_id, subtitleTrack.format,
+                    subtitleTrack.language, subtitleTrack.title, subtitleTrack.default_track, subtitleTrack.forced_track,
+                ))
 
     def addSingleMediaConnections(self, thisMedia):
+        # no transaction of its own -- see addSingleMediaWoConnections
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
-        with self.conn:
-            for mediaConnection in thisMedia.mediaConnections:
-                self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
+        for mediaConnection in thisMedia.mediaConnections:
+            self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
 
     def addSingleMediaCredits(self, thisMedia):
         # unlike media_connections, a credit only ever references thisMedia.imdb_id itself (never
         # another medium), so -- as long as every credited person's row already exists in people,
-        # which addMultipleMedia guarantees by calling this only after main.py has persisted new
-        # people -- this has no cross-medium ordering dependency the way addSingleMediaConnections does.
+        # which _addMultipleMediaNoCommit guarantees by calling this only after main.py has
+        # persisted new people -- this has no cross-medium ordering dependency the way
+        # addSingleMediaConnections does. No transaction of its own -- see addSingleMediaWoConnections.
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
-        with self.conn:
-            for credit in thisMedia.credits:
-                self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, credit.ordering, credit.person_id, self.__getCreditRoleIDByCreditRoleName(credit.creditRole), credit.creditDetails))
+        for credit in thisMedia.credits:
+            self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, credit.ordering, credit.person_id, self.__getCreditRoleIDByCreditRoleName(credit.creditRole), credit.creditDetails))
 
-    def addMultipleMedia(self, mediaDict): # media, connections and credits must be separated, so that foreign constraints are always fulfilled during db entry
+    def addMultipleMedia(self, mediaDict):
+        """Public, self-committing entry point -- safe to call standalone (see refreshTitleData).
+        For a caller that needs this batched atomically alongside other writes (see main.py's
+        step 13/14), use _addMultipleMediaNoCommit directly inside a "with db.transaction():"
+        block instead."""
+        with self.conn:
+            self._addMultipleMediaNoCommit(mediaDict)
+
+    def _addMultipleMediaNoCommit(self, mediaDict): # media, connections and credits must be separated, so that foreign constraints are always fulfilled during db entry
         # a series must exist before any of its episodes are inserted (series_imdb_id's FK); the
         # caller's dict order doesn't guarantee this -- a referenced-only episode of a brand-new
         # series can end up ordered before that series' own stub entry (its stub is only appended
@@ -673,19 +695,29 @@ class DBControl:
                                 (person.name, person.birth_year, person.death_year, imdbID))
 
     def getAllMediaIDs(self):
+        # public, self-committing -- see _getAllMediaIDsNoCommit for the variant used inside a
+        # caller-managed "with db.transaction():" block (see main.py's step 13/14), needed there
+        # since this needs to see that same transaction's own not-yet-committed writes
         with self.conn:
-            self.c.execute("SELECT imdb_id FROM media")
-            return(self.c.fetchall())
+            return self._getAllMediaIDsNoCommit()
+
+    def _getAllMediaIDsNoCommit(self):
+        self.c.execute("SELECT imdb_id FROM media")
+        return(self.c.fetchall())
 
     def getAllLocallyOwnedMediaIDs(self):
         """Like getAllMediaIDs, but only ids that are genuinely locally owned (subdir IS NOT NULL)
         right now -- unlike getAllMediaIDs, a referenced-only stub row doesn't count. Used where
         "does a row exist" isn't a strong enough test, e.g. main.py's readySeries check: a series
         can end up with a bare referenced-only stub row mid-sync (see step 10's connection-target
-        fallback) despite being locally owned, and shouldn't be mistaken for actually being ready."""
+        fallback) despite being locally owned, and shouldn't be mistaken for actually being ready.
+        Public, self-committing -- see getAllMediaIDs for the NoCommit-variant convention."""
         with self.conn:
-            self.c.execute("SELECT imdb_id FROM media WHERE subdir IS NOT NULL")
-            return(self.c.fetchall())
+            return self._getAllLocallyOwnedMediaIDsNoCommit()
+
+    def _getAllLocallyOwnedMediaIDsNoCommit(self):
+        self.c.execute("SELECT imdb_id FROM media WHERE subdir IS NOT NULL")
+        return(self.c.fetchall())
 
     def getDictWithImdbIDs(self):
         dbResult = self.getAllMediaIDs()
@@ -716,9 +748,15 @@ class DBControl:
             return set(row[0] for row in self.c.fetchall())
 
     def ensureInterestExists(self, imdb_interest_id, name, description, parent_imdb_interest_id=None):
-        """Insert a newly-discovered interest (genre or subgenre) into interest_enum if not already known."""
+        """Insert a newly-discovered interest (genre or subgenre) into interest_enum if not already
+        known. Public, self-committing -- for a caller batching this atomically alongside other
+        writes (see main.py's step 13/14), use _ensureInterestExistsNoCommit inside a
+        "with db.transaction():" block instead."""
         with self.conn:
-            self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
+            self._ensureInterestExistsNoCommit(imdb_interest_id, name, description, parent_imdb_interest_id)
+
+    def _ensureInterestExistsNoCommit(self, imdb_interest_id, name, description, parent_imdb_interest_id=None):
+        self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
 
     def getAllKnownLanguageIDs(self):
         """Set of all IMDb interest ids already known to be languages (in language_enum)."""
@@ -742,9 +780,13 @@ class DBControl:
             return set(row[0] for row in self.c.fetchall())
 
     def ensureLanguageExists(self, imdb_interest_id, name, description):
-        """Insert a newly-discovered language interest into language_enum if not already known."""
+        """Insert a newly-discovered language interest into language_enum if not already known.
+        Public, self-committing -- see ensureInterestExists for the NoCommit-variant convention."""
         with self.conn:
-            self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
+            self._ensureLanguageExistsNoCommit(imdb_interest_id, name, description)
+
+    def _ensureLanguageExistsNoCommit(self, imdb_interest_id, name, description):
+        self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
 
     def getAllKnownPersonIDs(self):
         """Set of all person imdb_ids already present in people."""
@@ -756,9 +798,13 @@ class DBControl:
         """Insert a newly-discovered person into people if not already known. Takes a Person object
         (rather than plain fields, unlike ensureInterestExists/ensureLanguageExists) since a person
         always carries all three fields together, resolved as a unit by
-        ScrapeIMDbOffline.parsePeople before this is ever called."""
+        ScrapeIMDbOffline.parsePeople before this is ever called. Public, self-committing -- see
+        ensureInterestExists for the NoCommit-variant convention."""
         with self.conn:
-            self.c.execute("INSERT OR IGNORE INTO people VALUES (?, ?, ?, ?)", (person.imdb_id, person.name, person.birth_year, person.death_year))
+            self._ensurePersonExistsNoCommit(person)
+
+    def _ensurePersonExistsNoCommit(self, person):
+        self.c.execute("INSERT OR IGNORE INTO people VALUES (?, ?, ?, ?)", (person.imdb_id, person.name, person.birth_year, person.death_year))
 
     def getAllPersonObjects(self):
         """All people currently in the DB, as {imdb_id: Person} -- used by refreshTitleData to
@@ -782,9 +828,13 @@ class DBControl:
 
     def ensureFranchiseInterestExists(self, imdb_interest_id):
         """Records a newly-discovered franchise-type interest id into franchise_interest_ids if not
-        already known, so it's skipped without re-classification on future syncs."""
+        already known, so it's skipped without re-classification on future syncs. Public,
+        self-committing -- see ensureInterestExists for the NoCommit-variant convention."""
         with self.conn:
-            self.c.execute("INSERT OR IGNORE INTO franchise_interest_ids VALUES (?)", (imdb_interest_id,))
+            self._ensureFranchiseInterestExistsNoCommit(imdb_interest_id)
+
+    def _ensureFranchiseInterestExistsNoCommit(self, imdb_interest_id):
+        self.c.execute("INSERT OR IGNORE INTO franchise_interest_ids VALUES (?)", (imdb_interest_id,))
 
     def syncWebProvidersFromConfig(self, web_providers):
         """Additively syncs source_web_provider_enum from a {abbreviation: full_name} dict (see
@@ -986,12 +1036,14 @@ class DBControl:
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (series_imdb_id,))
 
     def __getTitleTypeIDByTitleTypeName(self, title_type_name):
-        with self.conn:
-            self.c.execute("SELECT title_type_id FROM title_type_enum WHERE title_type_name=?", (title_type_name,))
-            title_type_id = self.c.fetchone()
-            if not title_type_id or not title_type_id[0]:
-                raise RuntimeError('unknown titleType ' + title_type_name)
-            return(title_type_id[0])
+        # no transaction of its own -- called from within other methods' own "with self.conn:"
+        # (addSingleMediaWoConnections, refreshTitleBasics), which a nested one here would
+        # prematurely commit (Python's sqlite3 context manager doesn't nest)
+        self.c.execute("SELECT title_type_id FROM title_type_enum WHERE title_type_name=?", (title_type_name,))
+        title_type_id = self.c.fetchone()
+        if not title_type_id or not title_type_id[0]:
+            raise RuntimeError('unknown titleType ' + title_type_name)
+        return(title_type_id[0])
 
     def __getTitleTypeNameByTitleTypeID(self, title_type_id):
         with self.conn:
@@ -1002,12 +1054,12 @@ class DBControl:
             return(title_type_name[0])
 
     def __getConnectionTypeIDByConnectionTypeName(self, connectionType_name):
-        with self.conn:
-            self.c.execute("SELECT connection_type_id FROM connection_type_enum WHERE connection_type_name=?", (connectionType_name,))
-            connection_type_id = self.c.fetchone()
-            if not connection_type_id or not connection_type_id[0]:
-                raise RuntimeError('unknown connection type ' + connectionType_name)
-            return(connection_type_id[0])
+        # no transaction of its own -- see __getTitleTypeIDByTitleTypeName
+        self.c.execute("SELECT connection_type_id FROM connection_type_enum WHERE connection_type_name=?", (connectionType_name,))
+        connection_type_id = self.c.fetchone()
+        if not connection_type_id or not connection_type_id[0]:
+            raise RuntimeError('unknown connection type ' + connectionType_name)
+        return(connection_type_id[0])
 
     def __getConnectionTypeNameByConnectionTypeID(self, connectionType_id):
         with self.conn:
@@ -1019,45 +1071,45 @@ class DBControl:
 
     def __getCreditRoleIDByCreditRoleName(self, credit_role_name):
         # credit_role_name always comes from Credit.creditRoleList, which is what seeds this enum,
-        # so a miss here means the two have drifted -- an internal bug, not bad local data
-        with self.conn:
-            self.c.execute("SELECT credit_role_id FROM credit_role_enum WHERE credit_role_name=?", (credit_role_name,))
-            credit_role_id = self.c.fetchone()
-            if not credit_role_id:
-                raise RuntimeError('unknown credit role ' + credit_role_name)
-            return(credit_role_id[0])
+        # so a miss here means the two have drifted -- an internal bug, not bad local data.
+        # No transaction of its own -- see __getTitleTypeIDByTitleTypeName.
+        self.c.execute("SELECT credit_role_id FROM credit_role_enum WHERE credit_role_name=?", (credit_role_name,))
+        credit_role_id = self.c.fetchone()
+        if not credit_role_id:
+            raise RuntimeError('unknown credit role ' + credit_role_name)
+        return(credit_role_id[0])
 
     def __getSourceTypeIDByName(self, source_type_name):
         # source_type_name always comes from Media.source_type_list, which is what seeds this
-        # enum, so a miss here means the two have drifted -- an internal bug, not bad local data
-        with self.conn:
-            self.c.execute("SELECT source_type_id FROM source_type_enum WHERE source_type_name=?", (source_type_name,))
-            source_type_id = self.c.fetchone()
-            if not source_type_id:
-                raise RuntimeError('unknown source type ' + source_type_name)
-            return(source_type_id[0])
+        # enum, so a miss here means the two have drifted -- an internal bug, not bad local data.
+        # No transaction of its own -- see __getTitleTypeIDByTitleTypeName.
+        self.c.execute("SELECT source_type_id FROM source_type_enum WHERE source_type_name=?", (source_type_name,))
+        source_type_id = self.c.fetchone()
+        if not source_type_id:
+            raise RuntimeError('unknown source type ' + source_type_name)
+        return(source_type_id[0])
 
     def __getSourceRoleIDByName(self, role_name):
         # role_name always comes from Media.source_role_list, which is what seeds this enum, so
-        # a miss here means the two have drifted -- an internal bug, not bad local data
-        with self.conn:
-            self.c.execute("SELECT role_id FROM source_role_enum WHERE role_name=?", (role_name,))
-            role_id = self.c.fetchone()
-            if not role_id:
-                raise RuntimeError('unknown source role ' + role_name)
-            return(role_id[0])
+        # a miss here means the two have drifted -- an internal bug, not bad local data.
+        # No transaction of its own -- see __getTitleTypeIDByTitleTypeName.
+        self.c.execute("SELECT role_id FROM source_role_enum WHERE role_name=?", (role_name,))
+        role_id = self.c.fetchone()
+        if not role_id:
+            raise RuntimeError('unknown source role ' + role_name)
+        return(role_id[0])
 
     def __getWebProviderIDByAbbreviation(self, abbreviation):
         # unlike the two lookups above, a miss here is a genuine local-data problem: the source
         # string references a web provider abbreviation not present in source_web_provider_enum
         # (and therefore not in config.ini's [web_providers] section either, at least not as of
-        # the last sync -- see DBControl.syncWebProvidersFromConfig)
-        with self.conn:
-            self.c.execute("SELECT web_provider_id FROM source_web_provider_enum WHERE abbreviation=?", (abbreviation,))
-            web_provider_id = self.c.fetchone()
-            if not web_provider_id:
-                raise LocalLibraryError("unknown web provider abbreviation '" + abbreviation + "' -- add it to config.ini's [web_providers] section and sync again")
-            return(web_provider_id[0])
+        # the last sync -- see DBControl.syncWebProvidersFromConfig). No transaction of its own --
+        # see __getTitleTypeIDByTitleTypeName.
+        self.c.execute("SELECT web_provider_id FROM source_web_provider_enum WHERE abbreviation=?", (abbreviation,))
+        web_provider_id = self.c.fetchone()
+        if not web_provider_id:
+            raise LocalLibraryError("unknown web provider abbreviation '" + abbreviation + "' -- add it to config.ini's [web_providers] section and sync again")
+        return(web_provider_id[0])
 
     def determineNewlyAddedMedia(self, mediaDict):
         newlyAddedDict = {}

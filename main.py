@@ -304,94 +304,102 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
             for x in newlyAddedMediaDict.values():
                 x.mediaConnections = [y for y in x.mediaConnections if y.foreignIMDbID not in danglingIDs]
 
-    # - persist newly-discovered people now, right alongside the media whose credits (step 9)
-    # reference them -- people rows must exist before addMultipleMedia's credits inserts below (FK),
-    # and keeping this adjacent to that call minimizes the window in which an aborted sync could
-    # leave one registered without the corresponding title/credit ever being added. Same reasoning
-    # as the interest/language/franchise registrations right below.
-    for person in newPeopleDict.values():
-        print("  new person added: " + str(person.name) + " (" + person.getIDString() + ")")
-        db.ensurePersonExists(person)
+    # steps 13/14's writes (new people/interests/languages/franchises, the newly-added
+    # media batch itself, and step 14's episode-catalog-completion stubs) are batched into
+    # one atomic commit-or-rollback unit here, rather than each committing independently as
+    # soon as it's written -- this closes the exact risk the comments below used to describe
+    # as only "minimized": an aborted sync used to be able to leave e.g. a new person
+    # registered with no credit ever referencing them, or step 13's write committed with
+    # step 14 never completing it and (since the underlying episode is no longer "new" on a
+    # later sync) never getting a second chance to. Now either this whole batch commits
+    # together, or none of it does -- a rolled-back run is fully retriable next time, same as
+    # any other exception elsewhere in this pipeline.
+    with db.transaction():
+        # - persist newly-discovered people now, right alongside the media whose credits (step 9)
+        # reference them -- people rows must exist before addMultipleMedia's credits inserts below (FK).
+        # Same reasoning as the interest/language/franchise registrations right below.
+        for person in newPeopleDict.values():
+            print("  new person added: " + str(person.name) + " (" + person.getIDString() + ")")
+            db._ensurePersonExistsNoCommit(person)
 
-    # - persist newly-discovered interests/languages/franchises now, right alongside the media that
-    # triggered them -- interest_enum rows must exist before addMultipleMedia's media_interests
-    # inserts below (FK), and keeping this adjacent to that call minimizes the window in which an
-    # aborted sync could leave one registered without the corresponding title ever being added
-    for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
-        if imdb_interest_id < 0:
-            print("  new pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
-        elif parent_imdb_interest_id is None:
-            print("  new genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
-        else:
-            print("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
-        db.ensureInterestExists(imdb_interest_id, name, description, parent_imdb_interest_id)
-    for imdb_interest_id, name, description in newLanguageRegistrations:
-        print("  new language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
-        db.ensureLanguageExists(imdb_interest_id, name, description)
-    for imdb_interest_id, name in newFranchiseRegistrations:
-        print("  new franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
-        db.ensureFranchiseInterestExists(imdb_interest_id)
+        # - persist newly-discovered interests/languages/franchises now, right alongside the media that
+        # triggered them -- interest_enum rows must exist before addMultipleMedia's media_interests
+        # inserts below (FK)
+        for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
+            if imdb_interest_id < 0:
+                print("  new pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+            elif parent_imdb_interest_id is None:
+                print("  new genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
+            else:
+                print("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
+            db._ensureInterestExistsNoCommit(imdb_interest_id, name, description, parent_imdb_interest_id)
+        for imdb_interest_id, name, description in newLanguageRegistrations:
+            print("  new language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
+            db._ensureLanguageExistsNoCommit(imdb_interest_id, name, description)
+        for imdb_interest_id, name in newFranchiseRegistrations:
+            print("  new franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
+            db._ensureFranchiseInterestExistsNoCommit(imdb_interest_id)
 
-    # - the write itself
-    db.addMultipleMedia(newlyAddedMediaDict)
+        # - the write itself
+        db._addMultipleMediaNoCommit(newlyAddedMediaDict)
 
-    # 14. for every series that had something new happen to it this run (the series itself newly
-    # added, or at least one of its locally-resolved episodes newly added -- checked against
-    # newlyAddedMediaDictOriginal, the snapshot of what was missing from the DB at the start of this
-    # sync), make sure its FULL episode catalog (per title.episode.tsv) is represented in the DB
-    # now -- not just the locally-owned episodes resolved in step 2. Every other episode of these
-    # series gets a referenced-only stub instead, so the DB always reflects which episodes exist for
-    # a partially-owned series and which of those are actually owned, without waiting for a
-    # --refresh. Skipping series with nothing new matters: without it, a series with e.g. an unaired
-    # special or an announced-but-unscheduled episode (missing/incomplete data, discarded rather
-    # than added -- see __insertTitleBasics's "\N" handling) would re-derive and re-attempt that
-    # same discard, including its online isInDevelopment() check, on every single sync that happens
-    # to touch the series at all, even when nothing actually changed. Purely offline-dataset-driven
-    # otherwise, like refreshTitleData's equivalent completeness check -- these stubs never go
-    # through scrapeMainPages/parseMediaConnections/scrapeFullCredits, so a large series doesn't turn
-    # into a large scraping bill just because a few of its episodes were added locally. This has to
-    # run down here, strictly after step 13's write: a series' own row must already exist before any
-    # of its episode stubs can satisfy the series_imdb_id FK, so readySeries below checks the DB
-    # directly for genuine local ownership (subdir NOT NULL) rather than assuming every touched
-    # series made it in as owned -- it might not have (e.g. excluded by the scrape budget in step
-    # 5), and whichever series didn't just gets this treatment on a later sync instead, once it's
-    # actually locally owned. Merely having *a* row isn't enough of a test here: a series referenced
-    # by a connection from some other budget-surviving medium can end up with a bare referenced-only
-    # stub row of its own mid-sync (see step 10's connection-target fallback) despite being locally
-    # owned -- that stub must not be mistaken for "ready", or this series' full episode catalog
-    # would get completed a sync early, while its own row still (temporarily) claims it's unowned.
-    if localSeries:
-        localEpisodeIDsBySeriesID = {}
-        for m in mediaDictOriginal.values():
-            if m.series_imdb_id is not None:
-                localEpisodeIDsBySeriesID.setdefault(m.series_imdb_id, []).append(m.imdb_id)
-        touchedSeries = [series for series in localSeries
-                          if series.imdb_id in newlyAddedMediaDictOriginal
-                          or any(ep_id in newlyAddedMediaDictOriginal for ep_id in localEpisodeIDsBySeriesID.get(series.imdb_id, []))]
+        # 14. for every series that had something new happen to it this run (the series itself newly
+        # added, or at least one of its locally-resolved episodes newly added -- checked against
+        # newlyAddedMediaDictOriginal, the snapshot of what was missing from the DB at the start of this
+        # sync), make sure its FULL episode catalog (per title.episode.tsv) is represented in the DB
+        # now -- not just the locally-owned episodes resolved in step 2. Every other episode of these
+        # series gets a referenced-only stub instead, so the DB always reflects which episodes exist for
+        # a partially-owned series and which of those are actually owned, without waiting for a
+        # --refresh. Skipping series with nothing new matters: without it, a series with e.g. an unaired
+        # special or an announced-but-unscheduled episode (missing/incomplete data, discarded rather
+        # than added -- see __insertTitleBasics's "\N" handling) would re-derive and re-attempt that
+        # same discard, including its online isInDevelopment() check, on every single sync that happens
+        # to touch the series at all, even when nothing actually changed. Purely offline-dataset-driven
+        # otherwise, like refreshTitleData's equivalent completeness check -- these stubs never go
+        # through scrapeMainPages/parseMediaConnections/scrapeFullCredits, so a large series doesn't turn
+        # into a large scraping bill just because a few of its episodes were added locally. This has to
+        # run down here, strictly after step 13's write: a series' own row must already exist before any
+        # of its episode stubs can satisfy the series_imdb_id FK, so readySeries below checks the DB
+        # directly for genuine local ownership (subdir NOT NULL) rather than assuming every touched
+        # series made it in as owned -- it might not have (e.g. excluded by the scrape budget in step
+        # 5), and whichever series didn't just gets this treatment on a later sync instead, once it's
+        # actually locally owned. Merely having *a* row isn't enough of a test here: a series referenced
+        # by a connection from some other budget-surviving medium can end up with a bare referenced-only
+        # stub row of its own mid-sync (see step 10's connection-target fallback) despite being locally
+        # owned -- that stub must not be mistaken for "ready", or this series' full episode catalog
+        # would get completed a sync early, while its own row still (temporarily) claims it's unowned.
+        if localSeries:
+            localEpisodeIDsBySeriesID = {}
+            for m in mediaDictOriginal.values():
+                if m.series_imdb_id is not None:
+                    localEpisodeIDsBySeriesID.setdefault(m.series_imdb_id, []).append(m.imdb_id)
+            touchedSeries = [series for series in localSeries
+                              if series.imdb_id in newlyAddedMediaDictOriginal
+                              or any(ep_id in newlyAddedMediaDictOriginal for ep_id in localEpisodeIDsBySeriesID.get(series.imdb_id, []))]
 
-        existingIDs = {row[0] for row in db.getAllMediaIDs()}
-        locallyOwnedIDs = {row[0] for row in db.getAllLocallyOwnedMediaIDs()}
-        readySeries = [series for series in touchedSeries if series.imdb_id in locallyOwnedIDs]
-        if readySeries:
-            printStep(14, "completing episode catalogs for " + str(len(readySeries)) + " series touched this run")
-            offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
-            fullEpisodeLists = offlineForCompleteness.getFullEpisodeListForSeries({series.imdb_id for series in readySeries})
-            newEpisodeStubs = {}
-            for series in readySeries:
-                for season, episode, episode_imdb_id in fullEpisodeLists[series.imdb_id]:
-                    if episode_imdb_id not in mediaDictOriginal and episode_imdb_id not in existingIDs and episode_imdb_id not in newEpisodeStubs:
-                        stub = Media(None, None, episode_imdb_id)
-                        stub.series_imdb_id = series.imdb_id
-                        stub.season_number = season
-                        stub.episode_number = episode
-                        newEpisodeStubs[episode_imdb_id] = stub
-            if newEpisodeStubs:
-                newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
-                newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
-                seriesTitlesByID = {series.imdb_id: series.originalTitle for series in readySeries}
-                for episode_imdb_id, stub in newEpisodeStubs.items():
-                    print("  cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
-                db.addMultipleMedia(newEpisodeStubs)
+            existingIDs = {row[0] for row in db._getAllMediaIDsNoCommit()}
+            locallyOwnedIDs = {row[0] for row in db._getAllLocallyOwnedMediaIDsNoCommit()}
+            readySeries = [series for series in touchedSeries if series.imdb_id in locallyOwnedIDs]
+            if readySeries:
+                printStep(14, "completing episode catalogs for " + str(len(readySeries)) + " series touched this run")
+                offlineForCompleteness = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
+                fullEpisodeLists = offlineForCompleteness.getFullEpisodeListForSeries({series.imdb_id for series in readySeries})
+                newEpisodeStubs = {}
+                for series in readySeries:
+                    for season, episode, episode_imdb_id in fullEpisodeLists[series.imdb_id]:
+                        if episode_imdb_id not in mediaDictOriginal and episode_imdb_id not in existingIDs and episode_imdb_id not in newEpisodeStubs:
+                            stub = Media(None, None, episode_imdb_id)
+                            stub.series_imdb_id = series.imdb_id
+                            stub.season_number = season
+                            stub.episode_number = episode
+                            newEpisodeStubs[episode_imdb_id] = stub
+                if newEpisodeStubs:
+                    newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
+                    newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
+                    seriesTitlesByID = {series.imdb_id: series.originalTitle for series in readySeries}
+                    for episode_imdb_id, stub in newEpisodeStubs.items():
+                        print("  cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
+                    db._addMultipleMediaNoCommit(newEpisodeStubs)
 
     # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
     # thumbnails. Series covers are deliberately never fetched automatically -- IMDb only offers the latest
