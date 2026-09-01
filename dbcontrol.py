@@ -606,15 +606,13 @@ class DBControl:
 
     def removeSingleMedia(self, mediumToRemove):
         with self.conn:
-            #1. remove all media_versions of mediumToRemove
-            self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-
-            #2. remove and save all connections FROM mediumToRemove to list referencesToRemove
+            #1. save all connections FROM mediumToRemove to list referencesToRemove -- removal
+            # itself is deferred to #2a below, since it's only actually needed there (media_versions/
+            # media_connections cascade for free in #2b's full removal, see its own comment)
             self.c.execute("SELECT imdb_id, foreign_imdb_id FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             referencesToRemove = self.c.fetchall()
-            self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
-            #3. check whether there are any connections TO mediumToRemove
+            #2. check whether there are any connections TO mediumToRemove
             self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (mediumToRemove.imdb_id,))
             remainingConnections = self.c.fetchall()
 
@@ -633,19 +631,24 @@ class DBControl:
             self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
-            #3a. if yes: only "light-remove" mediumToRemove (remove subdir, interests, credits,
-            # intended episode order, manually-entered release day/month, and reset language to the
-            # default; these are only valid for locally-owned media -- intended_order and
-            # releaseMonth/Day in particular are purely local data (release day/month are only ever
-            # entered manually, see Media.__init__), unlike season_number/episode_number/
-            # series_imdb_id which come from IMDb and stay valid regardless of ownership)
+            #2a. if yes: only "light-remove" mediumToRemove (remove subdir, media_versions,
+            # connections FROM it, interests, credits, intended episode order, manually-entered
+            # release day/month, and reset language to the default; these are only valid for
+            # locally-owned media -- intended_order and releaseMonth/Day in particular are purely
+            # local data (release day/month are only ever entered manually, see Media.__init__),
+            # unlike season_number/episode_number/series_imdb_id which come from IMDb and stay valid
+            # regardless of ownership). The media row itself survives here, so none of this happens
+            # via cascade -- unlike #2b below, every removal has to be explicit.
             if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
                 printDetail("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
                 self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, releaseMonth = NULL, releaseDay = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
-            #3b. if no: remove media entry (media_interests/credits rows are removed via ON DELETE CASCADE)
+            #2b. if no: remove media entry (media_versions/media_connections/media_interests/credits
+            # rows are all removed via ON DELETE CASCADE)
             else:
                 printDetail("Removing " + mediumToRemove.originalTitle + " from DB")
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
@@ -658,24 +661,24 @@ class DBControl:
             if mediumToRemove.series_imdb_id is not None:
                 self.__pruneOrphanedSeries([mediumToRemove.series_imdb_id])
 
-            #4. for all x in list referencesToRemove:
+            #3. for all x in list referencesToRemove:
             for x in referencesToRemove:
 
-                #4a. if x not in db table media or if subdir NOT EMPTY: continue
+                #3a. if x not in db table media or if subdir NOT EMPTY: continue
                 self.c.execute("SELECT imdb_id, originalTitle, subdir FROM media WHERE imdb_id=?", (x[1],))
                 mediumData = self.c.fetchall()
                 if len(mediumData) == 0 or mediumData[0][2] != None:
                     continue
 
-                #4b. check whether there are any connections TO x
+                #3b. check whether there are any connections TO x
                 self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (x[1],))
                 remainingConnections = self.c.fetchall()
 
-                #4b1. if yes: continue
+                #3b1. if yes: continue
                 if len(remainingConnections) != 0:
                     continue
 
-                #4b2. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
+                #3b2. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
                 else:
                     printDetail("Removing referenced medium " + mediumData[0][1] + " from DB")
                     self.c.execute("DELETE FROM media WHERE imdb_id=?", (x[1],))
@@ -693,8 +696,7 @@ class DBControl:
                 raise OfflineDatasetError("episode " + episodeMedium.getIDString() + " (" + str(episodeMedium.originalTitle) +
                                            ") is no longer listed in title.episode.tsv, but is still referenced by other media")
             printDetail("Removing episode " + str(episodeMedium.originalTitle) + " from DB (no longer listed in title.episode.tsv)")
-            self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (episodeMedium.imdb_id,))
-            self.c.execute("DELETE FROM media WHERE imdb_id=?", (episodeMedium.imdb_id,))
+            self.c.execute("DELETE FROM media WHERE imdb_id=?", (episodeMedium.imdb_id,)) # media_connections rows removed via ON DELETE CASCADE
             if episodeMedium.series_imdb_id is not None:
                 self.__pruneOrphanedSeries([episodeMedium.series_imdb_id])
 
@@ -955,10 +957,13 @@ class DBControl:
                 # out too (no-op if imdb_id isn't a series)
                 self.c.execute("SELECT imdb_id FROM media WHERE series_imdb_id=?", (imdb_id,))
                 for (episode_id,) in self.c.fetchall():
-                    self.c.execute("DELETE FROM media_connections WHERE imdb_id=? OR foreign_imdb_id=?", (episode_id, episode_id))
+                    # only the incoming (foreign_imdb_id) side needs a manual delete -- it's ON
+                    # DELETE RESTRICT, unlike the outgoing (imdb_id) side, which cascades from the
+                    # DELETE FROM media right below
+                    self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (episode_id,))
                     self.c.execute("DELETE FROM media WHERE imdb_id=?", (episode_id,))
 
-                self.c.execute("DELETE FROM media_connections WHERE imdb_id=? OR foreign_imdb_id=?", (imdb_id, imdb_id))
+                self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,)) # see comment above
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
                 self.__pruneOrphanedInterests(affectedInterestIDs)
                 self.__pruneOrphanedLanguages(affectedLanguageIDs)
@@ -1038,7 +1043,10 @@ class DBControl:
                 anyStillNeeded = True
                 continue
             printDetail("Removing episode " + str(episode_title) + " from DB (no longer needed)")
-            self.c.execute("DELETE FROM media_connections WHERE imdb_id=? OR foreign_imdb_id=?", (episode_id, episode_id))
+            # only the incoming (foreign_imdb_id) side needs a manual delete -- it's ON DELETE
+            # RESTRICT, unlike the outgoing (imdb_id) side, which cascades from the DELETE FROM
+            # media right below
+            self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (episode_id,))
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (episode_id,))
         return not anyStillNeeded
 
@@ -1059,7 +1067,10 @@ class DBControl:
             if not self.__removeUnneededSeriesEpisodes(series_imdb_id):
                 continue # still has a needed episode
             printDetail("Removing series " + str(row[1]) + " from DB (no longer needed)")
-            self.c.execute("DELETE FROM media_connections WHERE imdb_id=? OR foreign_imdb_id=?", (series_imdb_id, series_imdb_id))
+            # only the incoming (foreign_imdb_id) side needs a manual delete -- it's ON DELETE
+            # RESTRICT, unlike the outgoing (imdb_id) side, which cascades from the DELETE FROM
+            # media right below
+            self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (series_imdb_id,))
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (series_imdb_id,))
 
     def __getTitleTypeIDByTitleTypeName(self, title_type_name):
