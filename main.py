@@ -31,7 +31,7 @@ def printStep(number, description):
     config.VERBOSITY -- see verbosity.printAlways."""
     printAlways("\nStep " + str(number) + ": " + description)
 
-def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
+def syncLocal(mediaDir, coverDir, thumbnailDir):
     printAlways("Starting sync...")
 
     # fail fast, before any real work starts, if the offline dataset helper DB hasn't been built
@@ -149,7 +149,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir, webdriverPath):
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
     printStep(4, str(len(newlyAddedMediaDict)) + " newly-added title(s) found")
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, webdriverPath, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT)
 
     # 5. restrict to the configured per-run budget before any scraping starts, bounding both how many
     # new movies/series get added this run and the online main-page/connections scraping below (steps
@@ -435,7 +435,7 @@ def refreshTitleData():
 
     mediaDict = db.getAllMovieObjects()
 
-    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH)
+    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH)
     mediaDict = offline.refreshTitleRatings(mediaDict)
     mediaDict = offline.refreshTitleBasics(mediaDict)
 
@@ -518,7 +518,7 @@ def ensureHelperDBFresh(runAutoRefresh):
         printAlways("IMDb offline dataset helper DB is " +
               ("missing" if not exists else "over " + str(config.HELPER_DB_UPDATE_FREQUENCY_DAYS) + " days old") +
               " -- rebuilding automatically...")
-        ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
+        ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
     except Exception as e:
         printAlways("WARNING: automatic helper DB update failed: " + str(e))
         return
@@ -542,13 +542,13 @@ try:
             if config.BACKUP_AUTO_ENABLED:
                 DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
             ensureHelperDBFresh(runAutoRefresh=True)
-            syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH)
+            syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR)
         elif currentArg in ("-t", "--stats"):
             stat = Statistics(DBControl(config.DB_PATH))
             stat.printYearlyAverages()
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
-            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.WEBDRIVER_PATH, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
+            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
             if config.HELPER_DB_AUTO_REFRESH_ENABLED:
                 refreshTitleData()
         elif currentArg in ("-r", "--refresh"):

@@ -33,7 +33,6 @@ Then edit `config.ini` with your own paths:
 
 - `media_dir` — root directory of your local media library
 - `db_path`, `covers_dir`, `covers_small_dir` — where the database and cover images are stored (relative paths resolve against the project directory)
-- `webdriver_path` — path to your chromedriver executable
 - `mediainfo_path` — path to the MediaInfo CLI executable
 - `chrome_profile_dir` — persistent Chrome profile (cookies/session state), reused across runs
 - `imdb_helper_db_path` — where the indexed IMDb offline-dataset helper DB is stored (built by `--update`)

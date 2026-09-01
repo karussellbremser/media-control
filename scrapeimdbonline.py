@@ -1,8 +1,7 @@
 import requests, re, time, random, math
 from bs4 import BeautifulSoup
 import os.path
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from seleniumbase import Driver
 from media import Media
 from mediaconnection import MediaConnection
 from person import Person
@@ -30,10 +29,9 @@ class ScrapeIMDbOnline:
         "TV Short": "tvShort",
     }
 
-    def __init__(self, cover_directory, thumbnail_directory, webdriver_path, delay = 0, maxCount = 0, profile_dir = None, headless = False, page_load_wait = 4):
+    def __init__(self, cover_directory, thumbnail_directory, delay = 0, maxCount = 0, profile_dir = None, headless = False, page_load_wait = 4):
         self.cover_directory = cover_directory
         self.thumbnail_directory = thumbnail_directory
-        self.webdriver_path = webdriver_path
         self.delay = delay
         self.maxCount = maxCount
         self.profile_dir = profile_dir
@@ -46,22 +44,11 @@ class ScrapeIMDbOnline:
         self.browser = None
 
     def __launchBrowser(self, headless):
-        chrome_options = Options()
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option("useAutomationExtension", False)
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument("--start-maximized")
-        if headless:
-            chrome_options.add_argument('--headless=new')
-        chrome_options.add_argument('--allow-running-insecure-content')
-        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        if self.profile_dir is not None:
-            # reuses cookies/session state across runs (created automatically by Chrome if missing),
-            # so IMDb sees a returning browser rather than a brand-new one on every single run
-            chrome_options.add_argument(f'--user-data-dir={self.profile_dir}')
-        browser = webdriver.Chrome(executable_path = self.webdriver_path, options=chrome_options)
+        # user_data_dir reuses cookies/session state across runs (created automatically by Chrome
+        # if missing, safe to pass through even when self.profile_dir is None -- that's
+        # user_data_dir's own default too), so IMDb sees a returning browser rather than a
+        # brand-new one every time
+        browser = Driver(uc=True, headless=headless, locale_code="en-US", user_data_dir=self.profile_dir, window_size="1920,1080")
         browser.maximize_window()
         browser.implicitly_wait(10)
         time.sleep(5)
