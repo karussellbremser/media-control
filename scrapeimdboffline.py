@@ -144,7 +144,7 @@ class ScrapeIMDbOffline:
                 c.executemany("INSERT INTO people VALUES (?, ?, ?, ?)", batch)
 
     def __buildTitlesTable(self, c, source_dir):
-        # a row missing any of titleType/primaryTitle/originalTitle/startYear ("\N") is skipped
+        # a row missing any of titleType/primary_title/original_title/start_year ("\N") is skipped
         # entirely -- it was never usable (see __applyTitles's "illegal" handling below, which
         # previously treated this the same as a row not being found at all); this collapses what
         # used to be two separate "not found" cases into one, simplifying every caller
@@ -152,7 +152,7 @@ class ScrapeIMDbOffline:
         with open(os.path.join(source_dir, self.title_basics_filename), "r", encoding="utf8") as f:
             r = csv.reader(f, delimiter="\t")
             next(r, None) # header
-            for row in r: # row: tconst || titleType || primaryTitle || originalTitle || isAdult || startYear || endYear || runtimeMinutes || genres
+            for row in r: # row: tconst || titleType || primary_title || original_title || isAdult || start_year || end_year || runtimeMinutes || genres
                 if row[1] == "\\N" or row[2] == "\\N" or row[3] == "\\N" or row[5] == "\\N":
                     continue
                 batch.append((
@@ -179,7 +179,7 @@ class ScrapeIMDbOffline:
         with open(os.path.join(source_dir, self.title_ratings_filename), "r", encoding="utf8") as f:
             r = csv.reader(f, delimiter="\t")
             next(r, None) # header
-            for row in r: # row: tconst || averageRating || numVotes
+            for row in r: # row: tconst || averageRating || num_votes
                 if row[1] == "\\N":
                     rating_mul10 = None
                 else:
@@ -250,9 +250,9 @@ class ScrapeIMDbOffline:
         return self.__applyTitles(content_dict, mode="basics", remove_illegal=True)
 
     def refreshTitleBasics(self, content_dict):
-        """Like refreshTitleRatings, but for title basics: primaryTitle/originalTitle/endYear are
+        """Like refreshTitleRatings, but for title basics: primary_title/original_title/end_year are
         silently updated to whatever the dataset currently says (titles get corrected, an airing
-        series' endYear becomes known once it concludes). titleType and startYear are treated as
+        series' end_year becomes known once it concludes). titleType and start_year are treated as
         near-immutable instead -- see __insertTitleBasicsRefresh for exactly what's allowed to
         change and what raises OfflineDatasetError."""
         return self.__applyTitles(content_dict, mode="basics_refresh", remove_illegal=False)
@@ -403,7 +403,7 @@ class ScrapeIMDbOffline:
         """Returns {imdb_id: (title_type_name, primary_title, original_title, start_year, end_year,
         rating_mul10, num_votes)} for every id in ids found in the titles table. An id with no
         matching row simply wasn't usable in title.basics.tsv (missing entirely, or missing
-        titleType/primaryTitle/originalTitle/startYear -- see __buildTitlesTable) -- not an error by
+        titleType/primary_title/original_title/start_year -- see __buildTitlesTable) -- not an error by
         itself, __applyTitles's callers decide what that means."""
         result = {}
         if len(ids) == 0:
@@ -436,8 +436,8 @@ class ScrapeIMDbOffline:
             # make sure that all items have been touched; mark ones that are illegal for deletion
             illegal_ids = []
             for x in content_dict.values():
-                if mode == "ratings" and x.numVotes == None and x.subdir == None:
-                    # numVotes missing entirely is otherwise unremarkable (see __insertTitleRatings --
+                if mode == "ratings" and x.num_votes == None and x.subdir == None:
+                    # num_votes missing entirely is otherwise unremarkable (see __insertTitleRatings --
                     # it's a perfectly normal, nullable field), so this specific combination -- no
                     # votes at all, and not locally owned -- is the only case worth an online check;
                     # print it as it happens, since it's the one thing in this whole step that
@@ -484,13 +484,13 @@ class ScrapeIMDbOffline:
 
             # remove references to illegal media
             for x in content_dict.values():
-                content_dict[x.imdb_id].mediaConnections = [y for y in x.mediaConnections if not y.foreignIMDbID in illegal_ids]
+                content_dict[x.imdb_id].mediaConnections = [y for y in x.mediaConnections if not y.foreign_imdb_id in illegal_ids]
 
         return content_dict
 
     def __insertTitleRatings(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
         media_obj.rating_mul10 = row[5]
-        media_obj.numVotes = row[6]
+        media_obj.num_votes = row[6]
         return media_obj
 
     def __titleTypeCategory(self, titleType):
@@ -514,23 +514,23 @@ class ScrapeIMDbOffline:
             # whether this id is actually an episode (series_imdb_id is only ever set by parseTitleEpisode)
             raise OfflineDatasetError("title type " + titleType + " not acceptable for local parsing result " + str(localTitleType))
         media_obj.titleType = titleType
-        media_obj.primaryTitle = row[1]
-        media_obj.originalTitle = row[2]
-        if media_obj.startYear != None and media_obj.startYear != row[3]:
-            raise OfflineDatasetError("startYear does not match for title " + media_obj.getIDString() + " " + row[2] + " (" + str(media_obj.startYear) + " vs. " + str(row[3]) + ")")
-        media_obj.startYear = row[3]
-        media_obj.endYear = row[4]
+        media_obj.primary_title = row[1]
+        media_obj.original_title = row[2]
+        if media_obj.start_year != None and media_obj.start_year != row[3]:
+            raise OfflineDatasetError("start_year does not match for title " + media_obj.getIDString() + " " + row[2] + " (" + str(media_obj.start_year) + " vs. " + str(row[3]) + ")")
+        media_obj.start_year = row[3]
+        media_obj.end_year = row[4]
 
         return media_obj
 
     def __insertTitleBasicsRefresh(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
-        """Refreshes an already-known medium's basics against the current dataset. primaryTitle/
-        originalTitle/endYear are silently updated. titleType may only change within the same
+        """Refreshes an already-known medium's basics against the current dataset. primary_title/
+        original_title/end_year are silently updated. titleType may only change within the same
         category (movie/series/episode) it was already in -- e.g. "movie" -> "tvMovie" is fine,
         "movie" -> "tvSeries" is not, since that would mean this id fundamentally isn't the kind of
-        thing it was added as. startYear must not have changed at all. Any violation raises
+        thing it was added as. start_year must not have changed at all. Any violation raises
         OfflineDatasetError. An id with no matching row at all (gone missing, or now missing
-        titleType/primaryTitle/originalTitle/startYear, since it was first read) is left with its
+        titleType/primary_title/original_title/start_year, since it was first read) is left with its
         previously-known fields unchanged -- __applyTitles simply never calls this for it."""
 
         titleType = row[0]
@@ -540,12 +540,12 @@ class ScrapeIMDbOffline:
             raise OfflineDatasetError("titleType for " + media_obj.getIDString() + " changed from '" + str(media_obj.titleType) + "' to '" + titleType + "', crossing categories")
         media_obj.titleType = titleType
 
-        media_obj.primaryTitle = row[1]
-        media_obj.originalTitle = row[2]
+        media_obj.primary_title = row[1]
+        media_obj.original_title = row[2]
 
-        if media_obj.startYear != row[3]:
-            raise OfflineDatasetError("startYear for " + media_obj.getIDString() + " changed from " + str(media_obj.startYear) + " to " + str(row[3]))
+        if media_obj.start_year != row[3]:
+            raise OfflineDatasetError("start_year for " + media_obj.getIDString() + " changed from " + str(media_obj.start_year) + " to " + str(row[3]))
 
-        media_obj.endYear = row[4]
+        media_obj.end_year = row[4]
 
         return media_obj

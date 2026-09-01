@@ -123,7 +123,7 @@ class ScrapeIMDbOnline:
         parseMediaConnections, scrapeFullCredits, fillMissingBasics), so the same title/id/count
         format shows up regardless of which of those is currently running. Printed at
         config.VERBOSITY >= LEVEL_NORMAL -- see verbosity.printDetail."""
-        printDetail("  [" + str(index) + "/" + str(total) + "] " + str(media.originalTitle) + " (" + media.getIDString() + ")")
+        printDetail("  [" + str(index) + "/" + str(total) + "] " + str(media.original_title) + " (" + media.getIDString() + ")")
 
     def restrictToScrapeBudget(self, mediaDict):
         """Restricts mediaDict to at most self.maxCount 'units' before any online scraping starts,
@@ -221,7 +221,7 @@ class ScrapeIMDbOnline:
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
             chips = self.__scrapeInterestChips()
-            currentMedia.plotSummary = self.__scrapePlotSummary()
+            currentMedia.plot_summary = self.__scrapePlotSummary()
 
             attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID, newFranchiseRegs, navigatedAway = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
             currentMedia.interests = attachedInterestIDs
@@ -252,11 +252,11 @@ class ScrapeIMDbOnline:
 
     def fillMissingBasics(self, mediaDict):
         """For locally-owned titles missing from the offline IMDb datasets (flagged via
-        needsOnlineFallback), scrapes titleType, primaryTitle, originalTitle, startYear
-        (cross-checked against the already-known local value), endYear, rating and vote
+        needsOnlineFallback), scrapes titleType, primary_title, original_title, start_year
+        (cross-checked against the already-known local value), end_year, rating and vote
         count from the title's main page. The locally-parsed folder name is not trusted as
-        a source for originalTitle; it's scraped from the page's separate "Original title:"
-        line when shown, or set equal to primaryTitle when it isn't (i.e. they're the same).
+        a source for original_title; it's scraped from the page's separate "Original title:"
+        line when shown, or set equal to primary_title when it isn't (i.e. they're the same).
         Vote counts abbreviated by IMDb (e.g. "7.7K") are accepted as an approximation
         (printed to stdout when this happens) rather than an exact figure, since that's
         all that's available once a title crosses IMDb's abbreviation threshold. Raises
@@ -297,13 +297,13 @@ class ScrapeIMDbOnline:
             currentMedia.titleType = scrapedTitleType
 
             # primary title
-            primaryTitle = self.browser.execute_script("""
+            primary_title = self.browser.execute_script("""
                 const el = document.querySelector('[data-testid="hero__pageTitle"]');
                 return el ? el.innerText.trim() : null;
             """)
-            if not primaryTitle:
+            if not primary_title:
                 raise ScrapingError("could not find primary title for " + currentMedia.getIDString())
-            currentMedia.primaryTitle = primaryTitle
+            currentMedia.primary_title = primary_title
 
             # original title: only shown separately from the primary title when they differ
             # (e.g. https://www.imdb.com/title/tt36459128/); falls back to the primary title
@@ -320,12 +320,12 @@ class ScrapeIMDbOnline:
             if len(origTitleMatches) > 1:
                 raise ScrapingError("multiple 'Original title:' elements found for " + currentMedia.getIDString())
             if len(origTitleMatches) == 1:
-                originalTitle = origTitleMatches[0][len("Original title:"):].strip()
-                if not originalTitle:
+                original_title = origTitleMatches[0][len("Original title:"):].strip()
+                if not original_title:
                     raise ScrapingError("empty original title for " + currentMedia.getIDString())
-                currentMedia.originalTitle = originalTitle
+                currentMedia.original_title = original_title
             else:
-                currentMedia.originalTitle = primaryTitle
+                currentMedia.original_title = primary_title
 
             # release year, cross-checked against the already-known (locally-parsed) year
             yearLinks = self.browser.execute_script("""
@@ -336,10 +336,10 @@ class ScrapeIMDbOnline:
             if yearLinks is None or len(yearLinks) != 1 or not re.fullmatch(r"\d{4}", yearLinks[0]):
                 raise ScrapingError("could not uniquely determine release year for " + currentMedia.getIDString() + ": " + str(yearLinks))
             scrapedYear = int(yearLinks[0])
-            if currentMedia.startYear is not None and currentMedia.startYear != scrapedYear:
-                raise ScrapingError("startYear mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.startYear) + " vs scraped=" + str(scrapedYear))
-            currentMedia.startYear = scrapedYear
-            currentMedia.endYear = None # movies only; series are not supported
+            if currentMedia.start_year is not None and currentMedia.start_year != scrapedYear:
+                raise ScrapingError("start_year mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.start_year) + " vs scraped=" + str(scrapedYear))
+            currentMedia.start_year = scrapedYear
+            currentMedia.end_year = None # movies only; series are not supported
 
             # rating and vote count
             scoreText = self.browser.execute_script("""
@@ -353,7 +353,7 @@ class ScrapeIMDbOnline:
 
             if scoreText is None and voteText is None:
                 currentMedia.rating_mul10 = None
-                currentMedia.numVotes = None
+                currentMedia.num_votes = None
             elif scoreText is not None and voteText is not None:
                 scoreMatch = re.fullmatch(r"(\d+\.\d)\s*/\s*10", scoreText.replace("\n", ""))
                 if not scoreMatch:
@@ -369,14 +369,14 @@ class ScrapeIMDbOnline:
                 voteValue = float(voteMatch.group(1))
                 voteSuffix = voteMatch.group(2)
                 if voteSuffix == "K":
-                    currentMedia.numVotes = round(voteValue * 1_000)
+                    currentMedia.num_votes = round(voteValue * 1_000)
                 elif voteSuffix == "M":
-                    currentMedia.numVotes = round(voteValue * 1_000_000)
+                    currentMedia.num_votes = round(voteValue * 1_000_000)
                 else:
-                    currentMedia.numVotes = round(voteValue)
+                    currentMedia.num_votes = round(voteValue)
 
                 if voteSuffix is not None:
-                    printAlways("INFO: vote count for " + currentMedia.getIDString() + " is approximate (" + voteText + " ~= " + str(currentMedia.numVotes) + ")")
+                    printAlways("INFO: vote count for " + currentMedia.getIDString() + " is approximate (" + voteText + " ~= " + str(currentMedia.num_votes) + ")")
             else:
                 raise ScrapingError("inconsistent rating state for " + currentMedia.getIDString() + ": score=" + str(scoreText) + " votes=" + str(voteText))
 
@@ -466,14 +466,14 @@ class ScrapeIMDbOnline:
         if box_count != 1:
             raise ScrapingError("expected exactly one plot summary block on title page, found " + str(box_count))
 
-        plotSummary = self.browser.execute_script("""
+        plot_summary = self.browser.execute_script("""
             const box = document.querySelector('[data-testid="plot"]');
             return box.innerText.trim();
         """)
-        if not plotSummary:
+        if not plot_summary:
             raise ScrapingError("plot summary block present but empty")
 
-        return plotSummary
+        return plot_summary
 
     def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
         """Classifies every (imdb_interest_id, name) in chips as a top-level interest (IMDb's hero
@@ -763,10 +763,10 @@ class ScrapeIMDbOnline:
             if len(soup.find_all("h1", string="Connections")) != 1:
                 raise ScrapingError("connection page did not load properly")
 
-            for connectionType in MediaConnection.connectionTypeList:
-                content = soup.find_all(attrs={"href": "#"+connectionType})
+            for connection_type in MediaConnection.connectionTypeList:
+                content = soup.find_all(attrs={"href": "#"+connection_type})
                 if len(content) > 1:
-                    raise ScrapingError("multiple results for connection type " + connectionType)
+                    raise ScrapingError("multiple results for connection type " + connection_type)
                 if len(content) == 0:
                     continue
                 elementList = content[0].parent.next_sibling.contents[0]
@@ -779,18 +779,18 @@ class ScrapeIMDbOnline:
                     while True:
                         count_dyn += 1
                         if count_dyn > 5:
-                            raise ScrapingError("excessively long loop for page expanding for connection type " + connectionType)
+                            raise ScrapingError("excessively long loop for page expanding for connection type " + connection_type)
 
-                        element = self.browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connectionType + "')]/button")
+                        element = self.browser.find_element("xpath", "//span[contains(@class, 'single-page-see-more-button-" + connection_type + "')]/button")
                         element.location_once_scrolled_into_view
                         time.sleep(1)
                         self.browser.execute_script("arguments[0].click();", element)
                         time.sleep(3)
                         soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
-                        content = soup.find_all(attrs={"href": "#"+connectionType})
+                        content = soup.find_all(attrs={"href": "#"+connection_type})
                         if len(content) != 1:
-                            raise ScrapingError("false results for connection type " + connectionType)
+                            raise ScrapingError("false results for connection type " + connection_type)
                         elementList = content[0].parent.next_sibling.contents[0]
 
                         if elementList.contents[-1].name == "li": # check whether page needs to be expanded further
@@ -814,24 +814,24 @@ class ScrapeIMDbOnline:
                     if targetUrl[0:7] != "/title/":
                         raise ScrapingError("connection scraping error")
                     targetUrl = targetUrl[7:]
-                    foreignIMDbID = targetUrl.split('?')[0]
+                    foreign_imdb_id = targetUrl.split('?')[0]
 
-                    if foreignIMDbID[-1] == "/":
-                        foreignIMDbID = foreignIMDbID[:-1]
+                    if foreign_imdb_id[-1] == "/":
+                        foreign_imdb_id = foreign_imdb_id[:-1]
 
-                    if not re.search("^tt\d{7,8}$", foreignIMDbID):
-                        raise ScrapingError("illegal foreign imdb id " + foreignIMDbID)
+                    if not re.search("^tt\d{7,8}$", foreign_imdb_id):
+                        raise ScrapingError("illegal foreign imdb id " + foreign_imdb_id)
 
                     # check for duplicate imdb connection entries (it happens)
                     duplicate = False
                     for x in resultDict[currentMedia.imdb_id].mediaConnections:
-                        if x.foreignIMDbID == int(foreignIMDbID[2:]) and x.connectionType == connectionType:
+                        if x.foreign_imdb_id == int(foreign_imdb_id[2:]) and x.connection_type == connection_type:
                             duplicate = True
                             break
                     if duplicate:
                         continue
 
-                    resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreignIMDbID[2:]), connectionType))
+                    resultDict[currentMedia.imdb_id].mediaConnections.append(MediaConnection(int(foreign_imdb_id[2:]), connection_type))
 
         return resultDict
 
@@ -878,7 +878,7 @@ class ScrapeIMDbOnline:
             soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
             ordering = 0
-            for creditRole, headingText, exactMatch in (
+            for credit_role, headingText, exactMatch in (
                 ("director", "Director", False), # "Director" or "Directors"
                 ("writer", "Writer", False),      # "Writer" or "Writers"
                 ("actor", "Cast", True),
@@ -911,14 +911,14 @@ class ScrapeIMDbOnline:
                         raise ScrapingError("no person link found in credits list item on " + currentMedia.getIDString() + "/fullcredits/: " + str(texts))
                     person_id = int(re.match(r"^/name/nm(\d+)/", nameLink["href"]).group(1))
 
-                    creditDetails = " ".join(texts[2:]) if len(texts) > 2 else None
+                    credit_details = " ".join(texts[2:]) if len(texts) > 2 else None
 
                     if person_id not in knownPersonIDs:
                         knownPersonIDs.add(person_id)
                         newPersonRegistrations.append(Person(person_id, texts[0]))
 
                     ordering += 1
-                    currentMedia.credits.append(Credit(person_id, ordering, creditRole, creditDetails))
+                    currentMedia.credits.append(Credit(person_id, ordering, credit_role, credit_details))
 
         return newPersonRegistrations
 

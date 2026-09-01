@@ -22,8 +22,8 @@ class Media:
 
     # fixed vocabulary for a mediaVersion's source(s), used by dbcontrol.py to seed
     # source_type_enum/source_role_enum and by sourceparser.py
-    source_type_list = ["dvd", "br", "uhd", "web-dl", "webrip", "tv", "vhs", "hifivhs", "ld", "di", "kscape", "hddvd"]
-    source_role_list = ["main", "video", "audio", "video_base", "video_dynhdr"]
+    sourceTypeList = ["dvd", "br", "uhd", "web-dl", "webrip", "tv", "vhs", "hifivhs", "ld", "di", "kscape", "hddvd"]
+    sourceRoleList = ["main", "video", "audio", "video_base", "video_dynhdr"]
 
     def __init__(self, subdir, isSeries, imdbIDInt = None): # this function has become ugly, but python does not offer constructor overloading...
         if subdir != None:
@@ -35,28 +35,28 @@ class Media:
                 raise LocalLibraryError('Bad format of imdb id in subdirectory ' + subdir)
             
             self.imdb_id = int(thisMedia[2][2:]) # delete 'tt' at beginning and convert to int
-            self.originalTitle = thisMedia[0]
-            self.startYear = int(thisMedia[1])
+            self.original_title = thisMedia[0]
+            self.start_year = int(thisMedia[1])
         else:
             self.imdb_id = imdbIDInt
-            self.originalTitle = None
-            self.startYear = None
+            self.original_title = None
+            self.start_year = None
         
         self.titleType = None
         if isSeries != None:
             self.titleType = "localMovie" if not isSeries else "localSeries"
         
-        self.primaryTitle = None
-        self.plotSummary = None # scraped from the title's IMDb main page; only set for locally-owned movies/series, never for episodes
+        self.primary_title = None
+        self.plot_summary = None # scraped from the title's IMDb main page; only set for locally-owned movies/series, never for episodes
         self.season_number = None # None unless this is an episode (titleType in episodeTitleTypes); None also covers IMDb's own "unnumbered" episodes, never conflated with a real season/episode number (see ScrapeIMDbOffline.parseTitleEpisode)
         self.episode_number = None
         self.series_imdb_id = None # imdb_id of the parent series; None unless this is an episode
         self.intended_order = None # this episode's 1-indexed rank in its season's intended_order.txt, if any -- purely local data (unlike season_number/episode_number), so cleared like language_id/interests once no longer locally owned (see DBControl.removeSingleMedia)
-        self.endYear = None
+        self.end_year = None
         self.rating_mul10 = None
-        self.numVotes = None
-        self.releaseMonth = None # only entered manually when necessary
-        self.releaseDay = None # only entered manually when necessary
+        self.num_votes = None
+        self.release_month = None # only entered manually when necessary
+        self.release_day = None # only entered manually when necessary
         self.subdir = subdir
         self.interests = [] # list of IMDb interest ids as integers (e.g. 76 for "in0000076"), covering both standard genres and subgenres
         self.language_id = 0 # imdb_interest_id into language_enum; 0 = English (the reserved default id), overwritten if a language-type interest is attached
@@ -67,7 +67,7 @@ class Media:
         self.needsOnlineFallback = False # set when locally-owned media is missing from the IMDb offline datasets
 
     def __str__(self):
-        return_str = str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.originalTitle) + " " + str(self.primaryTitle) + " " + str(self.startYear) + " " + str(self.endYear) + " " + str(self.rating_mul10) + " " + str(self.numVotes) + " " + str(self.interests)
+        return_str = str(self.imdb_id) + " " + str(self.titleType) + " " + str(self.original_title) + " " + str(self.primary_title) + " " + str(self.start_year) + " " + str(self.end_year) + " " + str(self.rating_mul10) + " " + str(self.num_votes) + " " + str(self.interests)
         if (len(self.mediaConnections) > 0): return_str += " mediaConnections:"
         for x in self.mediaConnections:
             return_str += str(" " + str(x))

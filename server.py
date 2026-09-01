@@ -18,7 +18,7 @@ def _readHiddenInterestIDs(path):
 
 HIDDEN_INTEREST_IDS = _readHiddenInterestIDs(config.HIDDEN_INTEREST_IDS_PATH)
 
-def query_media(search_query, sort_by, order,
+def queryMedia(search_query, sort_by, order,
                 year_from, year_to,
                 rating_from, rating_to,
                 votes_from, votes_to,
@@ -40,7 +40,7 @@ def query_media(search_query, sort_by, order,
     cursor = conn.cursor()
 
     sql = """
-    SELECT m.imdb_id, m.originalTitle, m.startYear, m.endYear, m.rating_mul10, m.numVotes,
+    SELECT m.imdb_id, m.original_title, m.start_year, m.end_year, m.rating_mul10, m.num_votes,
     (
         SELECT GROUP_CONCAT(ie.name, ', ')
         FROM media_interests mi_show
@@ -73,15 +73,15 @@ def query_media(search_query, sort_by, order,
     if search_query:
         words = search_query.split()
         for word in words:
-            sql += " AND (originalTitle LIKE ? COLLATE NOCASE OR primaryTitle LIKE ? COLLATE NOCASE)"
+            sql += " AND (original_title LIKE ? COLLATE NOCASE OR primary_title LIKE ? COLLATE NOCASE)"
             params.append(f"%{word}%")
             params.append(f"%{word}%")
 
-    # filter years -- movies match on an exact startYear range; series match if the filter range
-    # overlaps the series' production span (startYear..endYear, or startYear..currentYear if the
-    # series is still running, i.e. endYear is NULL). Cast to int explicitly rather than relying on
+    # filter years -- movies match on an exact start_year range; series match if the filter range
+    # overlaps the series' production span (start_year..end_year, or start_year..currentYear if the
+    # series is still running, i.e. end_year is NULL). Cast to int explicitly rather than relying on
     # SQLite's column-affinity coercion of the raw query-string values: that coercion only applies
-    # to a bare column reference, not to COALESCE(m.endYear, ...) below (a function call has no
+    # to a bare column reference, not to COALESCE(m.end_year, ...) below (a function call has no
     # affinity), so an uncast string parameter there would silently never match (SQLite's storage-
     # class ordering puts every INTEGER below every TEXT value).
     if year_from or year_to:
@@ -92,20 +92,20 @@ def query_media(search_query, sort_by, order,
             movieCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.movieTitleTypes) + ")"
             params.extend(Media.movieTitleTypes)
             if year_from:
-                movieCond += " AND m.startYear >= ?"
+                movieCond += " AND m.start_year >= ?"
                 params.append(year_from)
             if year_to:
-                movieCond += " AND m.startYear <= ?"
+                movieCond += " AND m.start_year <= ?"
                 params.append(year_to)
             yearBranches.append("(" + movieCond + ")")
         if show_series:
             seriesCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.seriesTitleTypes) + ")"
             params.extend(Media.seriesTitleTypes)
             if year_from:
-                seriesCond += " AND COALESCE(m.endYear, CAST(strftime('%Y', 'now') AS INTEGER)) >= ?"
+                seriesCond += " AND COALESCE(m.end_year, CAST(strftime('%Y', 'now') AS INTEGER)) >= ?"
                 params.append(year_from)
             if year_to:
-                seriesCond += " AND m.startYear <= ?"
+                seriesCond += " AND m.start_year <= ?"
                 params.append(year_to)
             yearBranches.append("(" + seriesCond + ")")
         sql += " AND (" + " OR ".join(yearBranches) + ")"
@@ -120,10 +120,10 @@ def query_media(search_query, sort_by, order,
 
     # filter num votes
     if votes_from:
-        sql += " AND numVotes >= ?"
+        sql += " AND num_votes >= ?"
         params.append(votes_from)
     if votes_to:
-        sql += " AND numVotes <= ?"
+        sql += " AND num_votes <= ?"
         params.append(votes_to)
 
     # filter language
@@ -146,11 +146,11 @@ def query_media(search_query, sort_by, order,
     if sort_by == "rating":
         column = "rating_mul10"
     elif sort_by == "votes":
-        column = "numVotes"
+        column = "num_votes"
     elif sort_by == "year":
-        column = "startYear"
+        column = "start_year"
     else:
-        column = "originalTitle"
+        column = "original_title"
     
     if order == "asc":
         direction = "ASC"
@@ -228,7 +228,7 @@ def search():
     # the client as a clean JSON error instead of Flask's default HTML 500 page, which search.js
     # can't parse as JSON and would otherwise fail on invisibly (see fetchResults's error handling)
     try:
-        media = query_media(
+        media = queryMedia(
             args.get('q', ''),
             args.get('sort', 'year'),
             args.get('order', 'desc'),
@@ -250,7 +250,7 @@ def search():
     return jsonify(media)
 
 @server.route('/cover_small/<filename>')
-def cover_small(filename):
+def coverSmall(filename):
     return send_from_directory(config.COVERS_SMALL_DIR, filename)
 
 if __name__ == '__main__':

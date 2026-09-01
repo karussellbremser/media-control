@@ -98,13 +98,13 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                     candidate = unnumberedCandidates[localEpisode.imdb_id]
                     if candidate.series_imdb_id != series.imdb_id or candidate.season_number is not None:
                         raise LocalLibraryError("locally-found unnumbered episode " + candidate.getIDString() +
-                                                 " in " + localEpisode.subdir + " is not an unnumbered episode of " + series.originalTitle + " per title.episode.tsv")
+                                                 " in " + localEpisode.subdir + " is not an unnumbered episode of " + series.original_title + " per title.episode.tsv")
                     episode_imdb_id = localEpisode.imdb_id
                 else:
                     key = (localEpisode.season_number, localEpisode.episode_number)
                     if key not in seriesEpisodes:
                         raise LocalLibraryError("locally-found episode S" + str(localEpisode.season_number) + "E" + str(localEpisode.episode_number) +
-                                                 " of " + series.originalTitle + " not found in title.episode.tsv")
+                                                 " of " + series.original_title + " not found in title.episode.tsv")
                     episode_imdb_id = seriesEpisodes[key]
                 episodeMedia = Media(None, None, episode_imdb_id)
                 episodeMedia.subdir = localEpisode.subdir
@@ -113,11 +113,11 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 episodeMedia.series_imdb_id = series.imdb_id
                 episodeMedia.mediaVersions = localEpisode.mediaVersions
                 episodeMedia.intended_order = localEpisode.intended_order
-                # temporary placeholder, same role as a movie/series' locally-parsed originalTitle:
+                # temporary placeholder, same role as a movie/series' locally-parsed original_title:
                 # used for progress printing before offline parsing (step 11) unconditionally
                 # overwrites it with the real title from title.basics
-                episodeMedia.originalTitle = (series.originalTitle + " S" + str(episodeMedia.season_number).zfill(2) + "E" + str(episodeMedia.episode_number).zfill(2)
-                                               if episodeMedia.season_number is not None else series.originalTitle + " " + episodeMedia.getIDString())
+                episodeMedia.original_title = (series.original_title + " S" + str(episodeMedia.season_number).zfill(2) + "E" + str(episodeMedia.episode_number).zfill(2)
+                                               if episodeMedia.season_number is not None else series.original_title + " " + episodeMedia.getIDString())
                 mediaDictOriginal[episode_imdb_id] = episodeMedia
             series.episodes = [] # consumed -- resolved episodes now live as their own top-level entries
 
@@ -135,7 +135,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                  if m.imdb_id in ignoredIDs or (m.imdb_id in wontaddIDs and m.titleType != "localSeries")]
     if violating:
         raise LocalLibraryError("locally-owned media found on the ignored/wontadd list(s): " +
-                                 ", ".join(m.originalTitle + " (" + m.getIDString() + ")" for m in violating))
+                                 ", ".join(m.original_title + " (" + m.getIDString() + ")" for m in violating))
 
     # - any locally-owned source referencing an unknown web provider is also a configuration error
     db.checkWebProvidersKnown(mediaDictOriginal)
@@ -256,10 +256,10 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     newlyAddedMediaDictCopy = newlyAddedMediaDict.copy()
     for x in newlyAddedMediaDictCopy.values():
         for y in x.mediaConnections:
-            if y.foreignIMDbID in ignoredIDs:
+            if y.foreign_imdb_id in ignoredIDs:
                 continue
-            if y.foreignIMDbID not in mediaDictOriginal or (y.foreignIMDbID in newlyAddedMediaDictOriginal and y.foreignIMDbID not in newlyAddedMediaDictCopy):
-                newlyAddedMediaDict[y.foreignIMDbID] = Media(None, None, y.foreignIMDbID)
+            if y.foreign_imdb_id not in mediaDictOriginal or (y.foreign_imdb_id in newlyAddedMediaDictOriginal and y.foreign_imdb_id not in newlyAddedMediaDictCopy):
+                newlyAddedMediaDict[y.foreign_imdb_id] = Media(None, None, y.foreign_imdb_id)
     if len(newlyAddedMediaDict) > beforeReferencedCount:
         printStep(10, str(len(newlyAddedMediaDict) - beforeReferencedCount) + " referenced-only title(s) added from connections")
 
@@ -312,7 +312,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # - print newly-added media that isn't locally owned (referenced-only additions), for visibility
     for x in newlyAddedMediaDict.values():
         if x.subdir == None:
-            printDetail("  adding referenced-only: " + x.originalTitle + " (" + str(x.startYear) + ")")
+            printDetail("  adding referenced-only: " + x.original_title + " (" + str(x.start_year) + ")")
 
     # - strip any dangling connection edges before writing. A referenced episode dropped above because
     # its series is ignored (step 11) is the known case: other kept items' mediaConnections can still
@@ -320,14 +320,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # inserting such an edge would crash addMultipleMedia. Only prune targets that are neither being
     # added this run nor already in the DB -- an already-existing target's row satisfies the FK
     # regardless of whether this run touches it.
-    referencedIDs = {y.foreignIMDbID for x in newlyAddedMediaDict.values() for y in x.mediaConnections}
+    referencedIDs = {y.foreign_imdb_id for x in newlyAddedMediaDict.values() for y in x.mediaConnections}
     missingIDs = referencedIDs - set(newlyAddedMediaDict.keys())
     if missingIDs:
         existingIDs = {row[0] for row in db.getAllMediaIDs()}
         danglingIDs = missingIDs - existingIDs
         if danglingIDs:
             for x in newlyAddedMediaDict.values():
-                x.mediaConnections = [y for y in x.mediaConnections if y.foreignIMDbID not in danglingIDs]
+                x.mediaConnections = [y for y in x.mediaConnections if y.foreign_imdb_id not in danglingIDs]
 
     # steps 13/14's writes (new people/interests/languages/franchises, the newly-added
     # media batch itself, and step 14's episode-catalog-completion stubs) are batched into
@@ -421,9 +421,9 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 if newEpisodeStubs:
                     newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
                     newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
-                    seriesTitlesByID = {series.imdb_id: series.originalTitle for series in readySeries}
+                    seriesTitlesByID = {series.imdb_id: series.original_title for series in readySeries}
                     for episode_imdb_id, stub in newEpisodeStubs.items():
-                        printDetail("  cataloging episode " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
+                        printDetail("  cataloging episode " + str(stub.original_title) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
                     db._addMultipleMediaNoCommit(newEpisodeStubs)
 
     # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
@@ -445,7 +445,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
             coverPath = os.path.join(coverDir, v.getIDString() + ".jpg")
             if not os.path.isfile(coverPath):
                 kind = "series" if v.titleType in seriesTitleTypesLocal else "non-English movie"
-                printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.originalTitle) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
+                printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.original_title) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
 
     del scrapeimdbonline
 
@@ -490,7 +490,7 @@ def refreshTitleData():
             offline.parseTitleRatings(newEpisodeStubs)
             offline.parseTitleBasics(newEpisodeStubs)
             for episode_imdb_id, stub in newEpisodeStubs.items():
-                printDetail("New episode discovered: " + str(stub.originalTitle) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].originalTitle if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
+                printDetail("New episode discovered: " + str(stub.original_title) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].original_title if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
             db.addMultipleMedia(newEpisodeStubs)
             mediaDict.update(newEpisodeStubs)
 
@@ -501,7 +501,7 @@ def refreshTitleData():
                 episodeMedia = mediaDict[vanished_id]
                 if episodeMedia.subdir is not None:
                     raise OfflineDatasetError("locally-owned episode " + episodeMedia.getIDString() + " of " +
-                                               str(series.originalTitle) + " is no longer listed in title.episode.tsv")
+                                               str(series.original_title) + " is no longer listed in title.episode.tsv")
                 db.removeVanishedEpisode(episodeMedia)
 
 def ensureHelperDBFresh(runAutoRefresh):

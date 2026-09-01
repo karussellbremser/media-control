@@ -10,7 +10,7 @@ class Statistics:
         
     def printYearlyAverages(self):
         with self.db.conn:
-            self.db.c.execute("SELECT startYear, COUNT(*), AVG(rating_mul10), AVG(numVotes) FROM media WHERE subdir IS NOT NULL GROUP BY startYear ORDER BY startYear")
+            self.db.c.execute("SELECT start_year, COUNT(*), AVG(rating_mul10), AVG(num_votes) FROM media WHERE subdir IS NOT NULL GROUP BY start_year ORDER BY start_year")
             dbResult = self.db.c.fetchall()
         
         dataDict = {}
@@ -80,7 +80,7 @@ class Statistics:
                     del movieDict[currentImdbID]
                     
                     for x in currentMedium.mediaConnections:
-                        y = x.foreignIMDbID
+                        y = x.foreign_imdb_id
                         if y not in currentIDQueue and y not in currentGroup.imbdIDList:
                             currentIDQueue.append(y)
                     
@@ -109,7 +109,7 @@ class mediaGroup:
         self.mainMedium = None
     
     def __str__(self):
-        return str(self.mediaCount) + " items, " + str(self.localPercentage) + "% local, " + self.mainMedium.originalTitle
+        return str(self.mediaCount) + " items, " + str(self.localPercentage) + "% local, " + self.mainMedium.original_title
     
     def addMedium(self, medium):
         self.mediaList.append(medium)
@@ -118,7 +118,7 @@ class mediaGroup:
         if medium.subdir != None:
             self.localMediaCount += 1
         self.localPercentage = (self.localMediaCount / self.mediaCount) * 100
-        if self.mainMedium == None or self.mainMedium.numVotes == None or (medium.numVotes != None and medium.numVotes > self.mainMedium.numVotes):
+        if self.mainMedium == None or self.mainMedium.num_votes == None or (medium.num_votes != None and medium.num_votes > self.mainMedium.num_votes):
             self.mainMedium = medium
     
     

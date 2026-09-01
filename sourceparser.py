@@ -15,7 +15,7 @@ def parseSourceString(raw_string):
     """Parses a 'src-...' source identifier (see scrapelocal.py's sources.txt/src-*.txt
     convention) into a list of MediaSource objects, one per leaf source. Does not validate
     source_type/web_provider against the database enums -- that happens when these are written
-    to the database, same as titleType/connectionType elsewhere in this codebase. Raises
+    to the database, same as titleType/connection_type elsewhere in this codebase. Raises
     LocalLibraryError on anything that doesn't parse."""
 
     if not raw_string.lower().startswith("src-"):

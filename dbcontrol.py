@@ -46,17 +46,17 @@ class DBControl:
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
             title_type_id integer NOT NULL,
-            originalTitle text NOT NULL,
-            primaryTitle text NOT NULL,
-            startYear integer NOT NULL,
-            endYear integer,
+            original_title text NOT NULL,
+            primary_title text NOT NULL,
+            start_year integer NOT NULL,
+            end_year integer,
             rating_mul10 integer,
-            numVotes integer,
-            releaseMonth integer,
-            releaseDay integer,
+            num_votes integer,
+            release_month integer,
+            release_day integer,
             subdir text,
             language_id integer NOT NULL DEFAULT 0,
-            plotSummary text,
+            plot_summary text,
             season_number integer,
             episode_number integer,
             series_imdb_id integer,
@@ -267,26 +267,26 @@ class DBControl:
             )""")
 
             # fixed, pre-seeded classification of physical/digital media a mediaVersion's source(s)
-            # can come from (see Media.source_type_list)
+            # can come from (see Media.sourceTypeList)
             self.c.execute("""CREATE TABLE source_type_enum (
             source_type_id integer NOT NULL,
             source_type_name text NOT NULL UNIQUE,
             PRIMARY KEY (source_type_id)
             )""")
             i = 1
-            for source_type in Media.source_type_list:
+            for source_type in Media.sourceTypeList:
                 self.c.execute("INSERT INTO source_type_enum VALUES (?, ?)", (i, source_type))
                 i += 1
 
             # fixed, pre-seeded structural role a single leaf source plays within a mediaVersion's
-            # overall source description (see Media.source_role_list)
+            # overall source description (see Media.sourceRoleList)
             self.c.execute("""CREATE TABLE source_role_enum (
             role_id integer NOT NULL,
             role_name text NOT NULL UNIQUE,
             PRIMARY KEY (role_id)
             )""")
             i = 1
-            for source_role in Media.source_role_list:
+            for source_role in Media.sourceRoleList:
                 self.c.execute("INSERT INTO source_role_enum VALUES (?, ?)", (i, source_role))
                 i += 1
 
@@ -463,12 +463,12 @@ class DBControl:
         # surrounding "with self.conn:" for the whole batch
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
-        self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
+        self.c.execute("SELECT original_title, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get original_title as well, as otherwise no NULL subdirs will be returned
         data = self.c.fetchall()
         if len(data) == 0:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order))
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.original_title, thisMedia.primary_title, thisMedia.start_year, thisMedia.end_year, thisMedia.rating_mul10, thisMedia.num_votes, thisMedia.release_month, thisMedia.release_day, thisMedia.subdir, thisMedia.language_id, thisMedia.plot_summary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order))
         elif data[0][1] == None:
-            self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, startYear=?, endYear=?, rating_mul10=?, numVotes=?, releaseMonth=?, releaseDay=?, subdir=?, language_id=?, plotSummary=?, season_number=?, episode_number=?, series_imdb_id=?, intended_order=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.originalTitle, thisMedia.primaryTitle, thisMedia.startYear, thisMedia.endYear, thisMedia.rating_mul10, thisMedia.numVotes, thisMedia.releaseMonth, thisMedia.releaseDay, thisMedia.subdir, thisMedia.language_id, thisMedia.plotSummary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order, thisMedia.imdb_id))
+            self.c.execute("UPDATE media SET title_type_id=?, original_title=?, primary_title=?, start_year=?, end_year=?, rating_mul10=?, num_votes=?, release_month=?, release_day=?, subdir=?, language_id=?, plot_summary=?, season_number=?, episode_number=?, series_imdb_id=?, intended_order=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.original_title, thisMedia.primary_title, thisMedia.start_year, thisMedia.end_year, thisMedia.rating_mul10, thisMedia.num_votes, thisMedia.release_month, thisMedia.release_day, thisMedia.subdir, thisMedia.language_id, thisMedia.plot_summary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order, thisMedia.imdb_id))
         else:
             raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
         for imdb_interest_id in thisMedia.interests:
@@ -566,7 +566,7 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
         for mediaConnection in thisMedia.mediaConnections:
-            self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreignIMDbID, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connectionType)))
+            self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreign_imdb_id, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connection_type)))
 
     def addSingleMediaCredits(self, thisMedia):
         # unlike media_connections, a credit only ever references thisMedia.imdb_id itself (never
@@ -577,7 +577,7 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
         for credit in thisMedia.credits:
-            self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, credit.ordering, credit.person_id, self.__getCreditRoleIDByCreditRoleName(credit.creditRole), credit.creditDetails))
+            self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, credit.ordering, credit.person_id, self.__getCreditRoleIDByCreditRoleName(credit.credit_role), credit.credit_details))
 
     def addMultipleMedia(self, mediaDict):
         """Public, self-committing entry point -- safe to call standalone (see refreshTitleData).
@@ -634,14 +634,14 @@ class DBControl:
             #2a. if yes: only "light-remove" mediumToRemove (remove subdir, media_versions,
             # connections FROM it, interests, credits, intended episode order, manually-entered
             # release day/month, and reset language to the default; these are only valid for
-            # locally-owned media -- intended_order and releaseMonth/Day in particular are purely
+            # locally-owned media -- intended_order and release_month/Day in particular are purely
             # local data (release day/month are only ever entered manually, see Media.__init__),
             # unlike season_number/episode_number/series_imdb_id which come from IMDb and stay valid
             # regardless of ownership). The media row itself survives here, so none of this happens
             # via cascade -- unlike #2b below, every removal has to be explicit.
             if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
-                printDetail("Removing " + mediumToRemove.originalTitle + " from DB as local medium (still being referenced)")
-                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, releaseMonth = NULL, releaseDay = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                printDetail("Removing " + mediumToRemove.original_title + " from DB as local medium (still being referenced)")
+                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, release_month = NULL, release_day = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
@@ -650,7 +650,7 @@ class DBControl:
             #2b. if no: remove media entry (media_versions/media_connections/media_interests/credits
             # rows are all removed via ON DELETE CASCADE)
             else:
-                printDetail("Removing " + mediumToRemove.originalTitle + " from DB")
+                printDetail("Removing " + mediumToRemove.original_title + " from DB")
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             self.__pruneOrphanedInterests(affectedInterestIDs)
@@ -665,7 +665,7 @@ class DBControl:
             for x in referencesToRemove:
 
                 #3a. if x not in db table media or if subdir NOT EMPTY: continue
-                self.c.execute("SELECT imdb_id, originalTitle, subdir FROM media WHERE imdb_id=?", (x[1],))
+                self.c.execute("SELECT imdb_id, original_title, subdir FROM media WHERE imdb_id=?", (x[1],))
                 mediumData = self.c.fetchall()
                 if len(mediumData) == 0 or mediumData[0][2] != None:
                     continue
@@ -693,9 +693,9 @@ class DBControl:
         with self.conn:
             self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (episodeMedium.imdb_id,))
             if len(self.c.fetchall()) != 0:
-                raise OfflineDatasetError("episode " + episodeMedium.getIDString() + " (" + str(episodeMedium.originalTitle) +
+                raise OfflineDatasetError("episode " + episodeMedium.getIDString() + " (" + str(episodeMedium.original_title) +
                                            ") is no longer listed in title.episode.tsv, but is still referenced by other media")
-            printDetail("Removing episode " + str(episodeMedium.originalTitle) + " from DB (no longer listed in title.episode.tsv)")
+            printDetail("Removing episode " + str(episodeMedium.original_title) + " from DB (no longer listed in title.episode.tsv)")
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (episodeMedium.imdb_id,)) # media_connections rows removed via ON DELETE CASCADE
             if episodeMedium.series_imdb_id is not None:
                 self.__pruneOrphanedSeries([episodeMedium.series_imdb_id])
@@ -703,17 +703,17 @@ class DBControl:
     def refreshRatings(self, mediaDict):
         with self.conn:
             for imdbID, media in mediaDict.items():
-                self.c.execute("UPDATE media SET rating_mul10=?, numVotes=? WHERE imdb_id=?", (media.rating_mul10, media.numVotes, imdbID))
+                self.c.execute("UPDATE media SET rating_mul10=?, num_votes=? WHERE imdb_id=?", (media.rating_mul10, media.num_votes, imdbID))
 
     def refreshTitleBasics(self, mediaDict):
         """Writes back the fields ScrapeIMDbOffline.refreshTitleBasics may have updated in place --
-        titleType, primaryTitle, originalTitle, endYear. startYear is deliberately not included: it's
+        titleType, primary_title, original_title, end_year. start_year is deliberately not included: it's
         never allowed to change during a refresh (refreshTitleBasics raises before this would ever
         see a differing value), so there's nothing for it to write back."""
         with self.conn:
             for imdbID, media in mediaDict.items():
-                self.c.execute("UPDATE media SET title_type_id=?, originalTitle=?, primaryTitle=?, endYear=? WHERE imdb_id=?",
-                                (self.__getTitleTypeIDByTitleTypeName(media.titleType), media.originalTitle, media.primaryTitle, media.endYear, imdbID))
+                self.c.execute("UPDATE media SET title_type_id=?, original_title=?, primary_title=?, end_year=? WHERE imdb_id=?",
+                                (self.__getTitleTypeIDByTitleTypeName(media.titleType), media.original_title, media.primary_title, media.end_year, imdbID))
 
     def refreshPeople(self, peopleDict):
         """Writes back name/birth_year/death_year for every Person in peopleDict -- the people
@@ -926,7 +926,7 @@ class DBControl:
         and newly-discovered referenced ids on ignored_ids are simply never added in the first place,
         so nothing new for this method to clean up accumulates by the end."""
         with self.conn:
-            self.c.execute("""SELECT m.imdb_id, m.originalTitle FROM media m
+            self.c.execute("""SELECT m.imdb_id, m.original_title FROM media m
                 JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
                 WHERE m.subdir IS NOT NULL
                 AND (
@@ -940,11 +940,11 @@ class DBControl:
                                      ", ".join(row[1] + " (tt" + str(row[0]).zfill(7) + ")" for row in violatingLocal))
 
         with self.conn:
-            self.c.execute("""SELECT imdb_id, originalTitle, series_imdb_id FROM media WHERE subdir IS NULL
+            self.c.execute("""SELECT imdb_id, original_title, series_imdb_id FROM media WHERE subdir IS NULL
                 AND imdb_id IN (SELECT imdb_id FROM ignored_ids)""")
             referencedIgnored = self.c.fetchall()
-            for imdb_id, originalTitle, series_imdb_id in referencedIgnored:
-                printDetail("Removing referenced medium " + originalTitle + " from DB (now on ignored list)")
+            for imdb_id, original_title, series_imdb_id in referencedIgnored:
+                printDetail("Removing referenced medium " + original_title + " from DB (now on ignored list)")
                 self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdb_id,))
                 affectedInterestIDs = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (imdb_id,))
@@ -1031,7 +1031,7 @@ class DBControl:
         still needed, in which case the series must survive too (series_imdb_id's FK requires the
         series row to exist as long as any episode points at it). A no-op, returning True, for a
         medium that isn't a series (nothing ever has series_imdb_id pointing at a movie/episode)."""
-        self.c.execute("SELECT imdb_id, originalTitle, subdir FROM media WHERE series_imdb_id=?", (series_imdb_id,))
+        self.c.execute("SELECT imdb_id, original_title, subdir FROM media WHERE series_imdb_id=?", (series_imdb_id,))
         episodes = self.c.fetchall()
         anyStillNeeded = False
         for episode_id, episode_title, episode_subdir in episodes:
@@ -1057,7 +1057,7 @@ class DBControl:
         genre/subgenre shape. Unlike that one, no further cascading re-check is needed here: a
         series has no "parent" of its own to affect once it's gone."""
         for series_imdb_id in series_imdb_ids:
-            self.c.execute("SELECT subdir, originalTitle FROM media WHERE imdb_id=?", (series_imdb_id,))
+            self.c.execute("SELECT subdir, original_title FROM media WHERE imdb_id=?", (series_imdb_id,))
             row = self.c.fetchone()
             if row is None or row[0] is not None:
                 continue # already removed, never existed, or still locally owned
@@ -1118,7 +1118,7 @@ class DBControl:
         return(credit_role_id[0])
 
     def __getSourceTypeIDByName(self, source_type_name):
-        # source_type_name always comes from Media.source_type_list, which is what seeds this
+        # source_type_name always comes from Media.sourceTypeList, which is what seeds this
         # enum, so a miss here means the two have drifted -- an internal bug, not bad local data.
         # No transaction of its own -- see __getTitleTypeIDByTitleTypeName.
         self.c.execute("SELECT source_type_id FROM source_type_enum WHERE source_type_name=?", (source_type_name,))
@@ -1128,7 +1128,7 @@ class DBControl:
         return(source_type_id[0])
 
     def __getSourceRoleIDByName(self, role_name):
-        # role_name always comes from Media.source_role_list, which is what seeds this enum, so
+        # role_name always comes from Media.sourceRoleList, which is what seeds this enum, so
         # a miss here means the two have drifted -- an internal bug, not bad local data.
         # No transaction of its own -- see __getTitleTypeIDByTitleTypeName.
         self.c.execute("SELECT role_id FROM source_role_enum WHERE role_name=?", (role_name,))
@@ -1153,7 +1153,7 @@ class DBControl:
         newlyAddedDict = {}
         with self.conn:
             for medium in mediaDict.values():
-                self.c.execute("SELECT originalTitle, subdir FROM media WHERE imdb_id = ?", (medium.imdb_id,)) # need to get originalTitle as well, as otherwise no NULL subdirs will be returned
+                self.c.execute("SELECT original_title, subdir FROM media WHERE imdb_id = ?", (medium.imdb_id,)) # need to get original_title as well, as otherwise no NULL subdirs will be returned
                 data = self.c.fetchall()
                 if len(data) == 0 or data[0][1] == None:
                     newlyAddedDict[medium.imdb_id] = medium
@@ -1162,35 +1162,35 @@ class DBControl:
     def determineLocallyRemovedMedia(self, mediaDict):
         removedDict = {}
         with self.conn:
-            self.c.execute("SELECT imdb_id, originalTitle, series_imdb_id FROM media WHERE media.subdir IS NOT NULL")
+            self.c.execute("SELECT imdb_id, original_title, series_imdb_id FROM media WHERE media.subdir IS NOT NULL")
             data = self.c.fetchall()
             for db_medium in data:
                 if db_medium[0] not in mediaDict:
                     removedMedium = Media(None, None, db_medium[0])
-                    removedMedium.originalTitle = db_medium[1]
+                    removedMedium.original_title = db_medium[1]
                     removedMedium.series_imdb_id = db_medium[2]
                     removedDict[removedMedium.imdb_id] = removedMedium
         return removedDict
 
     def getReferencedOnlyMedia(self):
         with self.conn:
-            self.c.execute("SELECT originalTitle, startYear, rating_mul10, numVotes FROM media WHERE subdir IS NULL ORDER BY numVotes DESC")
+            self.c.execute("SELECT original_title, start_year, rating_mul10, num_votes FROM media WHERE subdir IS NULL ORDER BY num_votes DESC")
             return(self.c.fetchall())
 
     def __getMovieObjectFromDBRow(self, dbRow):
-        # imdb_id, title_type_id, originalTitle, primaryTitle, startYear, endYear, rating_mul10, numVotes, releaseMonth, releaseDay, subdir, language_id, plotSummary, season_number, episode_number, series_imdb_id, intended_order
+        # imdb_id, title_type_id, original_title, primary_title, start_year, end_year, rating_mul10, num_votes, release_month, release_day, subdir, language_id, plot_summary, season_number, episode_number, series_imdb_id, intended_order
         mediaObject = Media(None, None, dbRow[0])
-        mediaObject.originalTitle = dbRow[2]
-        mediaObject.primaryTitle = dbRow[3]
-        mediaObject.startYear = dbRow[4]
-        mediaObject.endYear = dbRow[5]
+        mediaObject.original_title = dbRow[2]
+        mediaObject.primary_title = dbRow[3]
+        mediaObject.start_year = dbRow[4]
+        mediaObject.end_year = dbRow[5]
         mediaObject.rating_mul10 = dbRow[6]
-        mediaObject.numVotes = dbRow[7]
-        mediaObject.releaseMonth = dbRow[8]
-        mediaObject.releaseDay = dbRow[9]
+        mediaObject.num_votes = dbRow[7]
+        mediaObject.release_month = dbRow[8]
+        mediaObject.release_day = dbRow[9]
         mediaObject.subdir = dbRow[10]
         mediaObject.language_id = dbRow[11]
-        mediaObject.plotSummary = dbRow[12]
+        mediaObject.plot_summary = dbRow[12]
         mediaObject.season_number = dbRow[13]
         mediaObject.episode_number = dbRow[14]
         mediaObject.series_imdb_id = dbRow[15]
