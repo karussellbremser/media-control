@@ -50,6 +50,7 @@ CROPPING_CLUSTER_TOLERANCE = _config.getint("cropping", "cluster_tolerance")
 CROPPING_SYMMETRY_TOLERANCE = _config.getint("cropping", "symmetry_tolerance")
 CROPPING_MINIMUM_CLUSTER_SIZE = _config.getint("cropping", "minimum_cluster_size")
 CROPPING_WINDOWBOXING_TOLERANCE = _config.getint("cropping", "windowboxing_tolerance")
+CROPPING_MINIMUM_DEVIATION = _config.getint("cropping", "minimum_deviation")
 
 VERBOSITY = _config.getint("output", "verbosity")
 

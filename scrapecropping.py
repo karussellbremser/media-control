@@ -17,7 +17,7 @@ class ScrapeCropping:
     already known here -- no separate ffmpeg probe needed for them."""
 
     def __init__(self, ffmpeg_path, burst_frame_count, runtime_percentages, cluster_tolerance,
-                 symmetry_tolerance, minimum_cluster_size, windowboxing_tolerance):
+                 symmetry_tolerance, minimum_cluster_size, windowboxing_tolerance, minimum_deviation):
         self.ffmpeg_path = ffmpeg_path
         self.burst_frame_count = burst_frame_count
         self.runtime_percentages = runtime_percentages
@@ -25,6 +25,7 @@ class ScrapeCropping:
         self.symmetry_tolerance = symmetry_tolerance
         self.minimum_cluster_size = minimum_cluster_size
         self.windowboxing_tolerance = windowboxing_tolerance
+        self.minimum_deviation = minimum_deviation
 
     def detectCropping(self, mediaDir, subdir, mediaVersion):
         """Sets mediaVersion.cropping to a list of (top, bottom, left, right) tuples -- normally
@@ -75,8 +76,12 @@ class ScrapeCropping:
         3. Rejects it if anything outside its cluster detected less cropping on any dimension (an
            expected detection error only ever means *more* incidental black in one frame, never
            less -- less black than the accepted result means something structurally different was
-           actually visible there), or if any other cluster has enough mutually-agreeing members to
-           look like a real, repeated alternate aspect ratio rather than a one-off glitch."""
+           actually visible there), or if any other cluster looks like a real, repeated alternate
+           aspect ratio rather than a one-off glitch or noise -- enough mutually-agreeing members,
+           roughly symmetric itself (a real alternate crop is symmetric; an asymmetric repeated
+           reading is more likely a persistent artifact -- a watermark, boom mic, etc. -- than a
+           second aspect ratio), and different enough from the hypothesis to be a meaningful
+           difference rather than noise that happened to land just past cluster_tolerance."""
         clusters = self.__clusterReadings(readings)
         hypothesisCluster = min(clusters, key=lambda c: sum(self.__clusterRepresentative(c)))
         hypothesis = self.__clusterRepresentative(hypothesisCluster)
@@ -104,6 +109,10 @@ class ScrapeCropping:
     def __clusterRepresentative(self, cluster):
         return tuple(min(reading[i] for reading in cluster) for i in range(4))
 
+    def __isSymmetric(self, reading):
+        top, bottom, left, right = reading
+        return abs(top - bottom) <= self.symmetry_tolerance and abs(left - right) <= self.symmetry_tolerance
+
     def __validateHypothesisShape(self, hypothesis, filepath):
         top, bottom, left, right = hypothesis
         hasVerticalBar = top > self.windowboxing_tolerance or bottom > self.windowboxing_tolerance
@@ -113,12 +122,10 @@ class ScrapeCropping:
                                  " bottom=" + str(bottom) + " left=" + str(left) + " right=" + str(right) +
                                  ") for " + filepath + " -- looks like windowboxed or otherwise unusual " +
                                  "content, needs a manual cropping.txt override")
-        if abs(top - bottom) > self.symmetry_tolerance:
-            raise CroppingError("detected cropping is not top/bottom-symmetric (top=" + str(top) + " bottom=" +
-                                 str(bottom) + ") for " + filepath + " -- needs a manual cropping.txt override")
-        if abs(left - right) > self.symmetry_tolerance:
-            raise CroppingError("detected cropping is not left/right-symmetric (left=" + str(left) + " right=" +
-                                 str(right) + ") for " + filepath + " -- needs a manual cropping.txt override")
+        if not self.__isSymmetric(hypothesis):
+            raise CroppingError("detected cropping is not symmetric (top=" + str(top) + " bottom=" + str(bottom) +
+                                 " left=" + str(left) + " right=" + str(right) + ") for " + filepath +
+                                 " -- needs a manual cropping.txt override")
 
     def __validateAgainstOtherClusters(self, hypothesis, clusters, hypothesisCluster, filepath):
         for cluster in clusters:
@@ -129,8 +136,10 @@ class ScrapeCropping:
                     raise CroppingError("a burst detected less cropping than the accepted result (" + str(reading) +
                                          " vs accepted " + str(hypothesis) + ") for " + filepath +
                                          " -- needs a manual cropping.txt override")
-            if len(cluster) >= self.minimum_cluster_size:
-                raise CroppingError("a repeated alternate cropping (" + str(self.__clusterRepresentative(cluster)) +
+            representative = self.__clusterRepresentative(cluster)
+            isMeaningfullyDifferent = any(abs(representative[i] - hypothesis[i]) > self.minimum_deviation for i in range(4))
+            if len(cluster) >= self.minimum_cluster_size and self.__isSymmetric(representative) and isMeaningfullyDifferent:
+                raise CroppingError("a repeated alternate cropping (" + str(representative) +
                                      ", seen " + str(len(cluster)) + " times) was detected alongside the accepted " +
                                      "one (" + str(hypothesis) + ") for " + filepath + " -- this looks like " +
                                      "genuinely variable aspect ratio content, needs a manual cropping.txt override")

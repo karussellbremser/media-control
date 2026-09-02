@@ -220,7 +220,8 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
     scrapeCropping = ScrapeCropping(config.FFMPEG_PATH, config.CROPPING_BURST_FRAME_COUNT, config.CROPPING_RUNTIME_PERCENTAGES,
                                      config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
-                                     config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE)
+                                     config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE,
+                                     config.CROPPING_MINIMUM_DEVIATION)
     for currentMedia in newlyAddedMediaDict.values():
         for mediaVersion in currentMedia.mediaVersions:
             if mediaVersion.isKaleidescapeOnly():
