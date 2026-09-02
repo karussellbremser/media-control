@@ -2,25 +2,29 @@ import os
 import re
 import subprocess
 
-from exceptions import FFmpegError, LocalLibraryError
+from exceptions import FFmpegError, LocalLibraryError, CroppingError
 
 class ScrapeCropping:
     """Determines each locally-owned mediaVersion's actual (top, bottom, left, right) cropping --
     pixel counts for the black bars around its actual content -- either from a manual cropping.txt
-    override sitting alongside the media files (see __parseOverrideFile), or by auto-detecting them
-    via ffmpeg's cropdetect filter, sampled in several bursts spread across the runtime and combined
-    by taking the least black border found on each side independently (a first-pass aggregation, to
-    be refined later). Only ever called for files belonging to titles that are both newly added this
-    sync run and survived the scrape budget -- see main.py's syncLocal, same scope as
-    ScrapeMediaInfo. Always run immediately after ScrapeMediaInfo.analyzeMediaVersion for the same
-    file, so mediaVersion.duration/width/height are already known here -- no separate ffmpeg probe
-    needed for them."""
+    override sitting alongside the media files (see __parseOverrideFile), or by auto-detecting it
+    via ffmpeg's cropdetect filter, sampled in several bursts spread across the runtime and reduced
+    to one confident answer (see __deriveCropping) -- or raising CroppingError if the bursts don't
+    actually support one, rather than silently guessing. Only ever called for files belonging to
+    titles that are both newly added this sync run and survived the scrape budget -- see main.py's
+    syncLocal, same scope as ScrapeMediaInfo. Always run immediately after
+    ScrapeMediaInfo.analyzeMediaVersion for the same file, so mediaVersion.duration/width/height are
+    already known here -- no separate ffmpeg probe needed for them."""
 
-    BURST_FRAME_COUNT = 200
-    RUNTIME_PERCENTAGES = [5, 10, 15, 20, 25, 30, 40, 50, 70, 85]
-
-    def __init__(self, ffmpeg_path):
+    def __init__(self, ffmpeg_path, burst_frame_count, runtime_percentages, cluster_tolerance,
+                 symmetry_tolerance, minimum_cluster_size, windowboxing_tolerance):
         self.ffmpeg_path = ffmpeg_path
+        self.burst_frame_count = burst_frame_count
+        self.runtime_percentages = runtime_percentages
+        self.cluster_tolerance = cluster_tolerance
+        self.symmetry_tolerance = symmetry_tolerance
+        self.minimum_cluster_size = minimum_cluster_size
+        self.windowboxing_tolerance = windowboxing_tolerance
 
     def detectCropping(self, mediaDir, subdir, mediaVersion):
         """Sets mediaVersion.cropping to a list of (top, bottom, left, right) tuples -- normally
@@ -38,19 +42,15 @@ class ScrapeCropping:
 
         filepath = os.path.join(mediaDir, subdir, mediaVersion.filename)
         readings = [self.__runBurst(filepath, mediaVersion.duration * pct / 100, mediaVersion.width, mediaVersion.height)
-                    for pct in self.RUNTIME_PERCENTAGES]
-        top = min(r[0] for r in readings)
-        bottom = min(r[1] for r in readings)
-        left = min(r[2] for r in readings)
-        right = min(r[3] for r in readings)
-        mediaVersion.cropping = [(top, bottom, left, right)]
+                    for pct in self.runtime_percentages]
+        mediaVersion.cropping = [self.__deriveCropping(readings, filepath)]
 
     def __runBurst(self, filepath, seekSeconds, width, height):
         """Runs one cropdetect burst seeked to seekSeconds and returns (top, bottom, left, right),
         derived from the last (i.e. most-accumulated, see cropdetect's reset=0 default) x1/x2/y1/y2
         reading it printed."""
         args = [self.ffmpeg_path, "-ss", str(seekSeconds), "-i", filepath, "-vf", "cropdetect",
-                 "-frames:v", str(self.BURST_FRAME_COUNT), "-f", "null", "-"]
+                 "-frames:v", str(self.burst_frame_count), "-f", "null", "-"]
         result = subprocess.run(args, capture_output=True, text=True)
 
         matches = re.findall(r"x1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+)", result.stderr)
@@ -59,6 +59,81 @@ class ScrapeCropping:
                                (" (ffmpeg exited with code " + str(result.returncode) + ")" if result.returncode != 0 else ""))
         x1, x2, y1, y2 = (int(v) for v in matches[-1])
         return y1, (height - 1) - y2, x1, (width - 1) - x2
+
+    def __deriveCropping(self, readings, filepath):
+        """Reduces a list of (top, bottom, left, right) burst readings to one confident cropping
+        result, or raises CroppingError rather than guessing when the bursts don't support one.
+
+        1. Clusters the readings (see __clusterReadings) and takes the cluster with the smallest
+           total border as the hypothesis -- its per-dimension minimum, safe to take now that
+           clustering has already confirmed those readings represent the same underlying crop
+           (unlike a global per-side minimum across all bursts, which could silently mix readings
+           from genuinely different states together).
+        2. Rejects the hypothesis outright if it doesn't look like a plausible crop on its own:
+           meaningful bars on both axes at once (windowboxing), or asymmetric top/bottom or
+           left/right.
+        3. Rejects it if anything outside its cluster detected less cropping on any dimension (an
+           expected detection error only ever means *more* incidental black in one frame, never
+           less -- less black than the accepted result means something structurally different was
+           actually visible there), or if any other cluster has enough mutually-agreeing members to
+           look like a real, repeated alternate aspect ratio rather than a one-off glitch."""
+        clusters = self.__clusterReadings(readings)
+        hypothesisCluster = min(clusters, key=lambda c: sum(self.__clusterRepresentative(c)))
+        hypothesis = self.__clusterRepresentative(hypothesisCluster)
+
+        self.__validateHypothesisShape(hypothesis, filepath)
+        self.__validateAgainstOtherClusters(hypothesis, clusters, hypothesisCluster, filepath)
+
+        return hypothesis
+
+    def __clusterReadings(self, readings):
+        """Groups readings where every dimension is within cluster_tolerance of the cluster's own
+        running per-dimension minimum. Processed smallest-total-first, so each cluster naturally
+        gets seeded by its own least-noisy (most trustworthy) member rather than an arbitrary one."""
+        clusters = []
+        for reading in sorted(readings, key=sum):
+            for cluster in clusters:
+                representative = self.__clusterRepresentative(cluster)
+                if all(abs(reading[i] - representative[i]) <= self.cluster_tolerance for i in range(4)):
+                    cluster.append(reading)
+                    break
+            else:
+                clusters.append([reading])
+        return clusters
+
+    def __clusterRepresentative(self, cluster):
+        return tuple(min(reading[i] for reading in cluster) for i in range(4))
+
+    def __validateHypothesisShape(self, hypothesis, filepath):
+        top, bottom, left, right = hypothesis
+        hasVerticalBar = top > self.windowboxing_tolerance or bottom > self.windowboxing_tolerance
+        hasHorizontalBar = left > self.windowboxing_tolerance or right > self.windowboxing_tolerance
+        if hasVerticalBar and hasHorizontalBar:
+            raise CroppingError("detected cropping has meaningful bars on both axes (top=" + str(top) +
+                                 " bottom=" + str(bottom) + " left=" + str(left) + " right=" + str(right) +
+                                 ") for " + filepath + " -- looks like windowboxed or otherwise unusual " +
+                                 "content, needs a manual cropping.txt override")
+        if abs(top - bottom) > self.symmetry_tolerance:
+            raise CroppingError("detected cropping is not top/bottom-symmetric (top=" + str(top) + " bottom=" +
+                                 str(bottom) + ") for " + filepath + " -- needs a manual cropping.txt override")
+        if abs(left - right) > self.symmetry_tolerance:
+            raise CroppingError("detected cropping is not left/right-symmetric (left=" + str(left) + " right=" +
+                                 str(right) + ") for " + filepath + " -- needs a manual cropping.txt override")
+
+    def __validateAgainstOtherClusters(self, hypothesis, clusters, hypothesisCluster, filepath):
+        for cluster in clusters:
+            if cluster is hypothesisCluster:
+                continue
+            for reading in cluster:
+                if any(reading[i] < hypothesis[i] - self.cluster_tolerance for i in range(4)):
+                    raise CroppingError("a burst detected less cropping than the accepted result (" + str(reading) +
+                                         " vs accepted " + str(hypothesis) + ") for " + filepath +
+                                         " -- needs a manual cropping.txt override")
+            if len(cluster) >= self.minimum_cluster_size:
+                raise CroppingError("a repeated alternate cropping (" + str(self.__clusterRepresentative(cluster)) +
+                                     ", seen " + str(len(cluster)) + " times) was detected alongside the accepted " +
+                                     "one (" + str(hypothesis) + ") for " + filepath + " -- this looks like " +
+                                     "genuinely variable aspect ratio content, needs a manual cropping.txt override")
 
     def __parseOverrideFile(self, filepath):
         """Returns {key: [(top, bottom, left, right), ...]} -- key is either a real filename or the

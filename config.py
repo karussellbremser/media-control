@@ -44,6 +44,13 @@ HELPER_DB_AUTO_REFRESH_ENABLED = _config.getboolean("helper_db", "auto_refresh")
 
 MEDIA_AUTO_UPDATE_ENABLED = _config.getboolean("media_update", "auto_update_media")
 
+CROPPING_BURST_FRAME_COUNT = _config.getint("cropping", "burst_frame_count")
+CROPPING_RUNTIME_PERCENTAGES = [int(p) for p in _config["cropping"]["runtime_percentages"].split(",")]
+CROPPING_CLUSTER_TOLERANCE = _config.getint("cropping", "cluster_tolerance")
+CROPPING_SYMMETRY_TOLERANCE = _config.getint("cropping", "symmetry_tolerance")
+CROPPING_MINIMUM_CLUSTER_SIZE = _config.getint("cropping", "minimum_cluster_size")
+CROPPING_WINDOWBOXING_TOLERANCE = _config.getint("cropping", "windowboxing_tolerance")
+
 VERBOSITY = _config.getint("output", "verbosity")
 
 SERVER_HOST = _config["server"]["host"]

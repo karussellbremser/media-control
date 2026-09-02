@@ -24,3 +24,11 @@ class FFmpegError(Exception):
     code, no cropdetect reading found in its output). A malformed cropping.txt override is a
     LocalLibraryError instead -- that's a local-library problem, not an ffmpeg-tool problem."""
     pass
+
+class CroppingError(Exception):
+    """Auto-detected cropping doesn't give a single, confident answer -- e.g. a burst detected less
+    cropping than the accepted result, a repeated alternate cropping was found alongside the
+    accepted one (genuinely variable aspect ratio content), or the accepted result itself doesn't
+    look like a plausible crop (asymmetric, or meaningful bars on both axes at once). A manual
+    cropping.txt override is needed to resolve this -- see ScrapeCropping."""
+    pass
