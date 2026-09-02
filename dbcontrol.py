@@ -634,15 +634,19 @@ class DBControl:
 
             #2a. if yes: only "light-remove" mediumToRemove (remove subdir, media_versions,
             # connections FROM it, interests, credits, intended episode order, manually-entered
-            # release day/month, and reset language to the default; these are only valid for
-            # locally-owned media -- intended_order and release_month/Day in particular are purely
-            # local data (release day/month are only ever entered manually, see Media.__init__),
-            # unlike season_number/episode_number/series_imdb_id which come from IMDb and stay valid
-            # regardless of ownership). The media row itself survives here, so none of this happens
-            # via cascade -- unlike #2b below, every removal has to be explicit.
+            # release day/month, plot summary, and reset language to the default -- every one of
+            # these either only ever gets populated by local-file/online scraping of a locally-owned
+            # title (subdir/plot_summary/language_id/intended_order), or is purely local, manually-
+            # entered data (release_month/release_day, see Media.__init__), so none of it is valid
+            # once no longer locally owned. Unlike title_type_id/original_title/primary_title/
+            # start_year/end_year/rating_mul10/num_votes/season_number/episode_number/series_imdb_id,
+            # which all come from the offline dataset and stay valid (and get refreshed) regardless
+            # of ownership -- those are deliberately left untouched here. The media row itself
+            # survives here, so none of this happens via cascade -- unlike #2b below, every removal
+            # has to be explicit.
             if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
                 printDetail("Removing " + mediumToRemove.original_title + " from DB as local medium (still being referenced)")
-                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, release_month = NULL, release_day = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, release_month = NULL, release_day = NULL, plot_summary = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
