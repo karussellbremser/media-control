@@ -247,6 +247,8 @@ class ScrapeLocal:
                     sources_file = file
                 elif file_split[0] == "versions": # versions file
                     versions_exists = True
+                elif file_split[0] == "cropping": # cropping override file -- see ScrapeCropping, read directly from disk when needed, not tracked here
+                    continue
                 else:
                     raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
             elif file_split[1] == "mkv": # real media file
@@ -296,6 +298,8 @@ class ScrapeLocal:
                     versions_exists = True
                 elif file_split[0] == "intended_order": # intended watch order file
                     intended_order_file = file
+                elif file_split[0] == "cropping": # cropping override file -- see ScrapeCropping, read directly from disk when needed, not tracked here
+                    continue
                 else:
                     raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
             elif file_split[1] == "mkv": # real media file
