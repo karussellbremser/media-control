@@ -12,6 +12,19 @@ from verbosity import printAlways, printDetail, printPerson
 import config
 import getopt, os, sys, time
 
+def requireMainDBExists():
+    """Fail fast, before any real work starts, if the main DB hasn't been created yet -- otherwise
+    DBControl's sqlite3.connect() would silently create an empty file at this path, and the first
+    real query against it would fail with a confusing "no such table" error instead. Same
+    reasoning, and same exception type, as DBBackup.forceBackup's equivalent check. Called both by
+    -s/-r's own CLI dispatch (before anything else, including ensureHelperDBFresh's potentially
+    slow helper-DB rebuild -- no point doing that work first just to fail on this afterwards) and
+    by syncLocal/refreshTitleData themselves (so each still protects its own precondition even if
+    called some other way)."""
+    if not os.path.isfile(config.DB_PATH):
+        raise FileNotFoundError("DB not found at " + config.DB_PATH +
+                                 " -- run 'python main.py -c' (or --createdb) to create it first")
+
 def readIDList(path):
     """Reads a user-maintained list of imdb ids, one 'tt#######' per line (blank lines ignored).
     A missing file is treated as an empty list, since these lists are optional."""
@@ -35,13 +48,7 @@ def printStep(number, description):
 def syncLocal(mediaDir, coverDir, thumbnailDir):
     printAlways("Starting sync...")
 
-    # fail fast, before any real work starts, if the main DB hasn't been created yet -- otherwise
-    # DBControl's sqlite3.connect() would silently create an empty file at this path, and the first
-    # real query against it would fail with a confusing "no such table" error instead. Same
-    # reasoning, and same exception type, as DBBackup.forceBackup's equivalent check.
-    if not os.path.isfile(config.DB_PATH):
-        raise FileNotFoundError("DB not found at " + config.DB_PATH +
-                                 " -- run 'python main.py -c' (or --createdb) to create it first")
+    requireMainDBExists()
 
     # fail fast, before any real work starts, if the offline dataset helper DB hasn't been built
     # yet -- otherwise this would only surface much later (and far less clearly) the first time
@@ -460,6 +467,16 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     printAlways("\nSync complete. Referenced-only media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
 
 def refreshTitleData():
+    # fail fast, before any real work starts. requireMainDBExists() raises FileNotFoundError -- a
+    # caller may want to treat that case as an expected, silently-skippable no-op instead of letting
+    # it propagate, see -u's auto-refresh call site, which does exactly that (a missing main DB just
+    # means there's nothing local to refresh yet, not a usage error -- unlike a direct -r, which is
+    # always loud here).
+    requireMainDBExists()
+    if not os.path.isfile(config.IMDB_HELPER_DB_PATH):
+        raise OfflineDatasetError("IMDb offline dataset helper DB not found at " + config.IMDB_HELPER_DB_PATH +
+                                   " -- run 'python main.py -u' (or --update) to build it first")
+
     printAlways("Refreshing data...")
     db = DBControl(config.DB_PATH)
 
@@ -569,19 +586,30 @@ try:
         elif currentArg in ("-c", "--createdb"):
             DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):
+            requireMainDBExists() # before anything else -- no point running ensureHelperDBFresh's
+                                   # potentially slow rebuild only to fail on this afterwards
             if config.BACKUP_AUTO_ENABLED:
                 DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
             ensureHelperDBFresh(runAutoRefresh=True)
             syncLocal(config.MEDIA_DIR, config.COVERS_DIR, config.COVERS_SMALL_DIR)
         elif currentArg in ("-t", "--stats"):
+            requireMainDBExists()
             stat = Statistics(DBControl(config.DB_PATH))
             stat.printYearlyAverages()
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
             ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
             if config.HELPER_DB_AUTO_REFRESH_ENABLED:
-                refreshTitleData()
+                try:
+                    refreshTitleData()
+                except FileNotFoundError:
+                    # no main DB yet (e.g. -u run before ever running -c) -- -u's own job is done
+                    # regardless, and auto-refresh is just an optional follow-on with nothing to do
+                    # yet, not a usage error worth surfacing; unlike a direct -r, which always raises
+                    # this loudly (see refreshTitleData's own check)
+                    pass
         elif currentArg in ("-r", "--refresh"):
+            requireMainDBExists() # before anything else -- same reasoning as -s above
             if config.BACKUP_AUTO_ENABLED:
                 DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).ensureBackup(config.BACKUP_FREQUENCY_DAYS)
             ensureHelperDBFresh(runAutoRefresh=False)
