@@ -45,6 +45,13 @@ def printStep(number, description):
     config.VERBOSITY -- see verbosity.printAlways."""
     printAlways("\nStep " + str(number) + ": " + description)
 
+def printProgress(index, total, media):
+    """Prints a uniform per-title progress line, matching ScrapeIMDbOnline.__printProgress's
+    format -- used for step 6's MediaInfo/cropping loop, the one step here that visits multiple
+    titles but (unlike steps 7/8/9/12/15) isn't owned by a single ScrapeIMDbOnline method. Printed
+    at config.VERBOSITY >= LEVEL_NORMAL -- see verbosity.printDetail."""
+    printDetail("  [" + str(index) + "/" + str(total) + "] " + str(media.original_title) + " (" + media.getIDString() + ")")
+
 def syncLocal(mediaDir, coverDir, thumbnailDir):
     printAlways("Starting sync...")
 
@@ -218,14 +225,16 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # mistakenly declared as kscape would otherwise have its analysis silently skipped rather than
     # erroring (the reverse mismatch -- a .kscape-extension file with a non-kscape source -- already
     # can't happen, since ScrapeLocal requires every .kscape file to be empty regardless of source).
-    if any(m.mediaVersions for m in newlyAddedMediaDict.values()):
+    mediaWithVersions = [m for m in newlyAddedMediaDict.values() if m.mediaVersions]
+    if mediaWithVersions:
         printStep(6, "analyzing local media files with MediaInfo and detecting cropping")
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
     scrapeCropping = ScrapeCropping(config.FFMPEG_PATH, config.CROPPING_BURST_FRAME_COUNT, config.CROPPING_RUNTIME_PERCENTAGES,
                                      config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
                                      config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE,
                                      config.CROPPING_MINIMUM_DEVIATION)
-    for currentMedia in newlyAddedMediaDict.values():
+    for i, currentMedia in enumerate(mediaWithVersions, 1):
+        printProgress(i, len(mediaWithVersions), currentMedia)
         for mediaVersion in currentMedia.mediaVersions:
             if mediaVersion.isKaleidescapeOnly():
                 filepath = os.path.join(mediaDir, currentMedia.subdir, mediaVersion.filename)
