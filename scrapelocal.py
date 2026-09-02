@@ -59,7 +59,10 @@ class ScrapeLocal:
             else:
                 raise LocalLibraryError('Bad versions file in subdirectory ' + subdir)
 
-            currentMovie.mediaVersions.append(MediaVersion(media_file, src, version))
+            mediaVersion = MediaVersion(media_file, src, version)
+            if not mediaVersion.isKaleidescapeOnly(): # no real local file to stat, see MediaVersion.mtime
+                mediaVersion.mtime = int(os.path.getmtime(self.__complFilePath(subdir, media_file)))
+            currentMovie.mediaVersions.append(mediaVersion)
             
         
         return currentMovie
@@ -196,7 +199,10 @@ class ScrapeLocal:
                 else:
                     raise LocalLibraryError('Bad versions file in season folder ' + seasonPath)
 
-                mediaVersions.append(MediaVersion(media_file, src, version))
+                mediaVersion = MediaVersion(media_file, src, version)
+                if not mediaVersion.isKaleidescapeOnly(): # no real local file to stat, see MediaVersion.mtime
+                    mediaVersion.mtime = int(os.path.getmtime(self.__complFilePath(seasonPath, media_file)))
+                mediaVersions.append(mediaVersion)
 
             if isUnnumbered:
                 currentSeries.episodes.append(Episode(None, None, mediaVersions, seasonPath, imdb_id=episode_key))

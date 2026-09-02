@@ -9,6 +9,12 @@ class MediaVersion:
         self.version = version
         self.sources = parseSourceString(source) # list of MediaSource, one per leaf source
 
+        # the local file's own mtime (whole seconds), captured by ScrapeLocal at scan time -- unlike
+        # everything below, this has to be known before newly-added/budget is even computed, since
+        # it's what main.py's determineMediaNeedingUpdate comparison is based on (see config.ini's
+        # [media_update]). None for a Kaleidescape-only version -- no real local file to stat.
+        self.mtime = None
+
         # everything below is populated by ScrapeMediaInfo.analyzeMediaVersion, once this version's
         # file is about to be added to the DB (only ever run for newly-added, budget-surviving
         # titles -- see main.py's syncLocal); None/empty until then. Unless it's Kaleidescape-only

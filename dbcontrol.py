@@ -142,6 +142,7 @@ class DBControl:
             filename text NOT NULL,
             source text NOT NULL,
             version text,
+            mtime integer,
             duration integer NOT NULL,
             mediainfo_version text,
             format text,
@@ -478,7 +479,7 @@ class DBControl:
             # placeholders, as elsewhere in this file) since this table is wide enough that
             # miscounting placeholders by hand would be an easy, silent mistake
             versionColumns = [
-                "imdb_id", "filename", "source", "version", "duration", "mediainfo_version",
+                "imdb_id", "filename", "source", "version", "mtime", "duration", "mediainfo_version",
                 "format", "format_profile", "format_level", "format_tier",
                 "multiview_count", "multiview_layout",
                 "hdr_format", "hdr_format_version", "hdr_format_profile", "hdr_format_level",
@@ -496,7 +497,7 @@ class DBControl:
             ]
             versionValues = [
                 thisMedia.imdb_id, mediaVersion.filename, mediaVersion.source, mediaVersion.version,
-                mediaVersion.duration, mediaVersion.mediainfo_version,
+                mediaVersion.mtime, mediaVersion.duration, mediaVersion.mediainfo_version,
                 mediaVersion.format, mediaVersion.format_profile, mediaVersion.format_level, mediaVersion.format_tier,
                 mediaVersion.multiview_count, mediaVersion.multiview_layout,
                 mediaVersion.hdr_format, mediaVersion.hdr_format_version, mediaVersion.hdr_format_profile, mediaVersion.hdr_format_level,
@@ -1171,6 +1172,56 @@ class DBControl:
                     removedMedium.series_imdb_id = db_medium[2]
                     removedDict[removedMedium.imdb_id] = removedMedium
         return removedDict
+
+    def determineMediaNeedingUpdate(self, mediaDict):
+        """Compares mediaDict's freshly-scanned mediaVersions' mtimes against what's currently
+        stored -- any medium with at least one mediaVersion whose local file has a newer mtime than
+        what's on record is returned, so the caller can remove and re-add it (see config.ini's
+        [media_update]). A brand-new file (no stored mtime yet at all) doesn't count -- that's an
+        ordinary newly-added title, not an update. A Kaleidescape-only version (mtime always None,
+        nothing to stat) never triggers this either. Unconditional -- the config.MEDIA_AUTO_UPDATE_
+        ENABLED gate belongs at the call site (main.py), not in here.
+
+        Also includes a series itself once every one of its currently-known episodes ends up in the
+        result: episodes are the only things ever flagged directly (a series has no mediaVersions of
+        its own), so without this a series updated across its whole season would otherwise survive
+        the run untouched -- still locally owned, but with zero episodes left recorded -- and stay
+        committed in exactly that inconsistent state if the sync aborted before those episodes were
+        re-added (removals commit immediately, independent of the rest of the sync). Including the
+        series here instead means an abort leaves it in the same, already-safe "not locally owned"
+        state as a genuine removal. No particular ordering is needed in the returned dict for this to
+        resolve correctly -- removeSingleMedia re-checks each episode's series via
+        __pruneOrphanedSeries as it goes, so the series converges to fully removed by the end of the
+        batch regardless of whether it's processed before or after its episodes."""
+        with self.conn:
+            self.c.execute("SELECT imdb_id, filename, mtime FROM media_versions WHERE mtime IS NOT NULL")
+            storedMtimes = {(imdb_id, filename): mtime for imdb_id, filename, mtime in self.c.fetchall()}
+
+        updatedDict = {}
+        for medium in mediaDict.values():
+            for mediaVersion in medium.mediaVersions:
+                if mediaVersion.mtime is None:
+                    continue
+                storedMtime = storedMtimes.get((medium.imdb_id, mediaVersion.filename))
+                if storedMtime is not None and mediaVersion.mtime > storedMtime:
+                    updatedDict[medium.imdb_id] = medium
+                    break
+
+        affectedSeriesIDs = {m.series_imdb_id for m in updatedDict.values() if m.series_imdb_id is not None}
+        with self.conn:
+            for series_imdb_id in affectedSeriesIDs:
+                self.c.execute("SELECT imdb_id FROM media WHERE series_imdb_id=?", (series_imdb_id,))
+                episodeIDs = [row[0] for row in self.c.fetchall()]
+                if not all(episode_id in updatedDict for episode_id in episodeIDs):
+                    continue # at least one episode isn't part of this update -- series still needed
+                self.c.execute("SELECT subdir, original_title FROM media WHERE imdb_id=?", (series_imdb_id,))
+                seriesRow = self.c.fetchone()
+                if seriesRow is None or seriesRow[0] is None:
+                    continue # already not locally owned -- nothing to do
+                seriesStub = Media(None, None, series_imdb_id)
+                seriesStub.original_title = seriesRow[1]
+                updatedDict[series_imdb_id] = seriesStub
+        return updatedDict
 
     def getReferencedOnlyMedia(self):
         with self.conn:
