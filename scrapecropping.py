@@ -3,6 +3,7 @@ import re
 import subprocess
 
 from exceptions import FFmpegError, LocalLibraryError, CroppingError
+from verbosity import printVerbose
 
 class ScrapeCropping:
     """Determines each locally-owned mediaVersion's actual (top, bottom, left, right) cropping --
@@ -42,12 +43,24 @@ class ScrapeCropping:
                 return
 
         filepath = os.path.join(mediaDir, subdir, mediaVersion.filename)
-        readings = [r for r in (self.__runBurst(filepath, mediaVersion.duration * pct / 100, mediaVersion.width, mediaVersion.height)
-                                 for pct in self.runtime_percentages) if r is not None]
+        width, height = mediaVersion.width, mediaVersion.height
+
+        printVerbose("Cropping detection for " + filepath + " (" + str(width) + "x" + str(height) + "):")
+        printVerbose(self.__burstTableHeader())
+        readings = []
+        for pct in self.runtime_percentages:
+            seekSeconds = mediaVersion.duration * pct / 100
+            reading = self.__runBurst(filepath, seekSeconds, width, height)
+            printVerbose(self.__formatBurstRow(pct, seekSeconds, reading, width, height))
+            if reading is not None:
+                readings.append(reading)
         if not readings:
             raise CroppingError("every sampled burst for " + filepath + " hit a fully black/degenerate frame -- " +
                                  "cropping could not be determined, needs a manual cropping.txt override")
-        mediaVersion.cropping = [self.__deriveCropping(readings, filepath)]
+
+        result = self.__deriveCropping(readings, filepath)
+        printVerbose("  -> accepted: " + self.__formatReading(result, width, height))
+        mediaVersion.cropping = [result]
 
     def __runBurst(self, filepath, seekSeconds, width, height):
         """Runs one cropdetect burst seeked to seekSeconds and returns (top, bottom, left, right),
@@ -70,6 +83,34 @@ class ScrapeCropping:
         if x1 > x2 or y1 > y2:
             return None
         return y1, (height - 1) - y2, x1, (width - 1) - x2
+
+    def __formatTimestamp(self, seconds):
+        hours, remainder = divmod(int(seconds), 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def __calculateAR(self, reading, width, height):
+        top, bottom, left, right = reading
+        return (width - left - right) / (height - top - bottom)
+
+    def __formatReading(self, reading, width, height):
+        top, bottom, left, right = reading
+        return ("top=" + str(top) + " bottom=" + str(bottom) + " left=" + str(left) + " right=" + str(right) +
+                " (AR " + f"{self.__calculateAR(reading, width, height):.2f}" + ")")
+
+    def __burstTableHeader(self):
+        return f"  {'burst':<22} {'top':>5} {'bottom':>7} {'left':>5} {'right':>6}   {'AR':>6}"
+
+    def __formatBurstRow(self, pct, seekSeconds, reading, width, height):
+        """One printVerbose row for a single burst -- pct/timestamp plus either the reading (with
+        its own AR, see __calculateAR) or a note that it was discarded as degenerate (see
+        __runBurst)."""
+        label = str(pct) + "% (t=" + self.__formatTimestamp(seekSeconds) + ")"
+        if reading is None:
+            return f"  {label:<22} (degenerate -- fully black frame, discarded)"
+        top, bottom, left, right = reading
+        ar = self.__calculateAR(reading, width, height)
+        return f"  {label:<22} {top:>5} {bottom:>7} {left:>5} {right:>6}   {ar:>6.2f}"
 
     def __deriveCropping(self, readings, filepath):
         """Reduces a list of (top, bottom, left, right) burst readings to one confident cropping
