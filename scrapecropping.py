@@ -42,14 +42,22 @@ class ScrapeCropping:
                 return
 
         filepath = os.path.join(mediaDir, subdir, mediaVersion.filename)
-        readings = [self.__runBurst(filepath, mediaVersion.duration * pct / 100, mediaVersion.width, mediaVersion.height)
-                    for pct in self.runtime_percentages]
+        readings = [r for r in (self.__runBurst(filepath, mediaVersion.duration * pct / 100, mediaVersion.width, mediaVersion.height)
+                                 for pct in self.runtime_percentages) if r is not None]
+        if not readings:
+            raise CroppingError("every sampled burst for " + filepath + " hit a fully black/degenerate frame -- " +
+                                 "cropping could not be determined, needs a manual cropping.txt override")
         mediaVersion.cropping = [self.__deriveCropping(readings, filepath)]
 
     def __runBurst(self, filepath, seekSeconds, width, height):
         """Runs one cropdetect burst seeked to seekSeconds and returns (top, bottom, left, right),
         derived from the last (i.e. most-accumulated, see cropdetect's reset=0 default) x1/x2/y1/y2
-        reading it printed."""
+        reading it printed -- or None if that reading is degenerate (x1 > x2 or y1 > y2), cropdetect's
+        signature for "found no non-black content at all on that axis", e.g. a burst that landed on a
+        fully black frame (fade-to-black, scene transition, or a genuinely all-black shot). Such a
+        reading carries no information about the real crop, and would otherwise look like an
+        enormous, perfectly symmetric "alternate cropping" to __deriveCropping -- both derived
+        dimensions on a degenerate axis come out equal to (width-1)/(height-1)."""
         args = [self.ffmpeg_path, "-ss", str(seekSeconds), "-i", filepath, "-vf", "cropdetect",
                  "-frames:v", str(self.burst_frame_count), "-f", "null", "-"]
         result = subprocess.run(args, capture_output=True, text=True)
@@ -59,6 +67,8 @@ class ScrapeCropping:
             raise FFmpegError("no cropdetect reading found for " + filepath + " at t=" + str(seekSeconds) + "s" +
                                (" (ffmpeg exited with code " + str(result.returncode) + ")" if result.returncode != 0 else ""))
         x1, x2, y1, y2 = (int(v) for v in matches[-1])
+        if x1 > x2 or y1 > y2:
+            return None
         return y1, (height - 1) - y2, x1, (width - 1) - x2
 
     def __deriveCropping(self, readings, filepath):
