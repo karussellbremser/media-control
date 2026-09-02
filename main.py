@@ -7,7 +7,7 @@ from scrapeimdbonline import ScrapeIMDbOnline
 from scrapemediainfo import ScrapeMediaInfo
 from scrapecropping import ScrapeCropping
 from statistics import Statistics
-from exceptions import LocalLibraryError, OfflineDatasetError
+from exceptions import LocalLibraryError, OfflineDatasetError, MediaInfoError, FFmpegError, CroppingError
 from verbosity import printAlways, printDetail, printPerson
 import config
 import getopt, os, sys, time
@@ -205,26 +205,34 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # 6. run MediaInfo analysis on every file belonging to a title that's both newly added and
     # survived the scrape budget above -- movies' own mediaVersions, plus already-resolved episodes'
     # (from step 2); series themselves and any later-discovered referenced-only stub media have no
-    # mediaVersions at all, so nothing extra needs excluding here. A missing file is a
-    # LocalLibraryError, malformed/unexpected MediaInfo output is a MediaInfoError -- both propagate
-    # and abort the sync, same fail-loud treatment as everything else that doesn't match expectations.
+    # mediaVersions at all, so nothing extra needs excluding here.
     # Cropping/aspect-ratio detection (ScrapeCropping) runs immediately after, per file, rather than
     # as its own bulk pass -- it reuses this file's just-computed duration/width/height instead of a
     # separate ffmpeg probe, and interleaving keeps repeat reads of the same file close together in
     # time rather than walking the whole file list twice (both MediaInfo and ffmpeg are local-file
-    # reads, unlike the online scraping below). It fails loud the same way as MediaInfo above: a
-    # misbehaving ffmpeg is an FFmpegError, a result the bursts don't actually support with
-    # confidence is a CroppingError (needs a manual cropping.txt override -- see
-    # ScrapeCropping.__deriveCropping).
+    # reads, unlike the online scraping below).
     # Kaleidescape-sourced versions are skipped entirely -- there's no local file to analyze, just an
     # empty .kscape placeholder (see MediaVersion.isKaleidescapeOnly); duration/mediainfo_version/
     # format/width/height etc. stay None until a future online Kaleidescape scraper fills them in.
     # cropping gets a single (0,0,0,0) placeholder row instead, same reasoning as media_versions
-    # itself still getting a row -- there's simply nothing to detect yet.
-    # The size check below guards the one dangerous mismatch: a real, non-empty file whose source was
-    # mistakenly declared as kscape would otherwise have its analysis silently skipped rather than
-    # erroring (the reverse mismatch -- a .kscape-extension file with a non-kscape source -- already
-    # can't happen, since ScrapeLocal requires every .kscape file to be empty regardless of source).
+    # itself still getting a row -- there's simply nothing to detect yet. The size check guards the
+    # one dangerous mismatch: a real, non-empty file whose source was mistakenly declared as kscape
+    # would otherwise have its analysis silently skipped rather than flagged (the reverse mismatch --
+    # a .kscape-extension file with a non-kscape source -- already can't happen, since ScrapeLocal
+    # requires every .kscape file to be empty regardless of source).
+    # Unlike everything else in this pipeline, a failure here doesn't abort the whole sync: a missing
+    # file (LocalLibraryError, including the kscape-mismatch case above), malformed MediaInfo output
+    # (MediaInfoError), a misbehaving ffmpeg (FFmpegError), or an inconclusive cropping result
+    # (CroppingError) each only ever affect the one title they came from -- there's no reason a bad
+    # file for one title should block every other title in this run. So each is caught, printed as a
+    # warning, and that title (all its mediaVersions, not just the one that failed) is dropped from
+    # newlyAddedMediaDict rather than written this run. This needs no special handling downstream:
+    # a dropped title falls straight into the same "was in the wider newlyAddedMediaDictOriginal
+    # snapshot but isn't in the current set anymore" fallback step 10 already has for scrape-budget-
+    # excluded titles, and it's naturally retried as newly-added again on the next sync (still
+    # missing/still a referenced-only stub in the DB either way) -- self-healing for a transient
+    # problem, a recurring warning every run for a persistent one, same as ensureHelperDBFresh's own
+    # update-failure handling.
     mediaWithVersions = [m for m in newlyAddedMediaDict.values() if m.mediaVersions]
     if mediaWithVersions:
         printStep(6, "analyzing local media files with MediaInfo and detecting cropping")
@@ -233,18 +241,30 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                                      config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
                                      config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE,
                                      config.CROPPING_MINIMUM_DEVIATION)
+    excludedIDs = []
     for i, currentMedia in enumerate(mediaWithVersions, 1):
         printProgress(i, len(mediaWithVersions), currentMedia)
+        excluded = False
         for mediaVersion in currentMedia.mediaVersions:
-            if mediaVersion.isKaleidescapeOnly():
-                filepath = os.path.join(mediaDir, currentMedia.subdir, mediaVersion.filename)
-                if os.path.isfile(filepath) and os.path.getsize(filepath) > 0:
-                    raise LocalLibraryError("Kaleidescape-sourced file is not empty: " + filepath)
-                printDetail("  skipping Kaleidescape-owned file (no local file to analyze): " + filepath)
-                mediaVersion.cropping = [(0, 0, 0, 0)]
-                continue
-            scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
-            scrapeCropping.detectCropping(mediaDir, currentMedia.subdir, mediaVersion)
+            try:
+                if mediaVersion.isKaleidescapeOnly():
+                    filepath = os.path.join(mediaDir, currentMedia.subdir, mediaVersion.filename)
+                    if os.path.isfile(filepath) and os.path.getsize(filepath) > 0:
+                        raise LocalLibraryError("Kaleidescape-sourced file is not empty: " + filepath)
+                    printDetail("  skipping Kaleidescape-owned file (no local file to analyze): " + filepath)
+                    mediaVersion.cropping = [(0, 0, 0, 0)]
+                    continue
+                scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
+                scrapeCropping.detectCropping(mediaDir, currentMedia.subdir, mediaVersion)
+            except (LocalLibraryError, MediaInfoError, FFmpegError, CroppingError) as e:
+                printAlways("WARNING: skipping " + str(currentMedia.original_title) + " (" + currentMedia.getIDString() +
+                            ") this run -- MediaInfo/cropping analysis failed: " + str(e))
+                excluded = True
+                break
+        if excluded:
+            excludedIDs.append(currentMedia.imdb_id)
+    for imdb_id in excludedIDs:
+        del newlyAddedMediaDict[imdb_id]
 
     # 7. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 2) are excluded --
