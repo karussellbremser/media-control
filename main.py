@@ -205,7 +205,10 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # as its own bulk pass -- it reuses this file's just-computed duration/width/height instead of a
     # separate ffmpeg probe, and interleaving keeps repeat reads of the same file close together in
     # time rather than walking the whole file list twice (both MediaInfo and ffmpeg are local-file
-    # reads, unlike the online scraping below).
+    # reads, unlike the online scraping below). It fails loud the same way as MediaInfo above: a
+    # misbehaving ffmpeg is an FFmpegError, a result the bursts don't actually support with
+    # confidence is a CroppingError (needs a manual cropping.txt override -- see
+    # ScrapeCropping.__deriveCropping).
     # Kaleidescape-sourced versions are skipped entirely -- there's no local file to analyze, just an
     # empty .kscape placeholder (see MediaVersion.isKaleidescapeOnly); duration/mediainfo_version/
     # format/width/height etc. stay None until a future online Kaleidescape scraper fills them in.
@@ -216,7 +219,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # erroring (the reverse mismatch -- a .kscape-extension file with a non-kscape source -- already
     # can't happen, since ScrapeLocal requires every .kscape file to be empty regardless of source).
     if any(m.mediaVersions for m in newlyAddedMediaDict.values()):
-        printStep(6, "analyzing local media files with MediaInfo")
+        printStep(6, "analyzing local media files with MediaInfo and detecting cropping")
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
     scrapeCropping = ScrapeCropping(config.FFMPEG_PATH, config.CROPPING_BURST_FRAME_COUNT, config.CROPPING_RUNTIME_PERCENTAGES,
                                      config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
