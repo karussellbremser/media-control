@@ -533,6 +533,13 @@ class ScrapeIMDbOnline:
         # not a real parent, so that's tolerated below rather than treated as one.
         topLevelTypes = ("Genre", "Form", "Style")
 
+        # same reasoning as topLevelTypes above, one level down: IMDb labels a parented interest
+        # "Subgenre" for most, but "Technique" for e.g. Computer Animation (parent "Animation") --
+        # both behave identically here, just different IMDb labels for the same real-parent-category
+        # role, and classify() below already normalizes either one to the literal "Subgenre" in its
+        # return value, so nothing past this function needs to know which label IMDb actually used.
+        subgenreTypes = ("Subgenre", "Technique")
+
         def classify(interest_id, name):
             nonlocal navigatedAway
             navigatedAway = True
@@ -542,7 +549,7 @@ class ScrapeIMDbOnline:
                 const el = document.querySelector('[data-testid="interest-hero-type"]');
                 return el ? el.innerText.trim() : null;
             """)
-            if typeText not in topLevelTypes + ("Subgenre", "Language", "Franchise"):
+            if typeText not in topLevelTypes + subgenreTypes + ("Language", "Franchise"):
                 raise ScrapingError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
 
             if typeText == "Franchise":
