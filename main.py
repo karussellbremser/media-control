@@ -39,9 +39,10 @@ def printStep(number, description):
     do this run -- a run that finds nothing new stays short instead of listing all 15 steps
     unconditionally. Steps 7/8/9/12/15 print their own matching header instead (see
     ScrapeIMDbOnline.__printStepHeader), since each of those is owned by a single method there.
-    The fail-fast validation right after step 2 has no number of its own -- it never has anything
-    to print on success, only ever an exception on failure, so a step number for it would never
-    correspond to anything appearing in this output. Always printed, regardless of
+    The fail-fast validations right after step 2 (ignored/wontadd/web-provider checks) and right
+    after step 5 (checkTitleBasicsConsistency) have no number of their own -- neither ever has
+    anything to print on success, only ever an exception on failure, so a step number for either
+    would never correspond to anything appearing in this output. Always printed, regardless of
     config.VERBOSITY -- see verbosity.printAlways."""
     printAlways("\nStep " + str(number) + ": " + description)
 
@@ -202,6 +203,20 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
         printStep(5, "restricted to " + str(len(newlyAddedMediaDict)) + " title(s) this run (scrape budget = " +
                   str(config.SCRAPE_MAX_COUNT) + "; " + str(beforeBudgetCount - len(newlyAddedMediaDict)) + " deferred to a later sync)")
 
+    # created here rather than at step 11 (its previous, later spot) so checkTitleBasicsConsistency
+    # right below can use it too -- constructing it is free either way (see ScrapeIMDbOffline.__init__:
+    # the helper DB connection itself is only opened lazily, on first real query)
+    scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
+
+    # fail-fast, before any of the expensive per-title work below (steps 6-10) runs: catch a
+    # locally-owned title whose folder-parsed start_year (or movie/series/episode category) already
+    # disagrees with the offline dataset -- same check step 11's parseTitleBasics would eventually
+    # raise on anyway, just early enough to not waste this run's MediaInfo/cropping analysis and
+    # online scraping on titles that would only get discarded once that check ran. No step number of
+    # its own (see printStep's docstring) -- nothing to print on success, only ever an exception on
+    # failure.
+    scrapeimdboffline.checkTitleBasicsConsistency(newlyAddedMediaDict)
+
     # 6. run MediaInfo analysis on every file belonging to a title that's both newly added and
     # survived the scrape budget above -- movies' own mediaVersions, plus already-resolved episodes'
     # (from step 2); series themselves and any later-discovered referenced-only stub media have no
@@ -334,7 +349,6 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # for every person newly discovered in step 9's credits scrape (see ScrapeIMDbOffline.parsePeople).
     if newlyAddedMediaDict:
         printStep(11, "querying the offline dataset helper DB (ratings, basics, episode resolution, new people)")
-    scrapeimdboffline = ScrapeIMDbOffline(scrapeimdbonline, config.IMDB_HELPER_DB_PATH)
 
     newPeopleDict = {p.imdb_id: p for p in newPersonRegistrations}
     newPeopleDict = scrapeimdboffline.parsePeople(newPeopleDict)

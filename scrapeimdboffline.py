@@ -504,7 +504,13 @@ class ScrapeIMDbOffline:
             return "episode"
         return None
 
-    def __insertTitleBasics(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
+    def __checkTitleTypeAndYear(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
+        """Raises OfflineDatasetError if the dataset's title type or start_year for media_obj
+        disagrees with what's already known about it -- title type crossing its expected
+        movie/series/episode category (from local folder parsing, or already-resolved episode
+        membership), or start_year not matching the folder-parsed year. Never mutates media_obj.
+        Shared by __insertTitleBasics's authoritative check and checkTitleBasicsConsistency's
+        early fail-fast duplicate of it, so the two can never drift apart."""
         localTitleType = media_obj.titleType # result of local parsing (movie or series), or None for referenced-only media and episodes
         titleType = row[0]
         if ((localTitleType == "localMovie" and titleType not in Media.movieTitleTypes)
@@ -513,15 +519,42 @@ class ScrapeIMDbOffline:
             # the third condition catches title.basics.tsv disagreeing with title.episode.tsv about
             # whether this id is actually an episode (series_imdb_id is only ever set by parseTitleEpisode)
             raise OfflineDatasetError("title type " + titleType + " not acceptable for local parsing result " + str(localTitleType))
-        media_obj.titleType = titleType
-        media_obj.primary_title = row[1]
-        media_obj.original_title = row[2]
         if media_obj.start_year != None and media_obj.start_year != row[3]:
             raise OfflineDatasetError("start_year does not match for title " + media_obj.getIDString() + " " + row[2] + " (" + str(media_obj.start_year) + " vs. " + str(row[3]) + ")")
+
+    def __insertTitleBasics(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
+        self.__checkTitleTypeAndYear(media_obj, row)
+        media_obj.titleType = row[0]
+        media_obj.primary_title = row[1]
+        media_obj.original_title = row[2]
         media_obj.start_year = row[3]
         media_obj.end_year = row[4]
 
         return media_obj
+
+    def checkTitleBasicsConsistency(self, content_dict):
+        """Fail-fast pre-check for locally-owned media in content_dict (movies, series, and
+        already-resolved episodes -- identified by subdir being set): raises immediately if the
+        offline dataset already disagrees with what was parsed locally, without touching
+        content_dict at all. Meant to be called as early as possible (see main.py, right after
+        step 5's scrape-budget restriction) -- before any of the expensive local (MediaInfo/
+        ffmpeg) or online (IMDb page) scraping for this run's titles, none of which has any way to
+        know a title will end up rejected here anyway, so catching it this early avoids doing (and
+        then discarding) all that work for nothing.
+
+        Only locally-owned ids are checked -- referenced-only titles have no folder-parsed data to
+        protect, and aren't even discovered yet this early in main.py's pipeline anyway. An id
+        missing from the dataset entirely is left alone here too: that's the legitimate "flag for
+        online fallback" case, not an error, and stays exclusively parseTitleBasics's job at its
+        usual point in the pipeline. This is a pure duplicate of a subset of __insertTitleBasics's
+        checks (see __checkTitleTypeAndYear) -- parseTitleBasics still runs its own full,
+        authoritative pass later regardless of whether this ran first."""
+        localIDs = [imdb_id for imdb_id, x in content_dict.items() if x.subdir is not None]
+        if len(localIDs) == 0:
+            return
+        titlesById = self.__fetchTitles(localIDs)
+        for imdb_id, row in titlesById.items():
+            self.__checkTitleTypeAndYear(content_dict[imdb_id], row)
 
     def __insertTitleBasicsRefresh(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
         """Refreshes an already-known medium's basics against the current dataset. primary_title/
