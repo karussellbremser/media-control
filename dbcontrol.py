@@ -712,13 +712,16 @@ class DBControl:
 
     def refreshTitleBasics(self, mediaDict):
         """Writes back the fields ScrapeIMDbOffline.refreshTitleBasics may have updated in place --
-        titleType, primary_title, original_title, end_year. start_year is deliberately not included: it's
-        never allowed to change during a refresh (refreshTitleBasics raises before this would ever
-        see a differing value), so there's nothing for it to write back."""
+        titleType, primary_title, original_title, end_year, start_year. start_year is included
+        because it's no longer always immutable during a refresh: it stays fixed for a locally-owned
+        movie/series (refreshTitleBasics raises before this would ever see a differing value there),
+        but an episode or a referenced-only title's start_year can legitimately change (silently
+        updated, not raised -- see __insertTitleBasicsRefresh), and that new value needs to actually
+        land in the DB, not just live in the in-memory Media object for this run."""
         with self.conn:
             for imdbID, media in mediaDict.items():
-                self.c.execute("UPDATE media SET title_type_id=?, original_title=?, primary_title=?, end_year=? WHERE imdb_id=?",
-                                (self.__getTitleTypeIDByTitleTypeName(media.titleType), media.original_title, media.primary_title, media.end_year, imdbID))
+                self.c.execute("UPDATE media SET title_type_id=?, original_title=?, primary_title=?, end_year=?, start_year=? WHERE imdb_id=?",
+                                (self.__getTitleTypeIDByTitleTypeName(media.titleType), media.original_title, media.primary_title, media.end_year, media.start_year, imdbID))
 
     def refreshPeople(self, peopleDict):
         """Writes back name/birth_year/death_year for every Person in peopleDict -- the people

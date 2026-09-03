@@ -251,10 +251,13 @@ class ScrapeIMDbOffline:
 
     def refreshTitleBasics(self, content_dict):
         """Like refreshTitleRatings, but for title basics: primary_title/original_title/end_year are
-        silently updated to whatever the dataset currently says (titles get corrected, an airing
-        series' end_year becomes known once it concludes). titleType and start_year are treated as
-        near-immutable instead -- see __insertTitleBasicsRefresh for exactly what's allowed to
-        change and what raises OfflineDatasetError."""
+        always silently updated to whatever the dataset currently says (titles get corrected, an
+        airing series' end_year becomes known once it concludes). titleType is treated as
+        near-immutable for everything (may only move within its movie/series/episode category).
+        start_year is near-immutable only for a locally-owned movie/series -- for an episode or a
+        referenced-only title it's silently updated too, same as primary_title/original_title/
+        end_year. See __insertTitleBasicsRefresh for exactly what's allowed to change and what
+        raises OfflineDatasetError."""
         return self.__applyTitles(content_dict, mode="basics_refresh", remove_illegal=False)
 
     def parsePeople(self, content_dict):
@@ -561,10 +564,21 @@ class ScrapeIMDbOffline:
         original_title/end_year are silently updated. titleType may only change within the same
         category (movie/series/episode) it was already in -- e.g. "movie" -> "tvMovie" is fine,
         "movie" -> "tvSeries" is not, since that would mean this id fundamentally isn't the kind of
-        thing it was added as. start_year must not have changed at all. Any violation raises
-        OfflineDatasetError. An id with no matching row at all (gone missing, or now missing
-        titleType/primary_title/original_title/start_year, since it was first read) is left with its
-        previously-known fields unchanged -- __applyTitles simply never calls this for it."""
+        thing it was added as -- this always raises OfflineDatasetError on a violation, regardless
+        of ownership.
+
+        start_year is only held near-immutable for a locally-owned movie/series (subdir set,
+        series_imdb_id unset): its folder name (Title_Year_ttID) embeds the year, so a mismatch
+        there means the folder itself is now stale and needs a rename for a clean resolution --
+        still worth a hard, whole-refresh-aborting raise. Episodes (any ownership) and
+        referenced-only movies/series have no local folder year to protect -- an episode's local
+        path never encodes a year at all, and a referenced-only title's start_year only ever came
+        from the dataset itself in the first place -- so for those a changed start_year is just the
+        dataset's own correction, silently updated like primary_title/original_title/end_year.
+
+        An id with no matching row at all (gone missing, or now missing titleType/primary_title/
+        original_title/start_year, since it was first read) is left with its previously-known
+        fields unchanged -- __applyTitles simply never calls this for it."""
 
         titleType = row[0]
         oldCategory = self.__titleTypeCategory(media_obj.titleType)
@@ -576,8 +590,10 @@ class ScrapeIMDbOffline:
         media_obj.primary_title = row[1]
         media_obj.original_title = row[2]
 
-        if media_obj.start_year != row[3]:
+        isOwnedNonEpisode = media_obj.subdir is not None and media_obj.series_imdb_id is None
+        if isOwnedNonEpisode and media_obj.start_year != row[3]:
             raise OfflineDatasetError("start_year for " + media_obj.getIDString() + " changed from " + str(media_obj.start_year) + " to " + str(row[3]))
+        media_obj.start_year = row[3]
 
         media_obj.end_year = row[4]
 
