@@ -385,6 +385,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     if len(flaggedMediaDict) > 0:
         scrapeimdbonline.fillMissingBasics(flaggedMediaDict)
 
+        # an episode whose own IMDb page has no release year either (fillMissingBasics tolerates
+        # this, see its docstring) still needs *something* written -- media.start_year is NOT NULL --
+        # so it's approximated from the offline dataset instead (closest earlier sibling episode,
+        # else the series' own start_year; see approximateEpisodeStartYear)
+        for x in flaggedMediaDict.values():
+            if x.series_imdb_id is not None and x.start_year is None:
+                approxYear = scrapeimdboffline.approximateEpisodeStartYear(x.series_imdb_id, x.season_number, x.episode_number)
+                printAlways("WARNING: no release year found anywhere for episode " + str(x.original_title) + " (" + x.getIDString() +
+                            ") -- approximating start_year as " + str(approxYear))
+                x.start_year = approxYear
+
     # 13. finalize and write newly-added media (plus this run's new credits/people) to the DB
     if newlyAddedMediaDict:
         printStep(13, "finalizing and writing " + str(len(newlyAddedMediaDict)) + " newly-added title(s) to the DB")
@@ -393,6 +404,22 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     for x in newlyAddedMediaDict.values():
         if x.subdir == None:
             printDetail("  adding referenced-only: " + x.original_title + " (" + str(x.start_year) + ")")
+
+    # - propagate each episode's language_id from its parent series -- episodes are never scraped
+    # for their own language (step 7 excludes them; IMDb doesn't show a separate one per episode
+    # anyway), so without this every episode would default to English (language_id 0) regardless of
+    # the series' actual language. The parent series is either already in newlyAddedMediaDict (its
+    # language_id already set by step 7's scrapeMainPages, or left at Media.__init__'s default of 0
+    # if it's itself just a bare referenced-only/catalog-completeness stub -- consistent with such a
+    # stub having no other real data either), or it's an already-owned series not otherwise touched
+    # this run, in which case its language_id has to come from the DB instead (queried once, in a
+    # single batch, rather than per episode).
+    episodesThisRun = [x for x in newlyAddedMediaDict.values() if x.series_imdb_id is not None]
+    externalSeriesIDs = {x.series_imdb_id for x in episodesThisRun if x.series_imdb_id not in newlyAddedMediaDict}
+    externalSeriesLanguages = db.getLanguageIDs(externalSeriesIDs)
+    for x in episodesThisRun:
+        parentSeries = newlyAddedMediaDict.get(x.series_imdb_id)
+        x.language_id = parentSeries.language_id if parentSeries is not None else externalSeriesLanguages.get(x.series_imdb_id, 0)
 
     # - strip any dangling connection edges before writing. A referenced episode dropped above because
     # its series is ignored (step 11) is the known case: other kept items' mediaConnections can still
@@ -501,6 +528,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 if newEpisodeStubs:
                     newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
                     newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
+                    # same reasoning as step 13's own episode language_id propagation above -- these
+                    # stubs are never scraped for language either. Queried via the NoCommit variant
+                    # (rather than each readySeries object's own, possibly-stale in-memory value --
+                    # see readySeries' construction above) so a series added earlier in this very
+                    # transaction (step 13's write, just above) is reflected correctly too, same as
+                    # an already-owned one
+                    seriesLanguages = db._getLanguageIDsNoCommit({series.imdb_id for series in readySeries})
+                    for stub in newEpisodeStubs.values():
+                        stub.language_id = seriesLanguages.get(stub.series_imdb_id, 0)
                     seriesTitlesByID = {series.imdb_id: series.original_title for series in readySeries}
                     for episode_imdb_id, stub in newEpisodeStubs.items():
                         printDetail("  cataloging episode " + str(stub.original_title) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
@@ -575,6 +611,11 @@ def refreshTitleData():
                     stub.series_imdb_id = series.imdb_id
                     stub.season_number = season
                     stub.episode_number = episode
+                    # episodes inherit their parent series' language_id, same reasoning as
+                    # syncLocal's equivalent propagation -- mediaDict here is DB-loaded (see
+                    # getAllMovieObjects above), so series.language_id is already the real,
+                    # authoritative value, no extra lookup needed
+                    stub.language_id = series.language_id
                     newEpisodeStubs[episode_imdb_id] = stub
         if newEpisodeStubs:
             offline.parseTitleRatings(newEpisodeStubs)

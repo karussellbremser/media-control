@@ -455,10 +455,31 @@ class ScrapeIMDbOffline:
                 if mode == "basics" and x.titleType in (None, "localMovie", "localSeries"): # titleType still unset or still the local-scrape placeholder: no usable row was found in titles
                     if x.series_imdb_id is not None:
                         # known to be an episode via the episodes table, but missing from titles --
-                        # the two offline datasets disagree with each other. Always an error, regardless
-                        # of ownership (unlike movies/series, a referenced-only episode is never silently
-                        # discarded -- catalog completeness for a series' episodes is the whole point)
-                        raise OfflineDatasetError("episode " + x.getIDString() + " found in title.episode.tsv but missing usable data in title.basics.tsv")
+                        # the two offline datasets disagree with each other. A real, fairly common gap
+                        # in IMDb's own data (roughly 13% of all title.episode.tsv ids at the time of
+                        # writing, mostly obscure/foreign TV), not necessarily a genuine inconsistency,
+                        # so it's no longer treated as fatal for either ownership case:
+                        if x.subdir is not None:
+                            # locally-owned: same online-fallback treatment as a locally-owned
+                            # movie/series missing usable data (see the "else" branch below) --
+                            # ScrapeIMDbOnline.fillMissingBasics now supports episode pages too
+                            x.needsOnlineFallback = True
+                            continue
+                        # referenced-only (including a step 14/refreshTitleData catalog-completeness
+                        # stub): never discarded, unlike a referenced-only movie/series below --
+                        # catalog completeness for a series' episodes is the whole point. But no
+                        # online fallback either, that's reserved for locally-owned media (see
+                        # restrictToScrapeBudget/main.py step 5's docstring) -- approximate what
+                        # basics data we can instead of reaching for the network. primary_title/
+                        # original_title get a generic placeholder (the real title may simply not
+                        # exist anywhere yet, e.g. a very obscure or newly-listed episode); start_year
+                        # comes from approximateEpisodeStartYear. Both stay this way until a future
+                        # sync happens to find real data for this id (e.g. once IMDb catches up).
+                        x.titleType = "tvEpisode"
+                        x.primary_title = self.__genericEpisodeTitle(x)
+                        x.original_title = x.primary_title
+                        x.start_year = self.approximateEpisodeStartYear(x.series_imdb_id, x.season_number, x.episode_number)
+                        continue
                     if x.titleType == "localSeries":
                         # a locally-owned series missing usable data in titles: by this point its local
                         # episodes have already resolved successfully against the episodes table (see
@@ -495,6 +516,40 @@ class ScrapeIMDbOffline:
         media_obj.rating_mul10 = row[5]
         media_obj.num_votes = row[6]
         return media_obj
+
+    def __genericEpisodeTitle(self, media_obj):
+        """Generic placeholder primary_title/original_title for an episode missing usable data
+        everywhere (offline dataset and, for a referenced-only episode, no online fallback is even
+        attempted -- see __applyTitles). Numbered episodes get "Episode SxxEyy"; an unnumbered one
+        (season_number/episode_number both None -- IMDb itself has no number for it either) falls
+        back to its id instead, since there's no season/episode pair to show."""
+        if media_obj.season_number is not None and media_obj.episode_number is not None:
+            return "Episode S" + str(media_obj.season_number).zfill(2) + "E" + str(media_obj.episode_number).zfill(2)
+        return "Episode " + media_obj.getIDString()
+
+    def approximateEpisodeStartYear(self, series_imdb_id, season_number, episode_number):
+        """Best-effort start_year approximation for an episode missing usable data in
+        title.basics.tsv (but already known to exist via title.episode.tsv, i.e. already resolved
+        against the episodes table -- see parseTitleEpisode/main.py step 2): the start_year of the
+        closest earlier-numbered episode of the same series that DOES have a usable titles-table
+        row, since that's the closest real data point actually available. Falls back to the
+        series' own start_year (assumed to have a usable row itself, or this episode wouldn't have
+        been reachable at all) when no earlier episode qualifies either -- including for an
+        unnumbered episode, where "earlier" isn't well-defined in the first place. media.start_year
+        is NOT NULL, so this always returns a usable value rather than leaving it unresolved."""
+        c = self.__getCursor()
+        if season_number is not None and episode_number is not None:
+            c.execute("""SELECT t.start_year FROM episodes e JOIN titles t ON t.imdb_id = e.imdb_id
+                         WHERE e.parent_id = ? AND e.season_number IS NOT NULL AND e.episode_number IS NOT NULL
+                         AND (e.season_number < ? OR (e.season_number = ? AND e.episode_number < ?))
+                         ORDER BY e.season_number DESC, e.episode_number DESC LIMIT 1""",
+                      (series_imdb_id, season_number, season_number, episode_number))
+            row = c.fetchone()
+            if row is not None:
+                return row[0]
+        c.execute("SELECT start_year FROM titles WHERE imdb_id = ?", (series_imdb_id,))
+        row = c.fetchone()
+        return row[0] if row is not None else None
 
     def __titleTypeCategory(self, titleType):
         """Which of Media's three titleType lists titleType belongs to ("movie"/"series"/"episode"),

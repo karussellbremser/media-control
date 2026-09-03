@@ -816,6 +816,24 @@ class DBControl:
                 tuple(Media.movieTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
+    def getLanguageIDs(self, imdb_ids):
+        """Returns {imdb_id: language_id} for every id in imdb_ids currently in the media table --
+        an id not found (not yet added at all) simply isn't included. Used to propagate a series'
+        language_id to its episodes when the series itself isn't being written this same run (see
+        main.py's step 13), so it has to come from the DB rather than a freshly-rescanned Media
+        object's in-memory value. Public, self-committing -- see _getLanguageIDsNoCommit for the
+        variant used inside a caller-managed "with db.transaction():" block, needed where this must
+        see that same transaction's own not-yet-committed writes (see main.py's step 14)."""
+        with self.conn:
+            return self._getLanguageIDsNoCommit(imdb_ids)
+
+    def _getLanguageIDsNoCommit(self, imdb_ids):
+        imdb_ids = list(imdb_ids)
+        if len(imdb_ids) == 0:
+            return {}
+        self.c.execute("SELECT imdb_id, language_id FROM media WHERE imdb_id IN (" + ",".join("?" for _ in imdb_ids) + ")", imdb_ids)
+        return {row[0]: row[1] for row in self.c.fetchall()}
+
     def ensureLanguageExists(self, imdb_interest_id, name, description):
         """Insert a newly-discovered language interest into language_enum if not already known.
         Public, self-committing -- see ensureInterestExists for the NoCommit-variant convention."""

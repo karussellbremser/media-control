@@ -27,6 +27,7 @@ class ScrapeIMDbOnline:
         "TV Movie": "tvMovie",
         "TV Special": "tvSpecial",
         "TV Short": "tvShort",
+        "TV Episode": "tvEpisode",
     }
 
     def __init__(self, cover_directory, thumbnail_directory, delay = 0, maxCount = 0, profile_dir = None, headless = False, page_load_wait = 4):
@@ -252,15 +253,22 @@ class ScrapeIMDbOnline:
 
     def fillMissingBasics(self, mediaDict):
         """For locally-owned titles missing from the offline IMDb datasets (flagged via
-        needsOnlineFallback), scrapes titleType, primary_title, original_title, start_year
-        (cross-checked against the already-known local value), end_year, rating and vote
-        count from the title's main page. The locally-parsed folder name is not trusted as
-        a source for original_title; it's scraped from the page's separate "Original title:"
-        line when shown, or set equal to primary_title when it isn't (i.e. they're the same).
-        Vote counts abbreviated by IMDb (e.g. "7.7K") are accepted as an approximation
-        (printed to stdout when this happens) rather than an exact figure, since that's
-        all that's available once a title crosses IMDb's abbreviation threshold. Raises
-        on anything else unexpected."""
+        needsOnlineFallback -- movies/series, or now episodes too), scrapes titleType,
+        primary_title, original_title, start_year (cross-checked against the already-known local
+        value), end_year, rating and vote count from the title's main page. The locally-parsed
+        folder name is not trusted as a source for original_title; it's scraped from the page's
+        separate "Original title:" line when shown, or set equal to primary_title when it isn't
+        (i.e. they're the same). Vote counts abbreviated by IMDb (e.g. "7.7K") are accepted as an
+        approximation (printed to stdout when this happens) rather than an exact figure, since
+        that's all that's available once a title crosses IMDb's abbreviation threshold.
+
+        start_year is the one field allowed to come back empty, and only for an episode: a real,
+        if fairly common, IMDb gap for very obscure episodes (their own page shows no release year
+        anywhere at all) -- left as None rather than raised on, so the caller can approximate it
+        from the offline dataset instead (see ScrapeIMDbOffline.approximateEpisodeStartYear, used
+        by main.py step 12). A movie/series missing its year entirely is still unexpected and still
+        raises, same as every other field for every title type. Raises on anything else
+        unexpected."""
 
         if len(mediaDict) == 0:
             return
@@ -278,21 +286,26 @@ class ScrapeIMDbOnline:
 
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
-            # title type, from the document title's "(<type> <year>) - IMDb" suffix
-            localTitleType = currentMedia.titleType # "localMovie" or "localSeries", set during local scraping
+            # title type, from the document title's "(<type>[ <year>]) - IMDb" suffix -- the year is
+            # extracted separately below rather than folded into this same match, since it's not
+            # always present (see the release-year block further down)
+            localTitleType = currentMedia.titleType # "localMovie"/"localSeries" (set during local scraping), or None for an episode -- episodes never get a local-scrape placeholder, see Media.__init__
 
             docTitle = self.browser.execute_script("return document.title;")
-            match = re.search(r"\(([^()]*?)\d{4}(?:–\d{4})?\)\s*-\s*IMDb$", docTitle or "")
+            match = re.search(r"\(([^()]*)\)\s*-\s*IMDb$", docTitle or "")
             if not match:
-                raise ScrapingError("could not parse title type/year from document title: " + str(docTitle))
-            typeLabel = match.group(1).strip()
+                raise ScrapingError("could not parse title type from document title: " + str(docTitle))
+            parenContent = match.group(1).strip()
+            yearInTitleMatch = re.search(r"(\d{4})(?:–\d{4})?$", parenContent)
+            typeLabel = (parenContent[:yearInTitleMatch.start()] if yearInTitleMatch else parenContent).strip()
             if typeLabel not in self.titleTypeLabels:
                 raise ScrapingError("unknown title type label '" + typeLabel + "' for " + currentMedia.getIDString())
             scrapedTitleType = self.titleTypeLabels[typeLabel]
 
             if ((localTitleType == "localMovie" and scrapedTitleType not in Media.movieTitleTypes)
-                or (localTitleType == "localSeries" and scrapedTitleType not in Media.seriesTitleTypes)):
-                raise ScrapingError("title type " + scrapedTitleType + " not acceptable for local parsing result " + localTitleType)
+                or (localTitleType == "localSeries" and scrapedTitleType not in Media.seriesTitleTypes)
+                or (currentMedia.series_imdb_id is not None and scrapedTitleType not in Media.episodeTitleTypes)):
+                raise ScrapingError("title type " + scrapedTitleType + " not acceptable for local parsing result " + str(localTitleType))
 
             currentMedia.titleType = scrapedTitleType
 
@@ -327,19 +340,26 @@ class ScrapeIMDbOnline:
             else:
                 currentMedia.original_title = primary_title
 
-            # release year, cross-checked against the already-known (locally-parsed) year
+            # release year, cross-checked against the already-known (locally-parsed) year. Missing
+            # entirely (no releaseinfo link at all) is tolerated only for an episode -- the same
+            # real, if fairly common, IMDb gap mentioned in this method's docstring; left as None
+            # for the caller to approximate instead (see ScrapeIMDbOffline.approximateEpisodeStartYear).
+            # A movie/series missing it entirely is still unexpected and still raises.
             yearLinks = self.browser.execute_script("""
                 const hero = document.querySelector('[data-testid="hero-parent"]');
                 if (!hero) return null;
                 return Array.from(hero.querySelectorAll('a[href*="/releaseinfo"]')).map(a => a.innerText.trim());
             """)
-            if yearLinks is None or len(yearLinks) != 1 or not re.fullmatch(r"\d{4}", yearLinks[0]):
+            if yearLinks is None or len(yearLinks) > 1 or (len(yearLinks) == 1 and not re.fullmatch(r"\d{4}", yearLinks[0])):
                 raise ScrapingError("could not uniquely determine release year for " + currentMedia.getIDString() + ": " + str(yearLinks))
-            scrapedYear = int(yearLinks[0])
-            if currentMedia.start_year is not None and currentMedia.start_year != scrapedYear:
-                raise ScrapingError("start_year mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.start_year) + " vs scraped=" + str(scrapedYear))
-            currentMedia.start_year = scrapedYear
-            currentMedia.end_year = None # movies only; series are not supported
+            if len(yearLinks) == 1:
+                scrapedYear = int(yearLinks[0])
+                if currentMedia.start_year is not None and currentMedia.start_year != scrapedYear:
+                    raise ScrapingError("start_year mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.start_year) + " vs scraped=" + str(scrapedYear))
+                currentMedia.start_year = scrapedYear
+            elif scrapedTitleType not in Media.episodeTitleTypes:
+                raise ScrapingError("could not find a release year for " + currentMedia.getIDString())
+            currentMedia.end_year = None # movies/episodes only; series are not supported
 
             # rating and vote count
             scoreText = self.browser.execute_script("""
