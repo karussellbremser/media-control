@@ -80,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 	function formatYearRange(startYear, endYear, isSeries) {
 		if (!isSeries) return startYear ?? '—';
+		if (endYear === startYear) return String(startYear);
 		return startYear + ' -' + (endYear ? ' ' + endYear : '');
 	}
 
