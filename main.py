@@ -233,6 +233,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # missing/still a referenced-only stub in the DB either way) -- self-healing for a transient
     # problem, a recurring warning every run for a persistent one, same as ensureHelperDBFresh's own
     # update-failure handling.
+    # If every one of a series' newly-added episodes fails this way, the series itself is dropped
+    # too -- otherwise it would still get written as locally-owned (subdir set) with zero episodes,
+    # a state nothing else in this codebase can otherwise produce. No extra "is it already locally
+    # owned" check needed: determineNewlyAddedMedia already guarantees a series still present in
+    # newlyAddedMediaDict at this point isn't -- an already-owned series never enters this dict in
+    # the first place (its DB row already has subdir set, so it never looks "newly added"). And no
+    # need to track what a series started step 6 with either: restrictToScrapeBudget's own per-
+    # series-unit rule guarantees a series never reaches step 6 with only some of its episodes
+    # present, so "zero episodes remain" is checkable directly against the current dict.
     mediaWithVersions = [m for m in newlyAddedMediaDict.values() if m.mediaVersions]
     if mediaWithVersions:
         printStep(6, "analyzing local media files with MediaInfo and detecting cropping")
@@ -265,6 +274,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
             excludedIDs.append(currentMedia.imdb_id)
     for imdb_id in excludedIDs:
         del newlyAddedMediaDict[imdb_id]
+
+    affectedSeriesIDs = {m.series_imdb_id for m in mediaWithVersions if m.imdb_id in excludedIDs and m.series_imdb_id is not None}
+    for series_id in affectedSeriesIDs:
+        series = newlyAddedMediaDict.get(series_id)
+        if series is not None and not any(m.series_imdb_id == series_id for m in newlyAddedMediaDict.values()):
+            printAlways("WARNING: excluding series " + str(series.original_title) + " (" + series.getIDString() +
+                        ") this run -- all of its newly-added episodes failed analysis")
+            del newlyAddedMediaDict[series_id]
 
     # 7. scrape main pages of newly added media: download covers if missing, scrape interests/language.
     # episodes (identified here by series_imdb_id already being set, from step 2) are excluded --
