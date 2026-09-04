@@ -28,6 +28,6 @@ def printPerson(msg):
 def printVerbose(msg):
     """Printed only once config.VERBOSITY >= LEVEL_VERBOSE -- fine-grained diagnostic detail other
     than person additions (see printPerson), e.g. ScrapeCropping's per-burst measurements and final
-    decision."""
+    decision, or main.py step 14's per-episode catalog-completion lines."""
     if config.VERBOSITY >= LEVEL_VERBOSE:
         print(msg)

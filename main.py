@@ -8,7 +8,7 @@ from scrapemediainfo import ScrapeMediaInfo
 from scrapecropping import ScrapeCropping
 from statistics import Statistics
 from exceptions import LocalLibraryError, OfflineDatasetError, MediaInfoError, FFmpegError, CroppingError
-from verbosity import printAlways, printDetail, printPerson
+from verbosity import printAlways, printDetail, printPerson, printVerbose
 import config
 import getopt, os, sys, time
 
@@ -539,7 +539,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                         stub.language_id = seriesLanguages.get(stub.series_imdb_id, 0)
                     seriesTitlesByID = {series.imdb_id: series.original_title for series in readySeries}
                     for episode_imdb_id, stub in newEpisodeStubs.items():
-                        printDetail("  cataloging episode " + str(stub.original_title) + " (" + stub.getIDString() + ") of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
+                        # verbosity level 2, not 1: this can print dozens of lines per series for a
+                        # large catalog completion, same reasoning as printPerson. Deliberately
+                        # never mentions the episode's own title -- only the parent series and its
+                        # season/episode position (or, for an unnumbered episode, its id, since
+                        # there's no season/episode position to show instead)
+                        episodeLabel = ("S" + str(stub.season_number).zfill(2) + "E" + str(stub.episode_number).zfill(2)
+                                        if stub.season_number is not None else stub.getIDString())
+                        printVerbose("  cataloging episode " + episodeLabel + " of " + str(seriesTitlesByID.get(stub.series_imdb_id, stub.series_imdb_id)))
                     db._addMultipleMediaNoCommit(newEpisodeStubs)
 
     # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
