@@ -96,7 +96,7 @@ class ScrapeMediaInfo:
         mediaVersion.chroma_subsampling = video.get("ChromaSubsampling")
         mediaVersion.chroma_subsampling_position = video.get("ChromaSubsampling_Position")
         mediaVersion.bit_depth = self.__int_or_none(video.get("BitDepth"))
-        mediaVersion.interlaced = self.__parseEnum(video.get("ScanType"), {"Interlaced": 1, "Progressive": 0}, "ScanType", filepath)
+        mediaVersion.scan_type = video.get("ScanType")
         mediaVersion.language = video.get("Language")
         mediaVersion.title = video.get("Title")
         mediaVersion.color_description_present = self.__parseEnum(video.get("colour_description_present"), {"Yes": 1, "No": 0}, "colour_description_present", filepath)

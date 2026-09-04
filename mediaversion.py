@@ -60,7 +60,7 @@ class MediaVersion:
         self.chroma_subsampling = None
         self.chroma_subsampling_position = None
         self.bit_depth = None
-        self.interlaced = None # ScanType ("Interlaced"/"Progressive") -- 1 = interlaced, 0 = progressive
+        self.scan_type = None # MediaInfo's raw ScanType value (e.g. "Progressive", "Interlaced", "MBAFF", "PAFF"), stored as-is -- not an enum, MediaInfo's own set of possible values isn't fully known/stable enough to validate against
         self.language = None
         self.title = None
         self.color_description_present = None # MediaInfo's own field is "colour_description_present"
