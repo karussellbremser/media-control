@@ -1,4 +1,4 @@
-import requests, re, time, random, math
+import requests, re, time, random, math, atexit
 from bs4 import BeautifulSoup
 import os.path
 from seleniumbase import Driver
@@ -10,6 +10,23 @@ from imdbinterestid import parseInterestID, formatInterestID
 from exceptions import ScrapingError
 from verbosity import printAlways, printDetail
 from PIL import Image
+
+# every ScrapeIMDbOnline instance registers itself here (see __init__) so _closeAllBrowsers can
+# sweep up any still-open Chrome/chromedriver process at interpreter shutdown -- the only reliable
+# backstop against a KeyboardInterrupt (or any other unhandled exception) skipping past a
+# call site's normal cleanup. atexit callbacks are guaranteed to run during Python's shutdown
+# sequence -- including after an unhandled exception has finished propagating to the top -- and,
+# crucially, while modules like logging are still fully intact, unlike a bare __del__ fired late by
+# the garbage collector (the likely cause of the "Exception ignored in __del__" / TypeError-from-
+# already-torn-down-logging failures observed from undetected-chromedriver's own quit() elsewhere
+# in this codebase).
+_activeBrowsers = []
+
+def _closeAllBrowsers():
+    for instance in list(_activeBrowsers):
+        instance.close()
+
+atexit.register(_closeAllBrowsers)
 
 class ScrapeIMDbOnline:
 
@@ -44,6 +61,8 @@ class ScrapeIMDbOnline:
         # needs to scrape anything online (nothing newly added) never has to launch Chrome at all
         self.browser = None
 
+        _activeBrowsers.append(self) # see _closeAllBrowsers' docstring-equivalent comment above
+
     def __launchBrowser(self, headless):
         # user_data_dir reuses cookies/session state across runs (created automatically by Chrome
         # if missing, safe to pass through even when self.profile_dir is None -- that's
@@ -77,15 +96,27 @@ class ScrapeIMDbOnline:
         # ever shaped like this.
         return bool(re.fullmatch(r"\d{3} [A-Za-z ]+", self.browser.title))
 
+    def __quitBrowser(self):
+        """Best-effort self.browser.quit() -- never lets a failure here propagate, since
+        undetected-chromedriver's own quit() has been observed to raise on its own (e.g. against
+        already-torn-down interpreter state late in shutdown). Shared by close() and
+        __handleHumanVerification's mid-flow browser restarts, so a quit() failure can't abort
+        either -- one browser failing to close cleanly shouldn't stop a restart (or the cleanup of
+        any other still-open instance) from proceeding."""
+        try:
+            self.browser.quit()
+        except Exception as e:
+            printAlways("WARNING: failed to cleanly close the browser: " + str(e))
+
     def __handleHumanVerification(self, url):
         printAlways("Human verification required -- reopening the browser so you can solve it...")
-        self.browser.quit()
+        self.__quitBrowser()
         self.browser = self.__launchBrowser(False)
         self.browser.get(url)
         input("Solve the verification in the browser window, then press Enter here to continue...")
         if self.__isHumanVerificationPage():
             raise ScrapingError("human verification still present after manual solve attempt")
-        self.browser.quit()
+        self.__quitBrowser()
         self.browser = self.__launchBrowser(self.headless)
         self.browser.get(url)
         time.sleep(self.page_load_wait)
@@ -106,9 +137,21 @@ class ScrapeIMDbOnline:
         if self.__isHumanVerificationPage():
             self.__handleHumanVerification(url)
 
-    def __del__(self):
+    def close(self):
+        """Closes the browser, if one was ever launched -- the one real cleanup path, safe to call
+        more than once (via an explicit call, __del__, and/or _closeAllBrowsers' atexit sweep, in
+        whatever order they happen to fire). Never lets a failure here propagate or block cleanup
+        of any other still-open instance: undetected-chromedriver's own quit() has been observed to
+        raise on its own (e.g. against already-torn-down interpreter state late in shutdown), and
+        one browser failing to close cleanly shouldn't stop the rest from being tried."""
         if self.browser is not None:
-            self.browser.quit()
+            self.__quitBrowser()
+            self.browser = None
+        if self in _activeBrowsers:
+            _activeBrowsers.remove(self)
+
+    def __del__(self):
+        self.close()
 
     def __printStepHeader(self, number, description):
         """Prints a step-header line matching main.py's syncLocal step numbering, for the steps

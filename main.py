@@ -574,7 +574,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 kind = "series" if v.titleType in seriesTitleTypesLocal else "non-English movie"
                 printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.original_title) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
 
-    del scrapeimdbonline
+    scrapeimdbonline.close()
 
     referencedOnlyMedia = db.getReferencedOnlyMedia()
     printAlways("\nSync complete. To-be-added media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
@@ -736,3 +736,8 @@ try:
             DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).forceBackup()
 except getopt.error as err:
     print(str(err))
+except KeyboardInterrupt:
+    # clean message instead of a raw traceback -- actual cleanup (closing any still-open browser)
+    # happens regardless, via ScrapeIMDbOnline's atexit-registered safety net, not anything here
+    print("\nInterrupted.")
+    sys.exit(130)
