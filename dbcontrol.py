@@ -1250,14 +1250,16 @@ class DBControl:
 
     def getReferencedOnlyMedia(self):
         """Referenced-only media (subdir IS NULL) that's actually still a to-be-added candidate --
-        excludes anything on wontadd_ids itself (its own id directly listed, meaning no more effort
-        is planned for it specifically). Does NOT exclude a referenced-only episode merely because
-        its parent series is on wontadd_ids -- see DBControl.enforceIgnoredAndWontaddIDs's
-        docstring: wontadd_ids on a series only means no more of its episodes are being actively
-        pursued, not that ones already catalogued as referenced-only should stop counting."""
+        excludes anything on wontadd_ids itself (its own id directly listed), and also excludes a
+        referenced-only episode whose PARENT series is on wontadd_ids: per
+        DBControl.enforceIgnoredAndWontaddIDs's docstring, wontadd_ids on a series means no more of
+        its episodes are being pursued, so an unowned one is exactly as not-to-be-added as if it
+        were listed directly."""
         with self.conn:
             self.c.execute("""SELECT original_title, start_year, rating_mul10, num_votes FROM media
-                WHERE subdir IS NULL AND imdb_id NOT IN (SELECT imdb_id FROM wontadd_ids)
+                WHERE subdir IS NULL
+                AND imdb_id NOT IN (SELECT imdb_id FROM wontadd_ids)
+                AND (series_imdb_id IS NULL OR series_imdb_id NOT IN (SELECT imdb_id FROM wontadd_ids))
                 ORDER BY num_votes DESC""")
             return(self.c.fetchall())
 
