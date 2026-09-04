@@ -210,7 +210,7 @@ def index():
 
     conn.close()
     return render_template('index.html', genres=genres, interestGroups=interestGroups, languages=languages,
-                            curtain_enabled=config.CURTAIN_ANIMATION_ENABLED)
+                            curtain_enabled=config.CURTAIN_ANIMATION_ENABLED, curtain_style=config.CURTAIN_STYLE)
 
 @server.route('/search')
 def search():

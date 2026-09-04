@@ -427,11 +427,51 @@
 		#curtainOverlay.open #curtainSkipHint {
 			opacity: 0;
 		}
+
+		/* "reserved" curtain look: same fold/valance shape as classic (still reads as a curtain),
+		   recolored to a warm greige that echoes the page's own light-gray palette (#dcdcdc)
+		   instead of red velvet/gold -- restraint in material, not in form */
+		#curtainOverlay.reserved .curtainPanel {
+			background-image:
+				repeating-linear-gradient(
+					100deg,
+					#c7bfae 0px, #c7bfae 16px,
+					#b0a794 16px, #b0a794 30px,
+					#988e79 30px, #988e79 44px
+				),
+				radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.15), rgba(0,0,0,0) 60%);
+			box-shadow: 0 0 60px 10px rgba(60,50,35,0.3) inset;
+		}
+
+		#curtainOverlay.reserved #curtainLeft {
+			border-right-color: rgba(60,50,35,0.25);
+		}
+
+		#curtainOverlay.reserved #curtainRight {
+			border-left-color: rgba(60,50,35,0.25);
+		}
+
+		#curtainOverlay.reserved .curtainPanel::after {
+			background: linear-gradient(to right, rgba(60,50,35,0.2), rgba(0,0,0,0));
+		}
+
+		#curtainOverlay.reserved #curtainRight::after {
+			background: linear-gradient(to left, rgba(60,50,35,0.2), rgba(0,0,0,0));
+		}
+
+		#curtainOverlay.reserved #curtainValance {
+			background: linear-gradient(to bottom, #ab9f89, #7d735f);
+			clip-path: none;
+		}
+
+		#curtainOverlay.reserved #curtainSkipHint {
+			color: rgba(60,50,35,0.45);
+		}
     </style>
 </head>
 <body>
 	{% if curtain_enabled %}
-	<div id="curtainOverlay">
+	<div id="curtainOverlay"{% if curtain_style == 'reserved' %} class="reserved"{% endif %}>
 		<div class="curtainPanel" id="curtainLeft"></div>
 		<div class="curtainPanel" id="curtainRight"></div>
 		<div id="curtainValance"></div>

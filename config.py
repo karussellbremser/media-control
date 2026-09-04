@@ -57,5 +57,8 @@ VERBOSITY = _config.getint("output", "verbosity")
 SERVER_HOST = _config["server"]["host"]
 SERVER_PORT = _config.getint("server", "port")
 CURTAIN_ANIMATION_ENABLED = _config.getboolean("server", "curtain_animation")
+CURTAIN_STYLE = _config["server"]["curtain_style"]
+if CURTAIN_STYLE not in ("classic", "reserved"):
+    sys.exit("config.ini: [server] curtain_style must be 'classic' or 'reserved', got '" + CURTAIN_STYLE + "'")
 
 WEB_PROVIDERS = dict(_config.items("web_providers"))
