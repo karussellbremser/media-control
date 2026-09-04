@@ -262,13 +262,15 @@ class ScrapeIMDbOnline:
         approximation (printed to stdout when this happens) rather than an exact figure, since
         that's all that's available once a title crosses IMDb's abbreviation threshold.
 
-        start_year is the one field allowed to come back empty, and only for an episode: a real,
-        if fairly common, IMDb gap for very obscure episodes (their own page shows no release year
-        anywhere at all) -- left as None rather than raised on, so the caller can approximate it
-        from the offline dataset instead (see ScrapeIMDbOffline.approximateEpisodeStartYear, used
-        by main.py step 12). A movie/series missing its year entirely is still unexpected and still
-        raises, same as every other field for every title type. Raises on anything else
-        unexpected."""
+        start_year normally comes from a releaseinfo link; for an episode specifically, a plain
+        "Episode aired <date>" list item is tried as a fallback when that link isn't there (seen on
+        older/anthology-series episodes), and start_year is the one field allowed to come back
+        empty when even that isn't present either -- a real, if fairly common, IMDb gap for very
+        obscure episodes (their own page shows no release year anywhere at all) -- left as None
+        rather than raised on, so the caller can approximate it from the offline dataset instead
+        (see ScrapeIMDbOffline.approximateEpisodeStartYear, used by main.py step 12). A movie/series
+        missing its year entirely is still unexpected and still raises, same as every other field
+        for every title type. Raises on anything else unexpected."""
 
         if len(mediaDict) == 0:
             return
@@ -340,11 +342,13 @@ class ScrapeIMDbOnline:
             else:
                 currentMedia.original_title = primary_title
 
-            # release year, cross-checked against the already-known (locally-parsed) year. Missing
-            # entirely (no releaseinfo link at all) is tolerated only for an episode -- the same
-            # real, if fairly common, IMDb gap mentioned in this method's docstring; left as None
-            # for the caller to approximate instead (see ScrapeIMDbOffline.approximateEpisodeStartYear).
-            # A movie/series missing it entirely is still unexpected and still raises.
+            # release year, cross-checked against the already-known (locally-parsed) year. Two
+            # different layouts have been seen for an episode's year when there's no releaseinfo
+            # link: a plain "Episode aired <date>" list item (tried as a fallback below -- seen on
+            # older/anthology-series episodes), or nothing at all (left as None for the caller to
+            # approximate instead, see ScrapeIMDbOffline.approximateEpisodeStartYear). Either
+            # fallback is tolerated only for an episode -- a movie/series missing it entirely is
+            # still unexpected and still raises.
             yearLinks = self.browser.execute_script("""
                 const hero = document.querySelector('[data-testid="hero-parent"]');
                 if (!hero) return null;
@@ -352,13 +356,31 @@ class ScrapeIMDbOnline:
             """)
             if yearLinks is None or len(yearLinks) > 1 or (len(yearLinks) == 1 and not re.fullmatch(r"\d{4}", yearLinks[0])):
                 raise ScrapingError("could not uniquely determine release year for " + currentMedia.getIDString() + ": " + str(yearLinks))
+
+            scrapedYear = None
             if len(yearLinks) == 1:
                 scrapedYear = int(yearLinks[0])
+            elif scrapedTitleType in Media.episodeTitleTypes:
+                episodeAiredLines = self.browser.execute_script("""
+                    const hero = document.querySelector('[data-testid="hero-parent"]');
+                    if (!hero) return null;
+                    return Array.from(hero.querySelectorAll('li')).map(el => el.textContent.trim())
+                        .filter(t => t.startsWith('Episode aired'));
+                """)
+                if episodeAiredLines is None or len(episodeAiredLines) > 1:
+                    raise ScrapingError("could not uniquely determine 'Episode aired' text for " + currentMedia.getIDString() + ": " + str(episodeAiredLines))
+                if len(episodeAiredLines) == 1:
+                    yearMatch = re.search(r"(\d{4})$", episodeAiredLines[0])
+                    if not yearMatch:
+                        raise ScrapingError("could not parse a year from 'Episode aired' text for " + currentMedia.getIDString() + ": " + episodeAiredLines[0])
+                    scrapedYear = int(yearMatch.group(1))
+            else:
+                raise ScrapingError("could not find a release year for " + currentMedia.getIDString())
+
+            if scrapedYear is not None:
                 if currentMedia.start_year is not None and currentMedia.start_year != scrapedYear:
                     raise ScrapingError("start_year mismatch for " + currentMedia.getIDString() + ": local=" + str(currentMedia.start_year) + " vs scraped=" + str(scrapedYear))
                 currentMedia.start_year = scrapedYear
-            elif scrapedTitleType not in Media.episodeTitleTypes:
-                raise ScrapingError("could not find a release year for " + currentMedia.getIDString())
             currentMedia.end_year = None # movies/episodes only; series are not supported
 
             # rating and vote count
