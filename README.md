@@ -70,6 +70,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 
 **`[server]`**
 - `host` / `port` — for the Flask web server
+- `curtain_animation` — whether a theater-curtain-opening animation plays on page load (real loads only, never on an in-place filter/search/sort update)
 
 **`[web_providers]`**
 - abbreviation-to-full-name mappings for streaming/purchase sources you track

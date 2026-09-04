@@ -56,5 +56,6 @@ VERBOSITY = _config.getint("output", "verbosity")
 
 SERVER_HOST = _config["server"]["host"]
 SERVER_PORT = _config.getint("server", "port")
+CURTAIN_ANIMATION_ENABLED = _config.getboolean("server", "curtain_animation")
 
 WEB_PROVIDERS = dict(_config.items("web_providers"))

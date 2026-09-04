@@ -3,7 +3,10 @@
 <head>
     <title>My Movies</title>
 	<script src="/static/search.js" defer></script>
-	
+	{% if curtain_enabled %}
+	<script src="/static/curtain.js" defer></script>
+	{% endif %}
+
 	<style>
         body {
             margin: 0;
@@ -329,9 +332,112 @@
 		.content {
 			transition: margin-left 0.2s ease, width 0.2s ease;
 		}
+
+		/* theater curtain (see static/curtain.js) -- only ever plays on a real page load, never on
+		   an in-place filter/search/sort update, since those don't reload the page at all */
+		#curtainOverlay {
+			position: fixed;
+			inset: 0;
+			z-index: 9999;
+			overflow: hidden;
+		}
+
+		#curtainOverlay.finished {
+			display: none;
+		}
+
+		.curtainPanel {
+			position: absolute;
+			top: 0;
+			bottom: 0;
+			width: 52%;
+			background-image:
+				repeating-linear-gradient(
+					100deg,
+					#5c0f14 0px, #5c0f14 16px,
+					#74151b 16px, #74151b 30px,
+					#4d0b10 30px, #4d0b10 44px
+				),
+				radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.12), rgba(0,0,0,0) 60%);
+			box-shadow: 0 0 60px 10px rgba(0,0,0,0.55) inset;
+			transition: transform 1.15s cubic-bezier(0.65, 0, 0.35, 1);
+		}
+
+		.curtainPanel::after {
+			content: "";
+			position: absolute;
+			top: 0; bottom: 0; width: 24px;
+			background: linear-gradient(to right, rgba(0,0,0,0.45), rgba(0,0,0,0));
+		}
+
+		#curtainLeft {
+			left: 0;
+			border-right: 2px solid rgba(0,0,0,0.35);
+		}
+
+		#curtainLeft::after { right: 0; }
+
+		#curtainRight {
+			right: 0;
+			border-left: 2px solid rgba(0,0,0,0.35);
+		}
+
+		#curtainRight::after {
+			left: 0;
+			background: linear-gradient(to left, rgba(0,0,0,0.45), rgba(0,0,0,0));
+		}
+
+		#curtainOverlay.open #curtainLeft { transform: translateX(-102%); }
+		#curtainOverlay.open #curtainRight { transform: translateX(102%); }
+
+		#curtainValance {
+			position: absolute;
+			top: 0; left: 0; right: 0;
+			height: 46px;
+			background: linear-gradient(to bottom, #caa23a, #8a6a1e);
+			z-index: 2;
+			clip-path: polygon(
+				0% 0%, 100% 0%, 100% 70%,
+				95% 100%, 90% 70%, 85% 100%, 80% 70%,
+				75% 100%, 70% 70%, 65% 100%, 60% 70%,
+				55% 100%, 50% 70%, 45% 100%, 40% 70%,
+				35% 100%, 30% 70%, 25% 100%, 20% 70%,
+				15% 100%, 10% 70%, 5% 100%, 0% 70%
+			);
+			transition: transform 0.9s ease-in, opacity 0.5s ease-in 0.5s;
+		}
+
+		#curtainOverlay.open #curtainValance {
+			transform: translateY(-100%);
+			opacity: 0;
+		}
+
+		#curtainSkipHint {
+			position: absolute;
+			bottom: 24px;
+			left: 50%;
+			transform: translateX(-50%);
+			color: rgba(255,255,255,0.75);
+			font-size: 13px;
+			letter-spacing: 0.5px;
+			z-index: 3;
+			transition: opacity 0.3s ease;
+		}
+
+		#curtainOverlay.open #curtainSkipHint {
+			opacity: 0;
+		}
     </style>
 </head>
 <body>
+	{% if curtain_enabled %}
+	<div id="curtainOverlay">
+		<div class="curtainPanel" id="curtainLeft"></div>
+		<div class="curtainPanel" id="curtainRight"></div>
+		<div id="curtainValance"></div>
+		<div id="curtainSkipHint">click to skip</div>
+	</div>
+	{% endif %}
 	<div class="container">
 
     <!-- left side -->
