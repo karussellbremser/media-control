@@ -122,8 +122,8 @@ class ScrapeMediaInfo:
             format_additional_features=track.get("Format_AdditionalFeatures"),
             matrix_format=track.get("Matrix_Format"),
             variable_bitrate=self.__parseEnum(track.get("BitRate_Mode"), {"VBR": 1, "CBR": 0}, "BitRate_Mode", filepath),
-            bitrate=self.__int_or_none(track.get("BitRate")),
-            bitrate_maximum=self.__int_or_none(track.get("BitRate_Maximum")),
+            bitrate=self.__parseBitRate(track.get("BitRate")),
+            bitrate_maximum=self.__parseBitRate(track.get("BitRate_Maximum")),
             channels=self.__int_or_none(track.get("Channels")),
             matrix_channels=self.__int_or_none(track.get("Matrix_Channels")), # unverified key name -- no real
                                                                                # matrixed-audio example seen yet
@@ -156,6 +156,19 @@ class ScrapeMediaInfo:
 
     def __int_or_none(self, value):
         return int(value) if value is not None else None
+
+    def __parseBitRate(self, value):
+        """Like __int_or_none, but for an audio track's BitRate/BitRate_Maximum specifically:
+        tolerates MediaInfo's "nominal / measured" dual-value format, seen for some uncompressed/
+        PCM tracks (e.g. "4608000 / 4607975") -- the nominal figure is just
+        SamplingRate * BitDepth * Channels (already captured by those fields separately), so the
+        measured (second) value is kept, the real bitrate figure not otherwise recorded. Audio-only
+        deliberately: a compressed video track's BitRate isn't expected to ever take this shape, so
+        __int_or_none's plain int() is left to raise on anything unexpected there instead of
+        silently reinterpreting it under an assumption that may not even apply."""
+        if isinstance(value, str) and "/" in value:
+            value = value.split("/")[-1].strip()
+        return self.__int_or_none(value)
 
     def __float_or_none(self, value):
         return float(value) if value is not None else None
