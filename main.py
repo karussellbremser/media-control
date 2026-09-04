@@ -477,8 +477,12 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
 
         # 14. for every series that had something new happen to it this run (the series itself newly
         # added, or at least one of its locally-resolved episodes newly added -- checked against
-        # newlyAddedMediaDictOriginal, the snapshot of what was missing from the DB at the start of this
-        # sync), make sure its FULL episode catalog (per title.episode.tsv) is represented in the DB
+        # newlyAddedMediaDict, the FINAL set actually written by step 13 just above, not
+        # newlyAddedMediaDictOriginal's wider pre-budget snapshot from step 4: a locally-scanned
+        # episode that the scrape budget deferred to a later sync hasn't actually changed anything
+        # for its series yet, so it shouldn't trigger this early either -- it'll correctly trigger
+        # catalog completion once it's actually written, on whichever sync that ends up being),
+        # make sure its FULL episode catalog (per title.episode.tsv) is represented in the DB
         # now -- not just the locally-owned episodes resolved in step 2. Every other episode of these
         # series gets a referenced-only stub instead, so the DB always reflects which episodes exist for
         # a partially-owned series and which of those are actually owned, without waiting for a
@@ -506,8 +510,8 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 if m.series_imdb_id is not None:
                     localEpisodeIDsBySeriesID.setdefault(m.series_imdb_id, []).append(m.imdb_id)
             touchedSeries = [series for series in localSeries
-                              if series.imdb_id in newlyAddedMediaDictOriginal
-                              or any(ep_id in newlyAddedMediaDictOriginal for ep_id in localEpisodeIDsBySeriesID.get(series.imdb_id, []))]
+                              if series.imdb_id in newlyAddedMediaDict
+                              or any(ep_id in newlyAddedMediaDict for ep_id in localEpisodeIDsBySeriesID.get(series.imdb_id, []))]
 
             existingIDs = {row[0] for row in db._getAllMediaIDsNoCommit()}
             locallyOwnedIDs = {row[0] for row in db._getAllLocallyOwnedMediaIDsNoCommit()}
