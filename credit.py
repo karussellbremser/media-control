@@ -7,7 +7,7 @@ class Credit:
 
     def __init__(self, person_id, ordering, credit_role, credit_details=None):
         self.person_id = person_id
-        self.ordering = ordering # this credit's position in the page's overall director(s)/writer(s)/actor(s) sequence, unique per medium
+        self.ordering = ordering # this credit's position within its own role's list (restarts at 1 for each of director(s)/writer(s)/actor(s)), unique per medium+role
         self.credit_role = credit_role # one of Credit.creditRoleList
         self.credit_details = credit_details # character name for actors; credit qualifier text (e.g. "(story by)", "(uncredited)") for any role, when IMDb shows one; None otherwise
 

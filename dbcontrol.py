@@ -431,18 +431,20 @@ class DBControl:
             # movies and episodes (subdir NOT NULL); unlike media_interests, which is series/movie-only
             # and skips episodes entirely, this is the other way around -- series themselves are
             # skipped (their credits are just IMDb's own rollup of their episodes' credits), while
-            # episodes are included. ordering is one running sequence per medium, in the page's own
-            # order (director(s), then writer(s), then actor(s)) -- not scoped per role, so it
-            # doubles as a natural, always-unique primary key alongside imdb_id (a person can
-            # legitimately appear more than once for the same medium, e.g. a director who also
-            # acts, or an actor playing a dual role under two separate cast entries).
+            # episodes are included. ordering is scoped per (imdb_id, role_id) -- the first director
+            # is 1, the first writer is 1, the first actor is 1, and so on independently -- rather
+            # than one running sequence across all three roles, so it doubles as a natural,
+            # always-unique primary key alongside imdb_id and role_id (a person can legitimately
+            # appear more than once under the same role for the same medium, e.g. an actor playing a
+            # dual role under two separate cast entries -- each still gets its own, distinct
+            # ordering within that role).
             self.c.execute("""CREATE TABLE credits (
             imdb_id integer NOT NULL,
+            role_id integer NOT NULL,
             ordering integer NOT NULL,
             person_id integer NOT NULL,
-            credit_role_id integer NOT NULL,
-            credit_details text,
-            PRIMARY KEY (imdb_id, ordering),
+            details text,
+            PRIMARY KEY (imdb_id, role_id, ordering),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
@@ -451,7 +453,7 @@ class DBControl:
                 REFERENCES people (imdb_id)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT,
-            FOREIGN KEY (credit_role_id)
+            FOREIGN KEY (role_id)
                 REFERENCES credit_role_enum (credit_role_id)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
@@ -578,7 +580,7 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
         for credit in thisMedia.credits:
-            self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, credit.ordering, credit.person_id, self.__getCreditRoleIDByCreditRoleName(credit.credit_role), credit.credit_details))
+            self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getCreditRoleIDByCreditRoleName(credit.credit_role), credit.ordering, credit.person_id, credit.credit_details))
 
     def addMultipleMedia(self, mediaDict):
         """Public, self-committing entry point -- safe to call standalone (see refreshTitleData).

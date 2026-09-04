@@ -929,9 +929,11 @@ class ScrapeIMDbOnline:
 
     def scrapeFullCredits(self, mediaDict, knownPersonIDs):
         """For every medium in mediaDict, visits its IMDb fullcredits page and records director/
-        writer/actor credits directly onto that medium's own .credits list (see Credit), as one
-        running `ordering` sequence per medium across all three roles in the page's own order
-        (director(s), then writer(s), then actor(s)). "Actor" covers both actors and actresses,
+        writer/actor credits directly onto that medium's own .credits list (see Credit), with
+        `ordering` restarting at 1 for each of the three roles independently (the first director is
+        1, the first writer is 1, the first actor is 1, ...) rather than running continuously across
+        all three, in the page's own per-role order (director(s), then writer(s), then actor(s)).
+        "Actor" covers both actors and actresses,
         matching IMDb's own "Cast" section label; every other section on the page (producers,
         composer, etc.) is ignored entirely. Both credited and "(uncredited)" entries are included.
         A Cast section IMDb splits into a primary list plus a "Rest of cast listed alphabetically"
@@ -969,12 +971,12 @@ class ScrapeIMDbOnline:
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/fullcredits/")
             soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
-            ordering = 0
             for credit_role, headingText, exactMatch in (
                 ("director", "Director", False), # "Director" or "Directors"
                 ("writer", "Writer", False),      # "Writer" or "Writers"
                 ("actor", "Cast", True),
             ):
+                ordering = 0 # restarts for each role -- see this method's docstring
                 matchingHeadings = [h for h in soup.find_all("h3") if
                                      (h.get_text(strip=True) == headingText if exactMatch
                                       else h.get_text(strip=True).startswith(headingText))]
