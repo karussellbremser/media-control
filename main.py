@@ -566,7 +566,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     del scrapeimdbonline
 
     referencedOnlyMedia = db.getReferencedOnlyMedia()
-    printAlways("\nSync complete. Referenced-only media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
+    printAlways("\nSync complete. To-be-added media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
 
 def refreshTitleData():
     # fail fast, before any real work starts. requireMainDBExists() raises FileNotFoundError -- a
