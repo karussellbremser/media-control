@@ -1,8 +1,9 @@
-import sys, os, re
+import sys, os, re, fnmatch
 from media import Media
 from mediaversion import MediaVersion
 from episode import Episode
 from exceptions import LocalLibraryError
+import config
 
 class ScrapeLocal:
 
@@ -216,10 +217,18 @@ class ScrapeLocal:
     def __complFilePath(self, subdir, file):
         return(os.path.join(self.__complDirPath(subdir), file))
         
+    def __isIgnoredFilename(self, file):
+        """True if file matches one of config.LOCAL_SCAN_IGNORED_FILE_PATTERNS (glob-style, e.g.
+        "*.nfo") -- such a file sits alongside real media files but is neither treated as one
+        nor flagged as an error; it's simply skipped. Checked before any extension-based parsing
+        below, so a configured pattern doesn't need a "name.extension" shape itself (e.g. a bare
+        "Thumbs.db"-style pattern would work fine, unlike the ordinary media/sources/versions files
+        this scan otherwise requires to have exactly one '.')."""
+        return any(fnmatch.fnmatch(file, pattern) for pattern in config.LOCAL_SCAN_IGNORED_FILE_PATTERNS)
+
     def __checkMovieFilenames(self, subdir, files): # returns media_files, sources_file, versions_exists
         # rules:
-        # - .torrent files are ignored
-        # - check[#].txt files are ignored
+        # - files matching config.LOCAL_SCAN_IGNORED_FILE_PATTERNS are ignored (see config.ini)
         # - src-[...].txt or sources.txt must exist once
         # - 1 or more media files (.mkv, or .kscape for a Kaleidescape-owned title with no local
         #   file at all -- see MediaVersion.isKaleidescapeOnly) must exist
@@ -232,16 +241,15 @@ class ScrapeLocal:
         versions_exists = False
 
         for file in files:
+            if self.__isIgnoredFilename(file):
+                continue
+
             file_split = file.rsplit('.', 1)
             if len(file_split) != 2:
                 raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
 
-            if file_split[1] == "torrent": # torrent file
-                continue
-            elif file_split[1] == "txt":
-                if file_split[0].startswith("check"): # check file
-                    continue
-                elif file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
+            if file_split[1] == "txt":
+                if file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
                     if sources_file != "":
                         raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
                     sources_file = file
@@ -281,16 +289,15 @@ class ScrapeLocal:
         intended_order_file = ""
 
         for file in files:
+            if self.__isIgnoredFilename(file):
+                continue
+
             file_split = file.rsplit('.', 1)
             if len(file_split) != 2:
                 raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
 
-            if file_split[1] == "torrent": # torrent file
-                continue
-            elif file_split[1] == "txt":
-                if file_split[0].startswith("check"): # check file
-                    continue
-                elif file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
+            if file_split[1] == "txt":
+                if file_split[0] == "sources" or file_split[0].startswith("src-"): # sources file
                     if sources_file != "":
                         raise LocalLibraryError('Bad content of season folder ' + seasonPath + " in file " + file)
                     sources_file = file

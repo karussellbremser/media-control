@@ -46,6 +46,9 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 - `ignored_ids_path` / `wontadd_ids_path` — text files of IMDb ids (one per line): ignored ids must never appear in the DB at all; wontadd ids are fine to have (and, for a series, to partially own) but aren't worth actively adding locally
 - `hidden_interest_ids_path` — text file of subgenre interest ids to keep out of the web UI's filter list
 
+**`[local_scan]`**
+- `ignored_file_patterns` — comma-separated glob patterns (`*`, `?`) for filenames that may sit alongside real media files but should be silently ignored during the local scan (e.g. `*.nfo`)
+
 **`[scraping]`**
 - `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title)
 - `headless` / `page_load_wait` — Chrome headless mode and per-page render wait for online scraping

@@ -28,6 +28,8 @@ IGNORED_IDS_PATH = _resolve(_config["paths"]["ignored_ids_path"])
 WONTADD_IDS_PATH = _resolve(_config["paths"]["wontadd_ids_path"])
 HIDDEN_INTEREST_IDS_PATH = _resolve(_config["paths"]["hidden_interest_ids_path"])
 
+LOCAL_SCAN_IGNORED_FILE_PATTERNS = [p.strip() for p in _config["local_scan"]["ignored_file_patterns"].split(",")]
+
 SCRAPE_DELAY = _config.getint("scraping", "delay")
 SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")
 SCRAPE_HEADLESS = _config.getboolean("scraping", "headless")
