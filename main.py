@@ -561,10 +561,17 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # Non-English movies get the same manual-only treatment (see ScrapeIMDbOnline.scrapeMainPages) --
     # queried directly from the DB rather than trusted from mediaDictOriginal, since a freshly-rescanned
     # Media object's in-memory language_id defaults to English for any title not newly scraped this run.
+    # The backfill sweep itself (unlike the thumbnail regeneration and missing-cover warnings right
+    # below, both purely local) is config.SCRAPE_RECOVER_MISSING_COVERS-gated: it has its own
+    # max_count-sized scrape allowance, separate from (and in addition to) whatever this run already
+    # spent adding new titles, covering the *whole* library rather than just what's newly added --
+    # fine normally, but on a first sync of a large library it can double or worse the actual amount
+    # of scraping in a single run (see config.example.ini).
     seriesTitleTypesLocal = ["localSeries"] + Media.seriesTitleTypes
     nonEnglishMovieIDs = db.getNonEnglishLocallyOwnedMovieIDs()
-    moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if v.series_imdb_id is None and v.titleType not in seriesTitleTypesLocal and k not in nonEnglishMovieIDs}
-    scrapeimdbonline.downloadCovers(moviesOnlyDict)
+    if config.SCRAPE_RECOVER_MISSING_COVERS:
+        moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if v.series_imdb_id is None and v.titleType not in seriesTitleTypesLocal and k not in nonEnglishMovieIDs}
+        scrapeimdbonline.downloadCovers(moviesOnlyDict)
     scrapeimdbonline.generateThumbnails()
 
     for v in mediaDictOriginal.values():

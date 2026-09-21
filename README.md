@@ -51,6 +51,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 
 **`[scraping]`**
 - `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title)
+- `recover_missing_covers` — whether `--sync` also backfills missing covers for every already-owned movie in the whole library at the end of each run, not just titles newly added that run (its own `max_count`-sized allowance, on top of whatever the rest of the run already spent — worth turning off for a first sync of a large library)
 - `headless` / `page_load_wait` — Chrome headless mode and per-page render wait for online scraping
 
 **`[backup]`** — automatic DB backups before `-s`/`-r` (see `-b`/`--backup` below for an on-demand one)

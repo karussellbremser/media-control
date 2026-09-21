@@ -32,6 +32,7 @@ LOCAL_SCAN_IGNORED_FILE_PATTERNS = [p.strip() for p in _config["local_scan"]["ig
 
 SCRAPE_DELAY = _config.getint("scraping", "delay")
 SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")
+SCRAPE_RECOVER_MISSING_COVERS = _config.getboolean("scraping", "recover_missing_covers")
 SCRAPE_HEADLESS = _config.getboolean("scraping", "headless")
 SCRAPE_PAGE_LOAD_WAIT = _config.getint("scraping", "page_load_wait")
 
