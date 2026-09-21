@@ -818,6 +818,23 @@ class DBControl:
                 tuple(Media.movieTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
+    def getLocallyOwnedSeriesIDs(self):
+        """Set of imdb_ids for locally-owned series (subdir IS NOT NULL, title_type_name in
+        Media.seriesTitleTypes). Queries the DB directly rather than trusting a freshly-rescanned
+        Media object's in-memory titleType, which stays "localSeries" (the local-scan placeholder)
+        for any series not newly processed this run -- including one merely discovered on disk this
+        run but not yet actually added to the DB (e.g. excluded by the scrape budget), which isn't
+        locally owned in any DB sense yet and shouldn't be treated as if it were. Used by main.py's
+        cover-backfill step, mirroring getNonEnglishLocallyOwnedMovieIDs's identical reasoning for
+        non-English movies."""
+        with self.conn:
+            self.c.execute("""SELECT m.imdb_id FROM media m
+                JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
+                WHERE m.subdir IS NOT NULL
+                AND tt.title_type_name IN (""" + ",".join("?" for _ in Media.seriesTitleTypes) + ")",
+                tuple(Media.seriesTitleTypes))
+            return set(row[0] for row in self.c.fetchall())
+
     def getLanguageIDs(self, imdb_ids):
         """Returns {imdb_id: language_id} for every id in imdb_ids currently in the media table --
         an id not found (not yet added at all) simply isn't included. Used to propagate a series'

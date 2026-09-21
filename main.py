@@ -556,17 +556,18 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
     # thumbnails. Series covers are deliberately never fetched automatically -- IMDb only offers the latest
     # season's cover as a series' "main" image, which isn't what should represent the whole series locally;
-    # a missing series cover is instead flagged below, for the user to source and place manually. A series
-    # not yet resolved by title.basics this run still carries its "localSeries" local-scrape placeholder.
-    # Non-English movies get the same manual-only treatment (see ScrapeIMDbOnline.scrapeMainPages) --
-    # queried directly from the DB rather than trusted from mediaDictOriginal, since a freshly-rescanned
-    # Media object's in-memory language_id defaults to English for any title not newly scraped this run.
-    # The backfill sweep itself (unlike the thumbnail regeneration and missing-cover warnings right
-    # below, both purely local) is config.SCRAPE_RECOVER_MISSING_COVERS-gated: it has its own
-    # max_count-sized scrape allowance, separate from (and in addition to) whatever this run already
-    # spent adding new titles, covering the *whole* library rather than just what's newly added --
-    # fine normally, but on a first sync of a large library it can double or worse the actual amount
-    # of scraping in a single run (see config.example.ini).
+    # a missing series cover is instead flagged below, for the user to source and place manually. Non-English
+    # movies get the same manual-only treatment (see ScrapeIMDbOnline.scrapeMainPages).
+    # seriesTitleTypesLocal (a pure local-scan signal -- a series not resolved by title.basics this run still
+    # carries its "localSeries" placeholder either way) is good enough for deciding what the backfill sweep
+    # below should never attempt to auto-download, regardless of DB state. But it's NOT good enough for the
+    # warning loop further down: it can't tell a genuinely DB-owned series apart from one merely discovered
+    # on disk this run but never actually added (e.g. excluded by the scrape budget) -- on a first sync of a
+    # large library, that would warn about covers for thousands of series not even in the DB yet, repeating
+    # every subsequent sync until each one is finally processed. So the warning loop instead queries the DB
+    # directly for both categories (getLocallyOwnedSeriesIDs/getNonEnglishLocallyOwnedMovieIDs), same as
+    # nonEnglishMovieIDs already did -- rather than trusting a freshly-rescanned Media object's in-memory
+    # state, which defaults to "not yet known" for anything not newly processed this run.
     seriesTitleTypesLocal = ["localSeries"] + Media.seriesTitleTypes
     nonEnglishMovieIDs = db.getNonEnglishLocallyOwnedMovieIDs()
     if config.SCRAPE_RECOVER_MISSING_COVERS:
@@ -574,11 +575,12 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
         scrapeimdbonline.downloadCovers(moviesOnlyDict)
     scrapeimdbonline.generateThumbnails()
 
+    locallyOwnedSeriesIDs = db.getLocallyOwnedSeriesIDs()
     for v in mediaDictOriginal.values():
-        if v.series_imdb_id is None and (v.titleType in seriesTitleTypesLocal or v.imdb_id in nonEnglishMovieIDs):
+        if v.series_imdb_id is None and (v.imdb_id in locallyOwnedSeriesIDs or v.imdb_id in nonEnglishMovieIDs):
             coverPath = os.path.join(coverDir, v.getIDString() + ".jpg")
             if not os.path.isfile(coverPath):
-                kind = "series" if v.titleType in seriesTitleTypesLocal else "non-English movie"
+                kind = "series" if v.imdb_id in locallyOwnedSeriesIDs else "non-English movie"
                 printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.original_title) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
 
     scrapeimdbonline.close()
