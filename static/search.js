@@ -108,8 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		sidebar.classList.toggle('collapsed');
 		content.classList.toggle('collapsed');
 
-		// Pfeil ändern
-		toggleBtn.textContent = sidebarCollapsed ? '>>' : '<<';
+		// rotates the chevron icon via CSS instead of swapping text
+		toggleBtn.classList.toggle('collapsed', sidebarCollapsed);
 	});
 	
 	function resetFilters() {

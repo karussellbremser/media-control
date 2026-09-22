@@ -44,7 +44,7 @@
 
         .content {
             margin-left: 320px;
-            padding: 20px;
+            padding: 12px 6px;
             width: calc(100% - 320px);
 			background-color: #dcdcdc;
         }
@@ -208,7 +208,11 @@
 		.gridView {
 			display: grid;
 			grid-template-columns: repeat(auto-fill, 250px);
-			gap: 15px;
+			gap: 12px;
+		}
+
+		.content.collapsed .gridView {
+			justify-content: center;
 		}
 
 		.gridItem img {
@@ -298,6 +302,8 @@
 			color: white;
 			font-size: 22px;
 			padding: 8px;
+			box-sizing: border-box;
+			border-radius: 0 0 6px 6px;
 
 			opacity: 0;
 			transition: all 0.2s ease;
@@ -310,23 +316,36 @@
 		
 		.sidebar.collapsed {
 			width: 40px;
-			padding: 5px;
+			padding: 4px;
 			overflow: hidden;
 		}
 
 		.content.collapsed {
-			margin-left: 60px;
-			width: calc(100% - 60px);
+			margin-left: 50px;
+			width: calc(100% - 50px);
+			padding-left: 6px;
+			padding-right: 6px;
 		}
 		
-		.sidebar.collapsed *:not(#toggleSidebarBtn) {
+		.sidebar.collapsed *:not(#toggleSidebarBtn):not(#toggleSidebarBtn *) {
 			display: none;
 		}
-		
+
 		#toggleSidebarBtn {
-			width: 100%;
-			padding: 5px;
-			font-weight: bold;
+			width: 32px;
+			height: 32px;
+			padding: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
+		#toggleSidebarBtn svg {
+			transition: transform 0.2s ease;
+		}
+
+		#toggleSidebarBtn.collapsed svg {
+			transform: rotate(180deg);
 		}
 		
 		.sidebar {
@@ -486,7 +505,12 @@
 
     <!-- left side -->
     <div class="sidebar">
-		<button id="toggleSidebarBtn"><<</button>
+		<button id="toggleSidebarBtn" aria-label="Toggle sidebar">
+			<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+				<polyline points="11 6 5 12 11 18"></polyline>
+				<polyline points="19 6 13 12 19 18"></polyline>
+			</svg>
+		</button>
 		
 		<button id="resetButton">RESET FILTERS</button>
 		
