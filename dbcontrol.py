@@ -224,6 +224,7 @@ class DBControl:
             language text NOT NULL,
             title text,
             default_track integer NOT NULL,
+            delay integer NOT NULL,
             PRIMARY KEY (imdb_id, filename, track_id),
             FOREIGN KEY (imdb_id, filename)
                 REFERENCES media_versions (imdb_id, filename)
@@ -540,8 +541,8 @@ class DBControl:
                     imdb_id, filename, track_id, format, format_commercial, format_settings_mode,
                     format_additional_features, matrix_format, variable_bitrate, bitrate, bitrate_maximum,
                     channels, matrix_channels, channel_positions, matrix_channel_positions, channel_layout,
-                    sampling_rate, bit_depth, lossless, language, title, default_track
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    sampling_rate, bit_depth, lossless, language, title, default_track, delay
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                     thisMedia.imdb_id, mediaVersion.filename, audioTrack.track_id, audioTrack.format,
                     audioTrack.format_commercial, audioTrack.format_settings_mode,
                     audioTrack.format_additional_features, audioTrack.matrix_format, audioTrack.variable_bitrate,
@@ -549,7 +550,7 @@ class DBControl:
                     audioTrack.channels, audioTrack.matrix_channels, audioTrack.channel_positions,
                     audioTrack.matrix_channel_positions, audioTrack.channel_layout,
                     audioTrack.sampling_rate, audioTrack.bit_depth, audioTrack.lossless, audioTrack.language,
-                    audioTrack.title, audioTrack.default_track,
+                    audioTrack.title, audioTrack.default_track, audioTrack.delay,
                 ))
             for subtitleTrack in mediaVersion.subtitleTracks:
                 self.c.execute("""INSERT INTO media_subtitle_tracks (

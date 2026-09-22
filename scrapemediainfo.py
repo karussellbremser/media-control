@@ -61,6 +61,13 @@ class ScrapeMediaInfo:
                                          str(audioDuration) + "s) by more than 2 seconds for " + filepath +
                                          " (audio track ID " + str(audioTrackData.get("ID")) + ")")
 
+        generalDelay = self.__float_or_none(general.get("Delay"))
+        if generalDelay is not None and generalDelay != 0:
+            raise LocalLibraryError("General.Delay is " + str(generalDelay) + "ms (expected 0) for " + filepath)
+        videoDelay = self.__float_or_none(video.get("Delay"))
+        if videoDelay is not None and videoDelay != 0:
+            raise LocalLibraryError("Video.Delay is " + str(videoDelay) + "ms (expected 0) for " + filepath)
+
         mediaVersion.duration = round(generalDuration)
 
         mediaVersion.format = self.__require(video, "Format", filepath)
@@ -135,6 +142,7 @@ class ScrapeMediaInfo:
             language=self.__require(track, "Language", filepath),
             title=track.get("Title"),
             default_track=self.__parseEnum(self.__require(track, "Default", filepath), {"Yes": 1, "No": 0}, "Default", filepath),
+            delay=self.__parseAudioDelay(track, filepath),
         )
 
     def __buildSubtitleTrack(self, track, filepath):
@@ -171,6 +179,21 @@ class ScrapeMediaInfo:
 
     def __float_or_none(self, value):
         return float(value) if value is not None else None
+
+    def __parseAudioDelay(self, track, filepath):
+        """Parses an audio track's Delay field (MediaInfo's audio/video sync offset, in ms) and
+        validates it's in the expected [0, 50] range -- negative means the audio plays before the
+        video (not expected for any properly-muxed title), and >50ms is far enough out of sync to
+        indicate a muxing mistake rather than a deliberate, tolerable offset. Both are errors
+        rather than silently stored, mirroring the General/Video Delay checks above. The field is
+        absent for some tracks/files; that's stored as 0 rather than left nullable."""
+        delay = self.__float_or_none(track.get("Delay"))
+        if delay is None:
+            return 0
+        if delay < 0 or delay > 50:
+            raise LocalLibraryError("audio track ID " + str(track.get("ID")) + " has Delay " + str(delay) +
+                                     "ms outside the expected [0, 50] range for " + filepath)
+        return int(round(delay))
 
     def __parseEnum(self, value, mapping, fieldName, filepath):
         if value is None:

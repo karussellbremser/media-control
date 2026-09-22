@@ -7,7 +7,7 @@ class AudioTrack:
                  format_additional_features, matrix_format, variable_bitrate, bitrate,
                  bitrate_maximum, channels, matrix_channels, channel_positions,
                  matrix_channel_positions, channel_layout, sampling_rate, bit_depth, lossless,
-                 language, title, default_track):
+                 language, title, default_track, delay):
         self.track_id = track_id
         self.format = format
         self.format_commercial = format_commercial
@@ -28,3 +28,4 @@ class AudioTrack:
         self.language = language
         self.title = title
         self.default_track = default_track
+        self.delay = delay # MediaInfo's Delay field (audio/video sync offset, in ms) -- 0 if MediaInfo didn't report one
