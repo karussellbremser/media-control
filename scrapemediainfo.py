@@ -5,7 +5,6 @@ import subprocess
 from audiotrack import AudioTrack
 from subtitletrack import SubtitleTrack
 from exceptions import LocalLibraryError, MediaInfoError
-from verbosity import printAlways
 
 class ScrapeMediaInfo:
     """Runs the MediaInfo CLI over locally-owned mkv files and populates a MediaVersion's technical
@@ -58,9 +57,9 @@ class ScrapeMediaInfo:
         for audioTrackData in audioTracks:
             audioDuration = float(self.__require(audioTrackData, "Duration", filepath))
             if videoDuration - audioDuration > 2:
-                printAlways("WARNING: Video.Duration (" + str(videoDuration) + "s) exceeds Audio.Duration (" +
-                      str(audioDuration) + "s) by more than 2 seconds for " + filepath +
-                      " (audio track ID " + str(audioTrackData.get("ID")) + ")")
+                raise LocalLibraryError("Video.Duration (" + str(videoDuration) + "s) exceeds Audio.Duration (" +
+                                         str(audioDuration) + "s) by more than 2 seconds for " + filepath +
+                                         " (audio track ID " + str(audioTrackData.get("ID")) + ")")
 
         mediaVersion.duration = round(generalDuration)
 
