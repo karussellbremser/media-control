@@ -616,9 +616,12 @@ def refreshTitleData():
     db.refreshPeople(peopleDict)
 
     # discover new episodes / detect vanished ones for every currently-owned series. New episodes
-    # are added as referenced-only stubs (not scraped online -- refresh is purely offline-dataset
-    # driven); a vanished, locally-owned episode is an error (see removeVanishedEpisode's docstring
-    # for the referenced-only case).
+    # are added as referenced-only stubs, purely offline-dataset driven -- except for one conditional
+    # online check: a new episode with no vote count yet in the offline ratings dataset triggers a
+    # live isInDevelopment() check (via parseTitleRatings) to tell a real upcoming episode apart from
+    # an IMDb placeholder, same as the equivalent sync-side check documented at step 14 above. A
+    # vanished, locally-owned episode is an error (see removeVanishedEpisode's docstring for the
+    # referenced-only case).
     ownedSeries = [m for m in mediaDict.values() if m.subdir is not None and m.titleType in Media.seriesTitleTypes]
     if ownedSeries:
         fullEpisodeLists = offline.getFullEpisodeListForSeries({s.imdb_id for s in ownedSeries})
