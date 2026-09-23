@@ -77,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	let currentPage = 1;
 	let isLoading = false;
 	let allLoaded = false;
+	let currentSearchController = null;
 	
 	function formatYearRange(startYear, endYear, isSeries) {
 		if (!isSeries) return startYear ?? '—';
@@ -150,10 +151,19 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
     function fetchResults(query, append=false) {
-		if (isLoading || allLoaded) return;
+		if (append && (isLoading || allLoaded)) return;
+
+		// a fresh (non-append) search always supersedes whatever's still in flight -- fast filter
+		// clicks would otherwise either get silently dropped by the isLoading guard above, or race
+		// an older, slower response into overwriting newer results once it finally resolves
+		if (currentSearchController) {
+			currentSearchController.abort();
+		}
+		const thisSearchController = new AbortController();
+		currentSearchController = thisSearchController;
 
 		isLoading = true;
-		
+
 		const params = new URLSearchParams({
             q: query,
             sort: sortSelect.value,
@@ -182,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		});
 
-        fetch(`/search?${params.toString()}`)
+        fetch(`/search?${params.toString()}`, { signal: thisSearchController.signal })
             .then(response => {
                 if (!response.ok) {
                     throw new Error('search request failed with status ' + response.status);
@@ -301,7 +311,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 				isLoading = false;
             })
-			.catch(() => {
+			.catch((err) => {
+				if (err.name === 'AbortError') return; // superseded by a newer search, not a real failure
 				errorBanner.classList.remove('hidden');
 				isLoading = false;
             });
