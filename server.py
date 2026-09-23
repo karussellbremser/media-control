@@ -254,5 +254,84 @@ def search():
 def coverSmall(filename):
     return send_from_directory(config.COVERS_SMALL_DIR, filename)
 
+@server.route('/cover/<filename>')
+def coverFull(filename):
+    return send_from_directory(config.COVERS_DIR, filename)
+
+@server.route('/detail/<int:imdb_id>')
+def detail(imdb_id):
+    """Everything the title detail overlay shows, for one locally-owned movie/series: basics, plot
+    summary, genres/subgenres, credits (only ever stored for movies and episodes, so a series has
+    none), and connections to other titles, each flagged with whether the target is itself locally
+    owned (=> the overlay can open it in place) or only referenced (=> links out to IMDb)."""
+    try:
+        conn = sqlite3.connect(config.DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT m.original_title, m.primary_title, m.start_year, m.end_year, m.rating_mul10, m.num_votes,
+                   m.plot_summary, tt.title_type_name
+            FROM media m
+            JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
+            WHERE m.imdb_id = ? AND m.subdir IS NOT NULL
+        """, (imdb_id,))
+        row = cursor.fetchone()
+        if row is None:
+            conn.close()
+            return jsonify({"error": "not found"}), 404
+        original_title, primary_title, start_year, end_year, rating_mul10, num_votes, plot_summary, title_type_name = row
+
+        # genres (no parent) first, then subgenres, each alphabetical
+        cursor.execute("""
+            SELECT ie.name, ie.parent_imdb_interest_id IS NULL
+            FROM media_interests mi
+            JOIN interest_enum ie ON mi.imdb_interest_id = ie.imdb_interest_id
+            WHERE mi.imdb_id = ?
+            ORDER BY (ie.parent_imdb_interest_id IS NOT NULL), ie.name
+        """, (imdb_id,))
+        interests = [{"name": name, "isGenre": bool(isGenre)} for name, isGenre in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT c.role_id, p.name, p.birth_year, p.death_year, c.details
+            FROM credits c
+            JOIN people p ON c.person_id = p.imdb_id
+            WHERE c.imdb_id = ?
+            ORDER BY c.role_id, c.ordering
+        """, (imdb_id,))
+        credits = {1: [], 2: [], 3: []}
+        for role_id, name, birth_year, death_year, details in cursor.fetchall():
+            credits[role_id].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
+
+        cursor.execute("""
+            SELECT ct.connection_type_name, m2.imdb_id, m2.original_title, m2.start_year, m2.subdir IS NOT NULL
+            FROM media_connections mc
+            JOIN connection_type_enum ct ON mc.connection_type_id = ct.connection_type_id
+            JOIN media m2 ON mc.foreign_imdb_id = m2.imdb_id
+            WHERE mc.imdb_id = ?
+            ORDER BY ct.connection_type_id, m2.start_year, m2.original_title
+        """, (imdb_id,))
+        connections = [{"type": type_name, "imdbId": foreign_id, "title": title, "year": year, "owned": bool(owned)}
+                       for type_name, foreign_id, title, year, owned in cursor.fetchall()]
+        conn.close()
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 503
+
+    return jsonify({
+        "imdbId": imdb_id,
+        "title": original_title,
+        "primaryTitle": primary_title,
+        "startYear": start_year,
+        "endYear": end_year,
+        "isSeries": title_type_name in Media.seriesTitleTypes,
+        "rating": rating_mul10 / 10 if rating_mul10 else None,
+        "votes": num_votes,
+        "plotSummary": plot_summary,
+        "interests": interests,
+        "directors": credits[1],
+        "writers": credits[2],
+        "actors": credits[3],
+        "connections": connections,
+    })
+
 if __name__ == '__main__':
     server.run(host=config.SERVER_HOST, port=config.SERVER_PORT)

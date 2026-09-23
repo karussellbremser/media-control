@@ -112,7 +112,258 @@ document.addEventListener('DOMContentLoaded', () => {
 		// rotates the chevron icon via CSS instead of swapping text
 		toggleBtn.classList.toggle('collapsed', sidebarCollapsed);
 	});
-	
+
+	// ---- title detail overlay ----
+	const detailBackdrop = document.getElementById('detailBackdrop');
+	const detailCover = document.getElementById('detailCover');
+	const detailTitle = document.getElementById('detailTitle');
+	const detailMeta = document.getElementById('detailMeta');
+	const detailChips = document.getElementById('detailChips');
+	const detailBody = document.getElementById('detailBody');
+	const coverLightbox = document.getElementById('coverLightbox');
+	const coverLightboxImg = document.getElementById('coverLightboxImg');
+
+	const CONNECTION_LABELS = {
+		follows: 'Follows',
+		followed_by: 'Followed by',
+		remake_of: 'Remake of',
+		remade_as: 'Remade as',
+		spin_off: 'Spin-off',
+		spin_off_from: 'Spin-off from',
+		version_of: 'Version of',
+		alternate_language_version_of: 'Alternate-language version of'
+	};
+	const VISIBLE_CAST_COUNT = 10;
+
+	let detailRequestId = 0;
+
+	function idString(imdb_id) {
+		return 'tt' + String(imdb_id).padStart(7, '0');
+	}
+
+	function makeEl(tag, className, text) {
+		const el = document.createElement(tag);
+		if (className) el.className = className;
+		if (text !== undefined) el.textContent = text;
+		return el;
+	}
+
+	// plain left-click opens the overlay; ctrl/cmd/middle-click still follow the link's own IMDb href
+	function attachDetailOpen(element, imdb_id) {
+		element.addEventListener('click', e => {
+			if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+			e.preventDefault();
+			openDetail(imdb_id);
+		});
+	}
+
+	function nameList(people, showDetails) {
+		const wrap = makeEl('span', 'detailNames');
+		people.forEach(p => {
+			const span = makeEl('span', '', p.name);
+			if (p.birthYear) span.title = 'b. ' + p.birthYear + (p.deathYear ? ', d. ' + p.deathYear : '');
+			if (showDetails && p.details) span.appendChild(makeEl('span', 'muted', ' (' + p.details + ')'));
+			wrap.appendChild(span);
+		});
+		return wrap;
+	}
+
+	function castList(actors) {
+		const wrap = makeEl('span', 'detailNames');
+		const first = nameList(actors.slice(0, VISIBLE_CAST_COUNT), true);
+		wrap.appendChild(first);
+		if (actors.length > VISIBLE_CAST_COUNT) {
+			const rest = nameList(actors.slice(VISIBLE_CAST_COUNT), true);
+			rest.style.display = 'none';
+			const more = makeEl('button', 'detailMore', '+ ' + (actors.length - VISIBLE_CAST_COUNT) + ' more');
+			more.type = 'button';
+			more.addEventListener('click', () => {
+				rest.style.display = 'flex';
+				more.remove();
+			});
+			wrap.appendChild(more);
+			wrap.appendChild(rest);
+		}
+		return wrap;
+	}
+
+	function renderDetail(d) {
+		detailTitle.textContent = d.title;
+
+		const rating = d.rating ? d.rating.toFixed(1) : '—';
+		const votes = d.votes ? formatNumVotes(d.votes) : '—';
+		let meta = formatYearRange(d.startYear, d.endYear, d.isSeries) + ' · ★ ' + rating + ' (' + votes + ' votes)';
+		if (d.primaryTitle && d.primaryTitle !== d.title) meta += ' · also known as ' + d.primaryTitle;
+		detailMeta.textContent = meta;
+
+		detailChips.replaceChildren();
+		d.interests.forEach(i => detailChips.appendChild(makeEl('span', 'detailChip' + (i.isGenre ? ' detailChip--genre' : ''), i.name)));
+		const imdbLink = makeEl('a', 'imdbLink', 'IMDb ↗');
+		imdbLink.href = 'https://www.imdb.com/title/' + idString(d.imdbId) + '/';
+		imdbLink.target = '_blank';
+		imdbLink.rel = 'noopener noreferrer';
+		detailChips.appendChild(imdbLink);
+
+		detailBody.replaceChildren();
+		if (d.plotSummary) detailBody.appendChild(makeEl('p', 'plot', d.plotSummary));
+
+		if (d.directors.length || d.writers.length || d.actors.length) {
+			detailBody.appendChild(makeEl('h3', '', 'Cast & crew'));
+			const grid = makeEl('div', 'detailGrid');
+			[['Directed by', d.directors ? nameList(d.directors, false) : null, d.directors.length],
+			 ['Written by', nameList(d.writers, false), d.writers.length],
+			 ['Cast', castList(d.actors), d.actors.length]].forEach(([label, content, count]) => {
+				if (!count) return;
+				grid.appendChild(makeEl('span', 'label', label));
+				grid.appendChild(content);
+			});
+			detailBody.appendChild(grid);
+		}
+
+		if (d.connections.length) {
+			detailBody.appendChild(makeEl('h3', '', 'Connections'));
+			const grid = makeEl('div', 'detailGrid');
+			const byType = new Map();
+			d.connections.forEach(c => {
+				if (!byType.has(c.type)) byType.set(c.type, []);
+				byType.get(c.type).push(c);
+			});
+			byType.forEach((targets, type) => {
+				grid.appendChild(makeEl('span', 'label', CONNECTION_LABELS[type] || type));
+				const cell = makeEl('span');
+				targets.forEach(t => {
+					const row = makeEl('span', 'connTarget');
+					row.appendChild(makeEl('span', 'connDot' + (t.owned ? ' owned' : '')));
+					const link = makeEl('a', '', t.title + (t.year ? ' (' + t.year + ')' : ''));
+					if (t.owned) {
+						link.href = '#' + idString(t.imdbId);
+						link.title = 'in your library -- open';
+						attachDetailOpen(link, t.imdbId);
+					} else {
+						link.href = 'https://www.imdb.com/title/' + idString(t.imdbId) + '/';
+						link.title = 'not in your library -- open on IMDb';
+						link.target = '_blank';
+						link.rel = 'noopener noreferrer';
+					}
+					row.appendChild(link);
+					cell.appendChild(row);
+				});
+				grid.appendChild(cell);
+			});
+			detailBody.appendChild(grid);
+		}
+
+		detailBody.scrollTop = 0;
+
+		detailCover.classList.remove('noCover');
+		detailCover.alt = d.title;
+		const coverUrl = '/cover/' + idString(d.imdbId) + '.jpg';
+		if (detailCover.getAttribute('src') !== coverUrl || !detailCover.complete) {
+			detailCover.classList.add('loading'); // the previous title's poster must not linger meanwhile
+			detailCover.src = coverUrl;
+		}
+	}
+
+	detailCover.addEventListener('load', () => detailCover.classList.remove('loading'));
+	detailCover.addEventListener('error', () => {
+		detailCover.classList.remove('loading');
+		detailCover.classList.add('noCover');
+	});
+
+	function openCoverLightbox() {
+		if (detailCover.classList.contains('noCover')) return;
+		coverLightboxImg.src = detailCover.src;
+		coverLightbox.classList.remove('hidden');
+	}
+
+	function closeCoverLightbox() {
+		coverLightbox.classList.add('hidden');
+	}
+
+	detailCover.addEventListener('click', openCoverLightbox);
+	coverLightbox.addEventListener('click', closeCoverLightbox);
+
+	function showDetailShell() {
+		detailBackdrop.classList.remove('hidden');
+		document.body.style.overflow = 'hidden';
+		document.getElementById('detailClose').focus();
+	}
+
+	function hideDetail() {
+		detailRequestId++; // anything still loading must not pop the overlay back open
+		closeCoverLightbox();
+		detailBackdrop.classList.add('hidden');
+		document.body.style.overflow = '';
+	}
+
+	function openDetail(imdb_id, pushHistory = true) {
+		const requestId = ++detailRequestId;
+		const wasOpen = !detailBackdrop.classList.contains('hidden');
+		new Image().src = '/cover/' + idString(imdb_id) + '.jpg'; // preload alongside the details request
+		fetch('/detail/' + imdb_id)
+			.then(response => {
+				if (!response.ok) {
+					const err = new Error('detail request failed with status ' + response.status);
+					err.status = response.status;
+					throw err;
+				}
+				return response.json();
+			})
+			.then(d => {
+				if (requestId !== detailRequestId) return; // superseded by a newer click, or closed meanwhile
+				renderDetail(d);
+				showDetailShell();
+				if (pushHistory) {
+					const url = '#' + idString(imdb_id);
+					if (wasOpen) history.replaceState({ detail: imdb_id }, '', url);
+					else history.pushState({ detail: imdb_id }, '', url);
+				}
+			})
+			.catch(err => {
+				if (requestId !== detailRequestId) return;
+				detailTitle.textContent = "Couldn't load details";
+				detailMeta.textContent = '';
+				detailChips.replaceChildren();
+				detailBody.replaceChildren(makeEl('div', 'detailError', err.status === 404
+					? "This title isn't in your library."
+					: 'The database may be temporarily busy -- close this and try again in a moment.'));
+				detailCover.classList.add('noCover');
+				showDetailShell();
+			});
+	}
+
+	function closeDetail() {
+		if (history.state && history.state.detail) {
+			history.back(); // popstate below does the actual hiding, keeping URL and overlay in sync
+		} else {
+			hideDetail();
+			if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+		}
+	}
+
+	function syncDetailWithHash() {
+		const match = /^#tt(\d+)$/.exec(location.hash);
+		if (match) {
+			openDetail(parseInt(match[1], 10), false);
+		} else {
+			hideDetail();
+		}
+	}
+
+	window.addEventListener('popstate', syncDetailWithHash);
+	document.getElementById('detailClose').addEventListener('click', closeDetail);
+	detailBackdrop.addEventListener('click', e => {
+		if (e.target === detailBackdrop) closeDetail();
+	});
+	document.addEventListener('keydown', e => {
+		if (e.key !== 'Escape') return;
+		if (!coverLightbox.classList.contains('hidden')) {
+			closeCoverLightbox();
+		} else if (!detailBackdrop.classList.contains('hidden')) {
+			closeDetail();
+		}
+	});
+
 	function resetFilters() {
 		input.value = '';
 
@@ -232,6 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
 						linkElem.href = "https://www.imdb.com/title/tt" + String(imdb_id).padStart(7, "0") + "/";
 						linkElem.target = "_blank";
 						linkElem.rel = "noopener noreferrer";
+						attachDetailOpen(linkElem, imdb_id);
 						
                         const ratingsElem = document.createElement('div');
 						const safeYear = formatYearRange(startYear, endYear, isSeries);
@@ -258,6 +510,8 @@ document.addEventListener('DOMContentLoaded', () => {
 							const wrapper = document.createElement('div');
 							wrapper.classList.add("resultItem");
 
+							img.style.cursor = "pointer";
+							attachDetailOpen(img, imdb_id);
 							wrapper.appendChild(img);
 
 							const textBlock = document.createElement('div');
@@ -377,4 +631,5 @@ document.addEventListener('DOMContentLoaded', () => {
 	// also forces every filter control back to its default, undoing whatever the browser may have
 	// restored into them on this reload (see the scrollRestoration comment above)
     resetFilters();
+	if (/^#tt\d+$/.test(location.hash)) syncDetailWithHash(); // a linked/reloaded title opens straight away
 });
