@@ -523,7 +523,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 newEpisodeStubs = {}
                 for series in readySeries:
                     for season, episode, episode_imdb_id in fullEpisodeLists[series.imdb_id]:
-                        if episode_imdb_id not in mediaDictOriginal and episode_imdb_id not in existingIDs and episode_imdb_id not in newEpisodeStubs:
+                        if episode_imdb_id not in newlyAddedMediaDict and episode_imdb_id not in existingIDs and episode_imdb_id not in newEpisodeStubs:
                             stub = Media(None, None, episode_imdb_id)
                             stub.series_imdb_id = series.imdb_id
                             stub.season_number = season
