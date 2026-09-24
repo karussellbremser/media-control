@@ -202,15 +202,18 @@ def index():
 
     # only languages that are some title's PRIMARY language -- the filter matches on that alone, so a
     # language that only ever appears further down a title's list would be an option with no results.
-    # IMDb's "None" (code zxx, a silent/dialogue-free title) is shown as "Silent". English first, since
-    # it's the most common; the rest alphabetically by displayed name
+    # IMDb's "None" (code zxx, a silent/dialogue-free title) is shown as "Silent". Ordered by how many
+    # titles have that language as their primary one, most first (English is just another language
+    # here, no longer pinned to the top); ties alphabetically by displayed name
     cursor.execute("""
-        SELECT le.language_code, le.name
+        SELECT le.language_code, le.name, COUNT(*)
         FROM language_enum le
-        WHERE EXISTS (SELECT 1 FROM media_languages ml WHERE ml.language_code = le.language_code AND ml.ordering = 1)
+        JOIN media_languages ml ON ml.language_code = le.language_code AND ml.ordering = 1
+        GROUP BY le.language_code
     """)
-    languages = sorted(((code, "Silent" if code == "zxx" else name) for code, name in cursor.fetchall()),
-                       key=lambda language: (language[0] != "en", language[1]))
+    languages = [(code, name) for code, name, _ in sorted(
+        ((code, "Silent" if code == "zxx" else name, count) for code, name, count in cursor.fetchall()),
+        key=lambda language: (-language[2], language[1]))]
 
     conn.close()
     return render_template('index.html', genres=genres, interestGroups=interestGroups, languages=languages,
