@@ -542,21 +542,31 @@ class ScrapeIMDbOnline:
         return result
 
     def __scrapePlotSummary(self):
-        """Scrapes the plot summary from the currently-loaded title main page. Its underlying text
-        content is always the full summary regardless of viewport (IMDb truncates it visually via
-        CSS at narrower breakpoints, not in the DOM), so no "Read all"/"..." handling is needed.
-        Raises on any unexpected structure, rather than silently skipping or guessing."""
+        """Scrapes the plot summary from the currently-loaded title main page. The plot block holds
+        three separate variants -- plot-xs_to_m, plot-l and plot-xl -- each with its own text, and
+        which one is displayed depends on the viewport width (CSS breakpoints). plot-xs_to_m is a
+        genuinely shortened text (cut at ~200 chars, ending in "..."), with "Read all" as a
+        separate link; plot-l/plot-xl carry the full text. Reading the block's innerText would
+        return only whichever variant is visible -- and headless Chrome ignores the window_size
+        requested in __launchBrowser (real viewport ~780x500), so that was always the shortened one.
+        The plot-xl variant's textContent is read directly instead, which doesn't depend on what's
+        currently displayed. Raises on any unexpected structure, rather than silently skipping or
+        guessing."""
 
         box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="plot"]\').length;')
         if box_count != 1:
             raise ScrapingError("expected exactly one plot summary block on title page, found " + str(box_count))
 
         plot_summary = self.browser.execute_script("""
-            const box = document.querySelector('[data-testid="plot"]');
-            return box.innerText.trim();
+            const full = document.querySelector('[data-testid="plot"] [data-testid="plot-xl"]');
+            return full ? full.textContent.trim() : null;
         """)
+        if plot_summary is None:
+            raise ScrapingError("plot summary block has no full-length (plot-xl) variant")
         if not plot_summary:
             raise ScrapingError("plot summary block present but empty")
+        if plot_summary.endswith("Read all"):
+            raise ScrapingError("plot summary still looks truncated (ends in 'Read all'): " + plot_summary[-60:])
 
         return plot_summary
 
