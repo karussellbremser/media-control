@@ -550,8 +550,11 @@ class ScrapeIMDbOnline:
         chars) and ending in "..." plus a "Read all" link (whose text ends up inside the block's
         text). The full text is instead read from the page's embedded __NEXT_DATA__ JSON, which is
         what IMDb's own script builds those excerpts from. The DOM's plot-xl variant is used only as
-        a cross-check that the JSON text really is the same summary. Raises on any unexpected
-        structure, rather than silently skipping or guessing."""
+        a cross-check that the JSON text really is the same summary. Returns None for a title that
+        has no plot summary on IMDb at all (JSON plot is null): its plot block then holds only an
+        "Add a plot in your language" call-to-action link, whose text the old innerText-based
+        reading stored as if it were the summary. Raises on any other unexpected structure, rather
+        than silently skipping or guessing."""
 
         box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="plot"]\').length;')
         if box_count != 1:
@@ -562,14 +565,21 @@ class ScrapeIMDbOnline:
             if (!el) return {error: 'no __NEXT_DATA__ element on title page'};
             let data;
             try { data = JSON.parse(el.textContent); } catch (e) { return {error: '__NEXT_DATA__ is not valid JSON'}; }
-            const plot = data && data.props && data.props.pageProps && data.props.pageProps.aboveTheFoldData && data.props.pageProps.aboveTheFoldData.plot;
-            const text = plot && plot.plotText && plot.plotText.plainText;
-            if (typeof text !== 'string') return {error: 'no plotText.plainText at props.pageProps.aboveTheFoldData.plot in __NEXT_DATA__'};
+            const atf = data && data.props && data.props.pageProps && data.props.pageProps.aboveTheFoldData;
+            if (!atf || !('plot' in atf)) return {error: 'no plot key at props.pageProps.aboveTheFoldData in __NEXT_DATA__'};
             const dom = document.querySelector('[data-testid="plot"] [data-testid="plot-xl"]');
-            return {text: text.trim(), dom: dom ? dom.textContent.trim() : null};
+            const domText = dom ? dom.textContent.trim() : null;
+            if (atf.plot === null) return {noPlot: true, dom: domText};
+            const text = atf.plot && atf.plot.plotText && atf.plot.plotText.plainText;
+            if (typeof text !== 'string') return {error: 'no plotText.plainText at props.pageProps.aboveTheFoldData.plot in __NEXT_DATA__'};
+            return {text: text.trim(), dom: domText};
         """)
         if "error" in result:
             raise ScrapingError(result["error"])
+        if result.get("noPlot"):
+            if result["dom"]:
+                raise ScrapingError("IMDb's embedded data says this title has no plot, but the page's plot block shows: " + repr(result["dom"][:60]))
+            return None
         plot_summary = result["text"]
         if not plot_summary:
             raise ScrapingError("plot summary present but empty")
