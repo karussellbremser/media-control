@@ -511,11 +511,16 @@
 
 		/* dark scheme, so the poster is what stands out: charcoal details side, darker poster pane,
 		   heavier dimming of the cover wall behind. color-scheme dark also darkens the details
-		   column's scrollbar. The cover lightbox further down is unchanged. */
+		   column's scrollbar. The cover lightbox further down is unchanged.
+		   --detailBg/--detailPaneBg are set from JS to a dark, muted version of the cover's dominant
+		   colour (see static/search.js); without them -- black-and-white poster, no cover, cover not
+		   loaded yet -- the neutral charcoal fallbacks below apply. Everything else on the panel
+		   (chips, buttons, dividers) is translucent white so it works on any of those tints. */
 		#detailPanel {
 			width: min(1500px, 100%);
 			height: min(1000px, 100%);
-			background: #2a2b30;
+			background: var(--detailBg, #2a2b30);
+			transition: background-color 0.3s ease;
 			color: #ececee;
 			color-scheme: dark;
 			border-radius: 12px;
@@ -528,7 +533,8 @@
 		   grows with the window; capped so the details column always keeps a usable share */
 		#detailCoverPane {
 			position: relative;
-			background: #18191c;
+			background: var(--detailPaneBg, #18191c);
+			transition: background-color 0.3s ease;
 			display: flex;
 			align-items: center;
 			justify-content: center;
@@ -577,7 +583,7 @@
 		#detailHeader {
 			position: relative;
 			padding: 18px 56px 12px 20px;
-			border-bottom: 1px solid #3f4147;
+			border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 		}
 
 		#detailClose {
@@ -589,13 +595,13 @@
 			padding: 0;
 			font-size: 20px;
 			line-height: 1;
-			background-color: #3a3c42;
-			border-color: #55575e;
+			background-color: rgba(255, 255, 255, 0.10);
+			border-color: rgba(255, 255, 255, 0.22);
 			color: #ececee;
 		}
 
 		#detailClose:hover {
-			background-color: #4a4c53;
+			background-color: rgba(255, 255, 255, 0.18);
 		}
 
 		#detailTitle {
@@ -620,13 +626,13 @@
 			font-size: 12px;
 			padding: 3px 10px;
 			border-radius: 10px;
-			background: #3a3c42;
-			color: #b0b0b7;
+			background: rgba(255, 255, 255, 0.10);
+			color: rgba(255, 255, 255, 0.72);
 		}
 
 		.detailChip--genre {
-			background: #2d3d5a;
-			color: #a9c2ee;
+			background: rgba(90, 140, 235, 0.28);
+			color: #bcd0f3;
 		}
 
 		#detailChips a.imdbLink {
@@ -634,14 +640,14 @@
 			font-size: 12px;
 			padding: 3px 10px;
 			border-radius: 5px;
-			border: 1px solid #55575e;
-			background: #3a3c42;
+			border: 1px solid rgba(255, 255, 255, 0.22);
+			background: rgba(255, 255, 255, 0.10);
 			color: inherit;
 			text-decoration: none;
 		}
 
 		#detailChips a.imdbLink:hover {
-			background: #4a4c53;
+			background: rgba(255, 255, 255, 0.18);
 		}
 
 		#detailBody {
@@ -672,7 +678,7 @@
 		}
 
 		.detailGrid .label {
-			color: #8b8b93;
+			color: #a2a2aa;
 		}
 
 		.detailNames {
@@ -682,7 +688,7 @@
 		}
 
 		.detailNames .muted {
-			color: #8b8b93;
+			color: #a2a2aa;
 		}
 
 		.detailMore {

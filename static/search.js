@@ -258,16 +258,157 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailCover.classList.remove('noCover');
 		detailCover.alt = d.title;
 		const coverUrl = '/cover/' + idString(d.imdbId) + '.jpg';
+		detailCoverId = d.imdbId;
 		if (detailCover.getAttribute('src') !== coverUrl || !detailCover.complete) {
 			detailCover.classList.add('loading'); // the previous title's poster must not linger meanwhile
-			detailCover.src = coverUrl;
+			detailCover.src = coverUrl; // the tint follows from its load event (the previous one fades over meanwhile)
+		} else {
+			applyCoverTint(d.imdbId); // same cover already loaded (title reopened) -- no load event will fire
 		}
 	}
 
-	detailCover.addEventListener('load', () => detailCover.classList.remove('loading'));
+	// ---- cover-tinted overlay: the details panel and the poster pane take a dark, muted version of
+	// the cover's dominant colour (CSS: --detailBg/--detailPaneBg on #detailPanel). The cover is
+	// served from this same origin, so its pixels can be read through a canvas. Titles without a
+	// usable colour (black-and-white poster, unreadable cover) get no tint and keep the neutral
+	// charcoal. Results are cached per title for the life of the page.
+	const TINT_MAX_SATURATION = 0.40;
+	const TINT_PANEL_LIGHTNESS = 0.24, TINT_PANE_LIGHTNESS = 0.15;
+	// upper limits on perceived brightness (WCAG relative luminance), so light text and the gray
+	// labels stay readable even on bright hues (yellow/orange are much brighter than blue at the
+	// same HSL lightness) -- the panel is darkened further until it fits under its limit
+	const TINT_PANEL_MAX_LUMINANCE = 0.035, TINT_PANE_MAX_LUMINANCE = 0.015;
+	const coverTintCache = new Map(); // imdb_id -> {panel, pane} or null
+	let detailCoverId = null;
+
+	function rgbToHsl(r, g, b) { // all 0..1
+		const max = Math.max(r, g, b), min = Math.min(r, g, b);
+		const l = (max + min) / 2;
+		if (max === min) return [0, 0, l];
+		const d = max - min;
+		const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+		let h;
+		if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+		else if (max === g) h = (b - r) / d + 2;
+		else h = (r - g) / d + 4;
+		return [h / 6, s, l];
+	}
+
+	function hslToRgb(h, s, l) {
+		if (s === 0) return [l, l, l];
+		const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+		const channel = t => {
+			t = (t + 1) % 1;
+			if (t < 1 / 6) return p + (q - p) * 6 * t;
+			if (t < 1 / 2) return q;
+			if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+			return p;
+		};
+		return [channel(h + 1 / 3), channel(h), channel(h - 1 / 3)];
+	}
+
+	function relativeLuminance(r, g, b) {
+		const lin = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+		return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+	}
+
+	function mutedShade(h, s, lightness, maxLuminance) {
+		let l = lightness, rgb;
+		for (let i = 0; i < 30; i++) {
+			rgb = hslToRgb(h, Math.min(s, TINT_MAX_SATURATION), l);
+			if (relativeLuminance(...rgb) <= maxLuminance) break;
+			l -= 0.01;
+		}
+		return 'rgb(' + rgb.map(c => Math.round(c * 255)).join(', ') + ')';
+	}
+
+	// dominant colour: pixels are bucketed by hue (24 buckets) and weighted by how vivid they are, so
+	// a poster's black border, white credits and gray backgrounds don't count; the heaviest bucket's
+	// weighted average wins. null if nothing colourful is left.
+	function coverTint(img) {
+		try {
+			const w = 32, h = 48;
+			const canvas = document.createElement('canvas');
+			canvas.width = w;
+			canvas.height = h;
+			const ctx = canvas.getContext('2d', { willReadFrequently: true });
+			ctx.imageSmoothingQuality = 'high';
+			ctx.drawImage(img, 0, 0, w, h);
+			const px = ctx.getImageData(0, 0, w, h).data;
+			const buckets = new Map(); // hue bucket -> [weight, r*weight, g*weight, b*weight]
+			for (let i = 0; i < px.length; i += 4) {
+				if (px[i + 3] < 128) continue;
+				const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
+				const [ph, ps, pl] = rgbToHsl(r, g, b);
+				if (pl < 0.10 || pl > 0.92 || ps < 0.18) continue;
+				const key = Math.floor(ph * 24) % 24;
+				const weight = ps * (1 - Math.abs(2 * pl - 1));
+				const e = buckets.get(key) || [0, 0, 0, 0];
+				e[0] += weight; e[1] += r * weight; e[2] += g * weight; e[3] += b * weight;
+				buckets.set(key, e);
+			}
+			if (buckets.size === 0) return null;
+			const best = [...buckets.values()].reduce((a, b) => b[0] > a[0] ? b : a);
+			const [hue, sat] = rgbToHsl(best[1] / best[0], best[2] / best[0], best[3] / best[0]);
+			return {
+				panel: mutedShade(hue, sat, TINT_PANEL_LIGHTNESS, TINT_PANEL_MAX_LUMINANCE),
+				pane: mutedShade(hue, sat, TINT_PANE_LIGHTNESS, TINT_PANE_MAX_LUMINANCE)
+			};
+		} catch (e) {
+			return null; // e.g. a tainted canvas -- just no tint
+		}
+	}
+
+	function setCoverTint(tint) {
+		const panel = document.getElementById('detailPanel');
+		if (tint) {
+			panel.style.setProperty('--detailBg', tint.panel);
+			panel.style.setProperty('--detailPaneBg', tint.pane);
+		} else {
+			panel.style.removeProperty('--detailBg');
+			panel.style.removeProperty('--detailPaneBg');
+		}
+	}
+
+	function applyCoverTint(imdb_id) {
+		let tint = coverTintCache.get(imdb_id);
+		if (tint === undefined) {
+			tint = coverTint(detailCover);
+			coverTintCache.set(imdb_id, tint);
+		}
+		setCoverTint(tint);
+	}
+
+	// The tint is taken from the cover's THUMBNAIL rather than the full-size cover: the thumbnail is
+	// what the result grid already loaded (so it's normally in the browser cache), it's small, and its
+	// dominant colour matches the full cover's for practically every title. That lets openDetail have
+	// the tint ready by the time the details arrive, so the overlay opens already in its final colour
+	// instead of changing it once a possibly huge full-size cover has downloaded and decoded (the
+	// cover's own load event remains the fallback, see applyCoverTint). Resolves -- never rejects --
+	// to the tint, null for a title without a usable colour, or undefined if the thumbnail couldn't
+	// be read (nothing cached then, so the full cover gets its chance).
+	function tintFromThumbnail(imdb_id) {
+		if (coverTintCache.has(imdb_id)) return Promise.resolve(coverTintCache.get(imdb_id));
+		return new Promise(resolve => {
+			const img = new Image();
+			img.onload = () => {
+				const tint = coverTint(img);
+				coverTintCache.set(imdb_id, tint);
+				resolve(tint);
+			};
+			img.onerror = () => resolve(undefined);
+			img.src = '/cover_small/' + idString(imdb_id) + '.webp';
+		});
+	}
+
+	detailCover.addEventListener('load', () => {
+		detailCover.classList.remove('loading');
+		applyCoverTint(detailCoverId);
+	});
 	detailCover.addEventListener('error', () => {
 		detailCover.classList.remove('loading');
 		detailCover.classList.add('noCover');
+		setCoverTint(null);
 	});
 
 	function openCoverLightbox() {
@@ -300,6 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const requestId = ++detailRequestId;
 		const wasOpen = !detailBackdrop.classList.contains('hidden');
 		new Image().src = '/cover/' + idString(imdb_id) + '.jpg'; // preload alongside the details request
+		const tintReady = tintFromThumbnail(imdb_id); // likewise, see tintFromThumbnail
 		fetch('/detail/' + imdb_id)
 			.then(response => {
 				if (!response.ok) {
@@ -309,8 +451,13 @@ document.addEventListener('DOMContentLoaded', () => {
 				}
 				return response.json();
 			})
-			.then(d => {
+			.then(d => tintReady.then(tint => [d, tint]))
+			.then(([d, tint]) => {
 				if (requestId !== detailRequestId) return; // superseded by a newer click, or closed meanwhile
+				// set before the shell is shown, so a freshly opened overlay is already in its final colour;
+				// if the thumbnail couldn't be read (undefined), start neutral rather than on the
+				// previous title's colour -- the full cover's load event applies the real one
+				setCoverTint(tint === undefined ? null : tint);
 				renderDetail(d);
 				showDetailShell();
 				if (pushHistory) {
@@ -328,6 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					? "This title isn't in your library."
 					: 'The database may be temporarily busy -- close this and try again in a moment.'));
 				detailCover.classList.add('noCover');
+				setCoverTint(null);
 				showDetailShell();
 			});
 	}
