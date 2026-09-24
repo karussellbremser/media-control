@@ -542,31 +542,48 @@ class ScrapeIMDbOnline:
         return result
 
     def __scrapePlotSummary(self):
-        """Scrapes the plot summary from the currently-loaded title main page. The plot block holds
-        three separate variants -- plot-xs_to_m, plot-l and plot-xl -- each with its own text, and
-        which one is displayed depends on the viewport width (CSS breakpoints). plot-xs_to_m is a
-        genuinely shortened text (cut at ~200 chars, ending in "..."), with "Read all" as a
-        separate link; plot-l/plot-xl carry the full text. Reading the block's innerText would
-        return only whichever variant is visible -- and headless Chrome ignores the window_size
-        requested in __launchBrowser (real viewport ~780x500), so that was always the shortened one.
-        The plot-xl variant's textContent is read directly instead, which doesn't depend on what's
-        currently displayed. Raises on any unexpected structure, rather than silently skipping or
-        guessing."""
+        """Scrapes the plot summary from the currently-loaded title main page. The page's visible
+        plot block can't be used for this: it holds three variants -- plot-xs_to_m, plot-l and
+        plot-xl -- shown/hidden by viewport width (headless Chrome ignores the window_size
+        requested in __launchBrowser, real viewport ~780x500, so the smallest is what's displayed),
+        and each one is an excerpt for a long summary, cut at a different length (~200/~280/~380
+        chars) and ending in "..." plus a "Read all" link (whose text ends up inside the block's
+        text). The full text is instead read from the page's embedded __NEXT_DATA__ JSON, which is
+        what IMDb's own script builds those excerpts from. The DOM's plot-xl variant is used only as
+        a cross-check that the JSON text really is the same summary. Raises on any unexpected
+        structure, rather than silently skipping or guessing."""
 
         box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="plot"]\').length;')
         if box_count != 1:
             raise ScrapingError("expected exactly one plot summary block on title page, found " + str(box_count))
 
-        plot_summary = self.browser.execute_script("""
-            const full = document.querySelector('[data-testid="plot"] [data-testid="plot-xl"]');
-            return full ? full.textContent.trim() : null;
+        result = self.browser.execute_script("""
+            const el = document.getElementById('__NEXT_DATA__');
+            if (!el) return {error: 'no __NEXT_DATA__ element on title page'};
+            let data;
+            try { data = JSON.parse(el.textContent); } catch (e) { return {error: '__NEXT_DATA__ is not valid JSON'}; }
+            const plot = data && data.props && data.props.pageProps && data.props.pageProps.aboveTheFoldData && data.props.pageProps.aboveTheFoldData.plot;
+            const text = plot && plot.plotText && plot.plotText.plainText;
+            if (typeof text !== 'string') return {error: 'no plotText.plainText at props.pageProps.aboveTheFoldData.plot in __NEXT_DATA__'};
+            const dom = document.querySelector('[data-testid="plot"] [data-testid="plot-xl"]');
+            return {text: text.trim(), dom: dom ? dom.textContent.trim() : null};
         """)
-        if plot_summary is None:
-            raise ScrapingError("plot summary block has no full-length (plot-xl) variant")
+        if "error" in result:
+            raise ScrapingError(result["error"])
+        plot_summary = result["text"]
         if not plot_summary:
-            raise ScrapingError("plot summary block present but empty")
+            raise ScrapingError("plot summary present but empty")
         if plot_summary.endswith("Read all"):
             raise ScrapingError("plot summary still looks truncated (ends in 'Read all'): " + plot_summary[-60:])
+
+        # cross-check against the visible plot-xl variant, minus the trailing "... Read all" it gets
+        # when it's an excerpt: the full text must start with what's left
+        if result["dom"] is None:
+            raise ScrapingError("plot summary block has no plot-xl variant to cross-check the embedded text against")
+        dom_text = re.sub(r"\s*(?:\.\.\.\s*)?Read all$", "", result["dom"])
+        if not plot_summary.startswith(dom_text):
+            raise ScrapingError("embedded plot text doesn't match the page's visible plot block: " +
+                                 repr(plot_summary[:60]) + " vs " + repr(dom_text[:60]))
 
         return plot_summary
 
