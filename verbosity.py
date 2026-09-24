@@ -13,7 +13,7 @@ def printAlways(msg):
 
 def printDetail(msg):
     """Printed once config.VERBOSITY >= LEVEL_NORMAL -- per-item scraping progress, genre/
-    interest/language/franchise additions, removals, and similar detail. This is the bulk of
+    interest/language/country additions and ignored franchise/language chips, removals, and similar detail. This is the bulk of
     today's output; only individual person additions (see printPerson) stay held back further."""
     if config.VERBOSITY >= LEVEL_NORMAL:
         print(msg)
