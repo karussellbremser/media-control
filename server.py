@@ -18,6 +18,16 @@ def _readHiddenInterestIDs(path):
 
 HIDDEN_INTEREST_IDS = _readHiddenInterestIDs(config.HIDDEN_INTEREST_IDS_PATH)
 
+def _excludeHiddenInterests(column):
+    """(sql, params) appending "AND <column> NOT IN (...)" for every hidden interest id -- empty when
+    none are configured -- for any query that lists a title's interests to the UI (the list view's
+    genre line, the detail overlay's chips), so a hidden interest never shows up anywhere, not just
+    in the filter sidebar (see the interest-group loop in index())."""
+    if not HIDDEN_INTEREST_IDS:
+        return "", []
+    hidden = sorted(HIDDEN_INTEREST_IDS)
+    return " AND " + column + " NOT IN (" + ",".join("?" for _ in hidden) + ")", hidden
+
 def queryMedia(search_query, sort_by, order,
                 year_from, year_to,
                 rating_from, rating_to,
@@ -39,13 +49,16 @@ def queryMedia(search_query, sort_by, order,
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
 
+    # the list view's genre line must not show hidden interests either (its params come first: this
+    # subquery's placeholders precede the CASE ... IN (...) ones further down the statement)
+    hiddenSql, hiddenParams = _excludeHiddenInterests("mi_show.imdb_interest_id")
     sql = """
     SELECT m.imdb_id, m.original_title, m.start_year, m.end_year, m.rating_mul10, m.num_votes,
     (
         SELECT GROUP_CONCAT(ie.name, ', ')
         FROM media_interests mi_show
         JOIN interest_enum ie ON mi_show.imdb_interest_id = ie.imdb_interest_id
-        WHERE mi_show.imdb_id = m.imdb_id
+        WHERE mi_show.imdb_id = m.imdb_id""" + hiddenSql + """
         ORDER BY ie.name
     ) as tags,
     (
@@ -58,7 +71,7 @@ def queryMedia(search_query, sort_by, order,
     FROM media m
     JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
     """
-    params = list(Media.seriesTitleTypes)
+    params = hiddenParams + list(Media.seriesTitleTypes)
 
     # filter genres/interests (selected_interest_ids may mix genre and subgenre ids)
     if selected_interest_ids:
@@ -288,14 +301,16 @@ def detail(imdb_id):
             return jsonify({"error": "not found"}), 404
         original_title, primary_title, start_year, end_year, rating_mul10, num_votes, plot_summary, title_type_name = row
 
-        # genres (no parent) first, then subgenres, each alphabetical
+        # genres (no parent) first, then subgenres, each alphabetical; hidden interests left out, same
+        # as everywhere else the UI lists interests
+        hiddenSql, hiddenParams = _excludeHiddenInterests("mi.imdb_interest_id")
         cursor.execute("""
             SELECT ie.name, ie.parent_imdb_interest_id IS NULL
             FROM media_interests mi
             JOIN interest_enum ie ON mi.imdb_interest_id = ie.imdb_interest_id
-            WHERE mi.imdb_id = ?
+            WHERE mi.imdb_id = ?""" + hiddenSql + """
             ORDER BY (ie.parent_imdb_interest_id IS NOT NULL), ie.name
-        """, (imdb_id,))
+        """, [imdb_id] + hiddenParams)
         interests = [{"name": name, "isGenre": bool(isGenre)} for name, isGenre in cursor.fetchall()]
 
         cursor.execute("""
