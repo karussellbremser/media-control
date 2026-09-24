@@ -51,7 +51,7 @@ class Media:
         self.season_number = None # None unless this is an episode (titleType in episodeTitleTypes); None also covers IMDb's own "unnumbered" episodes, never conflated with a real season/episode number (see ScrapeIMDbOffline.parseTitleEpisode)
         self.episode_number = None
         self.series_imdb_id = None # imdb_id of the parent series; None unless this is an episode
-        self.intended_order = None # this episode's 1-indexed rank in its season's intended_order.txt, if any -- purely local data (unlike season_number/episode_number), so cleared like language_id/interests once no longer locally owned (see DBControl.removeSingleMedia)
+        self.intended_order = None # this episode's 1-indexed rank in its season's intended_order.txt, if any -- purely local data (unlike season_number/episode_number), so cleared like interests/languages/countries once no longer locally owned (see DBControl.removeSingleMedia)
         self.end_year = None
         self.rating_mul10 = None
         self.num_votes = None
@@ -59,7 +59,8 @@ class Media:
         self.release_day = None # only entered manually when necessary
         self.subdir = subdir
         self.interests = [] # list of IMDb interest ids as integers (e.g. 76 for "in0000076"), covering both standard genres and subgenres
-        self.language_id = 0 # imdb_interest_id into language_enum; 0 = English (the reserved default id), overwritten if a language-type interest is attached
+        self.languages = [] # IMDb language codes (e.g. "en", "pl", "zxx") from the Details section of the title's main page, in IMDb's own order -- the first one is the primary language. Empty for a title with none listed, and for anything not scraped this run (episodes and referenced-only media never are)
+        self.countries = [] # IMDb country-of-origin codes (e.g. "US", "PL"), same source and order preservation as languages
         self.mediaVersions = []
         self.mediaConnections = []
         self.credits = [] # list of Credit (director/writer/actor); only ever populated for locally-owned movies and episodes (see ScrapeIMDbOnline.scrapeFullCredits), never series

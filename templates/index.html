@@ -837,9 +837,9 @@
 				<input type="radio" name="language" class="languageRadio" value="" checked>
 				<span>Any language</span>
 			</label>
-			{% for language_id, language_name, language_description in languages %}
-				<label title="{{ language_description }}">
-					<input type="radio" name="language" class="languageRadio" value="{{ language_id }}">
+			{% for language_code, language_name in languages %}
+				<label>
+					<input type="radio" name="language" class="languageRadio" value="{{ language_code }}">
 					<span>{{ language_name }}</span>
 				</label>
 			{% endfor %}

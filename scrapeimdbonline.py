@@ -223,35 +223,40 @@ class ScrapeIMDbOnline:
             if count == self.maxCount:
                 return
 
-    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
+    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguages, knownCountries, knownPseudoGenreIDs, knownIgnoredIDs):
         """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
         more /interest/<id>/ pages while classifying newly-discovered chips) and:
-        - always scrapes its interests (standard genres and subgenres alike), language and plot summary
-        - downloads its cover if the file doesn't already exist, unless it's a series or its
-          language turns out non-English (covers for both are always added manually, never
-          auto-downloaded -- see main.py's downloadCovers call for the matching exclusion on the
-          cover-backfill path)
+        - always scrapes its interests (standard genres and subgenres alike), its languages and
+          countries of origin (from the page's Details section, in IMDb's order -- the first
+          language is the primary language) and its plot summary
+        - downloads its cover if the file doesn't already exist, but ONLY if it's not a series and
+          its primary language exists and is English (covers for series, for titles with any other
+          primary language and for titles with no language listed at all are always added manually,
+          never auto-downloaded -- see main.py's downloadCovers call for the matching restriction on
+          the cover-backfill path)
 
-        knownInterestIDs/knownLanguageIDs are sets of already-known IMDb interest ids; both are
-        mutated in place as new ones are discovered. knownPseudoGenreIDs is a name -> id map of
-        already-known pseudo-genres (see __classifyChips), also mutated in place. knownFranchiseIDs
-        is a set of already-seen franchise-type interest ids (ignored entirely, see __classifyChips),
-        also mutated in place. A title with no language-type interest attached keeps Media's default
-        language_id of 0 (English). Returns (newInterestRegistrations, newLanguageRegistrations,
-        newFranchiseRegistrations): newInterestRegistrations is a list of (imdb_interest_id, name,
-        description, parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always
-        appears before the subgenre itself); newLanguageRegistrations is a list of (imdb_interest_id,
-        name, description) tuples; newFranchiseRegistrations is a list of (imdb_interest_id, name)
+        knownInterestIDs is a set of already-known IMDb interest ids, mutated in place as new ones
+        are discovered. knownLanguages/knownCountries are {code: name} maps of the already-known
+        languages/countries, likewise mutated in place. knownPseudoGenreIDs is a name -> id map of
+        already-known pseudo-genres (see __classifyChips), also mutated in place. knownIgnoredIDs is
+        a set of already-seen franchise- or language-type interest ids (ignored entirely, see
+        __classifyChips), also mutated in place. Returns (newInterestRegistrations,
+        newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations):
+        newInterestRegistrations is a list of (imdb_interest_id, name, description,
+        parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always appears
+        before the subgenre itself); newLanguageRegistrations/newCountryRegistrations are lists of
+        (code, name) tuples; newIgnoredRegistrations is a list of (imdb_interest_id, name, type)
         tuples. Persist via DBControl (see main.py's step 13) in the order returned."""
 
         if len(mediaDict) == 0:
-            return [], [], []
+            return [], [], [], []
 
-        self.__printStepHeader(7, "scraping main pages (interests, language, covers)")
+        self.__printStepHeader(7, "scraping main pages (interests, languages, countries, covers)")
 
         newInterestRegistrations = []
         newLanguageRegistrations = []
-        newFranchiseRegistrations = []
+        newCountryRegistrations = []
+        newIgnoredRegistrations = []
         first = True
 
         for i, currentMedia in enumerate(mediaDict.values(), 1):
@@ -264,35 +269,38 @@ class ScrapeIMDbOnline:
 
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
 
+            # everything read straight off the loaded page comes first, before classifying chips
+            # below possibly navigates away to separate /interest/... pages
             chips = self.__scrapeInterestChips()
             currentMedia.plot_summary = self.__scrapePlotSummary()
+            languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
+            currentMedia.languages = self.__registerCodes(languages, knownLanguages, newLanguageRegistrations, "language")
+            currentMedia.countries = self.__registerCodes(countries, knownCountries, newCountryRegistrations, "country")
 
-            attachedInterestIDs, newInterestRegs, newLanguageRegs, languageID, newFranchiseRegs, navigatedAway = self.__classifyChips(chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
+            attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(chips, knownInterestIDs, knownPseudoGenreIDs, knownIgnoredIDs)
             currentMedia.interests = attachedInterestIDs
-            if languageID is not None:
-                currentMedia.language_id = languageID
             newInterestRegistrations.extend(newInterestRegs)
-            newLanguageRegistrations.extend(newLanguageRegs)
-            newFranchiseRegistrations.extend(newFranchiseRegs)
+            newIgnoredRegistrations.extend(newIgnoredRegs)
 
             # cover download needs the browser back on the title's own main page -- classifying
             # newly-discovered interests above may have navigated away to separate /interest/...
             # pages, so only re-navigate (an extra page load) when that actually happened. Series
             # are excluded -- IMDb only offers the latest season's cover as a series' "main" image,
-            # which isn't what should represent the whole series locally. Non-English movies get
-            # the same manual-only treatment as series (by explicit choice, not auto-downloaded);
-            # in both cases a cover is instead added manually (see main.py's downloadCovers call
-            # for the matching exclusion on the cover-backfill path). titleType is still the
-            # local-scrape placeholder here ("localSeries"), since offline parsing hasn't resolved
-            # it to a real IMDb type yet.
-            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes and currentMedia.language_id == 0:
+            # which isn't what should represent the whole series locally. Movies whose primary
+            # language isn't English, or that list no language at all, get the same manual-only
+            # treatment as series (by explicit choice, not auto-downloaded); in both cases a cover
+            # is instead added manually (see main.py's downloadCovers call for the matching
+            # restriction on the cover-backfill path). titleType is still the local-scrape
+            # placeholder here ("localSeries"), since offline parsing hasn't resolved it to a real
+            # IMDb type yet.
+            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes and currentMedia.languages[:1] == ["en"]:
                 coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
                 if not os.path.isfile(coverPath):
                     if navigatedAway:
                         self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
                     self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-        return newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations
+        return newInterestRegistrations, newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations
 
     def fillMissingBasics(self, mediaDict):
         """For locally-owned titles missing from the offline IMDb datasets (flagged via
@@ -597,7 +605,111 @@ class ScrapeIMDbOnline:
 
         return plot_summary
 
-    def __classifyChips(self, chips, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs):
+    def __scrapeLanguagesAndCountries(self, expectedIDString):
+        """Scrapes the languages and countries of origin from the currently-loaded title main page's
+        Details section, each as an ordered [(code, name), ...] list in IMDb's own order (the first
+        language is the title's primary language). Read from the page's embedded __NEXT_DATA__ JSON
+        (spokenLanguages / countriesDetails, with IMDb's own codes -- "en", "pl", "cmn", "US", ...;
+        "zxx"/"None" for a silent or dialogue-free title), the same source the plot summary is read
+        from; the visible Details rows are used only as a cross-check that the JSON says what the
+        page shows. A title with none listed yields an empty list (and no visible row). Also checks
+        that the embedded data really belongs to expectedIDString (a merged/redirected title would
+        otherwise silently be recorded under the wrong id). Raises on any other unexpected structure,
+        rather than silently skipping or guessing."""
+
+        raw = self.browser.execute_script("""
+            const el = document.getElementById('__NEXT_DATA__');
+            if (!el) return {error: 'no __NEXT_DATA__ element on title page'};
+            let data;
+            try { data = JSON.parse(el.textContent); } catch (e) { return {error: '__NEXT_DATA__ is not valid JSON'}; }
+            const m = data && data.props && data.props.pageProps && data.props.pageProps.mainColumnData;
+            if (!m) return {error: 'no props.pageProps.mainColumnData in __NEXT_DATA__'};
+            if (!('spokenLanguages' in m)) return {error: 'no spokenLanguages key in mainColumnData'};
+            if (!('countriesDetails' in m)) return {error: 'no countriesDetails key in mainColumnData'};
+            const dom = (id) => { const e = document.querySelector('[data-testid="' + id + '"]'); return e ? e.textContent : null; };
+            return {
+                pageId: m.id,
+                spokenLanguages: m.spokenLanguages,
+                countriesDetails: m.countriesDetails,
+                domLanguages: dom('title-details-languages'),
+                domOrigin: dom('title-details-origin'),
+            };
+        """)
+        if not isinstance(raw, dict):
+            raise ScrapingError("reading the Details section returned no data")
+        if "error" in raw:
+            raise ScrapingError(raw["error"])
+        if raw.get("pageId") != expectedIDString:
+            raise ScrapingError("page's embedded data is for " + repr(raw.get("pageId")) + ", not " + expectedIDString + " (redirected/merged title?)")
+
+        languages = self.__parseCodeNameList(raw.get("spokenLanguages"), "spokenLanguages", "spoken languages")
+        countries = self.__parseCodeNameList(raw.get("countriesDetails"), "countries", "countries of origin")
+        self.__checkAgainstVisibleDetailsRow(raw.get("domLanguages"), ("Languages", "Language"), languages, "languages")
+        self.__checkAgainstVisibleDetailsRow(raw.get("domOrigin"), ("Countries of origin", "Country of origin"), countries, "countries of origin")
+        return languages, countries
+
+    def __parseCodeNameList(self, container, listKey, what):
+        """Normalizes one of IMDb's {"<listKey>": [{"id": ..., "text": ...}, ...]} blocks into an
+        ordered [(code, name), ...] list. A null block, or a null/empty list, means "none listed"."""
+        if container is None:
+            return []
+        if not isinstance(container, dict) or listKey not in container:
+            raise ScrapingError("unexpected structure for " + what + ": " + repr(container)[:120])
+        items = container[listKey]
+        if items is None:
+            return []
+        if not isinstance(items, list):
+            raise ScrapingError("unexpected structure for " + what + ": " + repr(items)[:120])
+        result = []
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                raise ScrapingError("unexpected " + what + " entry: " + repr(item)[:120])
+            code, name = item.get("id"), item.get("text")
+            if not isinstance(code, str) or not code.strip() or not isinstance(name, str) or not name.strip():
+                raise ScrapingError("unexpected " + what + " entry (need non-empty id and text): " + repr(item)[:120])
+            code, name = code.strip(), name.strip()
+            if code in seen:
+                raise ScrapingError("duplicate " + what + " code on page: " + code)
+            seen.add(code)
+            result.append((code, name))
+        return result
+
+    def __checkAgainstVisibleDetailsRow(self, domText, labels, items, what):
+        """The visible Details row must say exactly what the embedded JSON says (its label plus the
+        names, run together -- textContent has no separators), or both must agree that there is
+        none."""
+        if not items:
+            if domText is not None:
+                raise ScrapingError("embedded data lists no " + what + ", but the page shows: " + repr(domText[:80]))
+            return
+        if domText is None:
+            raise ScrapingError("embedded data lists " + what + " " + str(items) + ", but the page has no such Details row")
+        squash = lambda s: re.sub(r"\s+", "", s)
+        joinedNames = squash("".join(name for _, name in items))
+        if not any(squash(domText) == squash(label) + joinedNames for label in labels):
+            raise ScrapingError("visible " + what + " row " + repr(domText[:80]) + " doesn't match the embedded data " + str(items))
+
+    def __registerCodes(self, items, known, newRegistrations, what):
+        """Returns the codes of items ([(code, name), ...]) in order, recording every not-yet-known
+        one in newRegistrations (and in known, in place -- see scrapeMainPages). Raises if a known
+        code arrives under a different name, or a new code under a name another code already has:
+        both enum tables have a UNIQUE name, and finding that out here beats finding it out only
+        when step 13 tries to write it, after all the scraping is done."""
+        codes = []
+        for code, name in items:
+            if code in known:
+                if known[code] != name:
+                    raise ScrapingError(what + " code " + code + " is already known as " + repr(known[code]) + ", but this page calls it " + repr(name))
+            else:
+                if name in known.values():
+                    raise ScrapingError(what + " name " + repr(name) + " is already used by a different code, but this page lists it as " + code)
+                known[code] = name
+                newRegistrations.append((code, name))
+            codes.append(code)
+        return codes
+
+    def __classifyChips(self, chips, knownInterestIDs, knownPseudoGenreIDs, knownIgnoredIDs):
         """Classifies every (imdb_interest_id, name) in chips as a top-level interest (IMDb's hero
         page labels these "Genre" for most, but "Form" for e.g. Documentary/Short and "Style" for
         Anime -- all three are treated identically here, just different IMDb labels for the same
@@ -606,14 +718,16 @@ class ScrapeIMDbOnline:
         parent is NOT necessarily among the same title's other chips (a title can carry a subgenre
         without also being tagged with its parent directly), so the parent's id is resolved against
         IMDb's full interest directory instead. The parent is registered first if it too is new.
-        knownInterestIDs/knownLanguageIDs are mutated in place.
+        knownInterestIDs is mutated in place.
 
-        Franchise-type interests (e.g. "Evil Dead") are recognized but deliberately ignored --
-        never attached to the title and never registered in interest_enum at all -- since that
-        relationship is already covered via IMDb connection parsing (see MediaConnection). Only
+        Franchise-type interests (e.g. "Evil Dead") and language-type interests (e.g. "German") are
+        recognized but deliberately ignored -- never attached to the title and never registered in
+        interest_enum at all. A franchise relationship is already covered via IMDb connection
+        parsing (see MediaConnection); languages come from the Details section instead (see
+        __scrapeLanguagesAndCountries), since IMDb only has a language chip for some languages. Only
         the type check runs for them; their description/parent category is never even scraped.
-        knownFranchiseIDs is a set of already-seen franchise ids (see DBControl.getAllKnownFranchiseIDs/
-        ensureFranchiseInterestExists), mutated in place, so a franchise is only ever classified once
+        knownIgnoredIDs is a set of already-seen ignored ids (see DBControl.getAllKnownIgnoredInterestIDs/
+        ensureIgnoredInterestExists), mutated in place, so such a chip is only ever classified once
         (an extra IMDb page visit) across all syncs, not just the current one.
 
         A subgenre's breadcrumb "parent category" text is sometimes not a real, individually
@@ -624,27 +738,23 @@ class ScrapeIMDbOnline:
         parent instead of failing, via knownPseudoGenreIDs (a name -> id map, mutated in place,
         shared across the whole sync so the same category always resolves to the same id).
 
-        Returns (attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations,
-        languageID, newFranchiseRegistrations, navigatedAway): attachedInterestIDs are the
-        genre/subgenre ids actually attached to this title (for media_interests -- language ids
-        are never included); newInterestRegistrations is a list of (imdb_interest_id, name,
-        description, parent_imdb_interest_id) tuples; newLanguageRegistrations is a list of
-        (imdb_interest_id, name, description) tuples; languageID is this title's language_id if a
-        language chip was found, else None; newFranchiseRegistrations is a list of
-        (imdb_interest_id, name) tuples -- persist via DBControl (see main.py's step 13) in the
-        order returned; navigatedAway is True if classifying any chip navigated the browser
+        Returns (attachedInterestIDs, newInterestRegistrations, newIgnoredRegistrations,
+        navigatedAway): attachedInterestIDs are the genre/subgenre ids actually attached to this
+        title (for media_interests -- ignored ids are never included); newInterestRegistrations is
+        a list of (imdb_interest_id, name, description, parent_imdb_interest_id) tuples;
+        newIgnoredRegistrations is a list of (imdb_interest_id, name, type) tuples, type being
+        "Franchise" or "Language" -- persist via DBControl (see main.py's step 13) in the order
+        returned; navigatedAway is True if classifying any chip navigated the browser
         away from the title's own main page (to a /interest/<id>/ page), False if every chip was
         already known and the browser never left -- callers that need to be back on the main page
         afterwards (e.g. to download the cover) should check this rather than assume either way.
 
         Raises on any unexpected structure (unknown type, missing description, ambiguous parent,
-        more than two genre/subgenre taxonomy levels, more than one language attached)."""
+        more than two genre/subgenre taxonomy levels)."""
 
         attachedInterestIDs = []
         newInterestRegistrations = []
-        newLanguageRegistrations = []
-        newFranchiseRegistrations = []
-        languageID = None
+        newIgnoredRegistrations = []
         navigatedAway = False
 
         # IMDb labels a top-level (parentless) interest's hero type differently depending on what
@@ -674,8 +784,8 @@ class ScrapeIMDbOnline:
             if typeText not in topLevelTypes + subgenreTypes + ("Language", "Franchise"):
                 raise ScrapingError("unexpected interest type '" + str(typeText) + "' for " + str(interest_id) + " (" + name + ")")
 
-            if typeText == "Franchise":
-                return ("Franchise", None, None)
+            if typeText in ("Franchise", "Language"):
+                return (typeText, None, None)
 
             categoryTexts = self.browser.execute_script("""
                 const header = document.querySelector('[data-testid="interest-hero-header"]');
@@ -694,7 +804,7 @@ class ScrapeIMDbOnline:
             if not description:
                 raise ScrapingError("could not find description text for interest " + str(interest_id) + " (" + name + ")")
 
-            if typeText in topLevelTypes or typeText == "Language":
+            if typeText in topLevelTypes:
                 realParents = set(categoryTexts) - {name}
                 if len(realParents) != 0:
                     raise ScrapingError(typeText + "-type interest unexpectedly has a parent category: " + str(interest_id))
@@ -710,34 +820,20 @@ class ScrapeIMDbOnline:
                 attachedInterestIDs.append(chip_id)
                 continue
 
-            if chip_id in knownLanguageIDs:
-                if languageID is not None:
-                    raise ScrapingError("multiple language interests attached to the same title")
-                languageID = chip_id
-                continue
-
-            if chip_id in knownFranchiseIDs:
+            if chip_id in knownIgnoredIDs:
                 continue
 
             typeText, parentName, description = classify(chip_id, chip_name)
 
-            if typeText == "Franchise":
-                newFranchiseRegistrations.append((chip_id, chip_name))
-                knownFranchiseIDs.add(chip_id)
+            if typeText in ("Franchise", "Language"):
+                newIgnoredRegistrations.append((chip_id, chip_name, typeText))
+                knownIgnoredIDs.add(chip_id)
                 continue
 
             if typeText in topLevelTypes:
                 newInterestRegistrations.append((chip_id, chip_name, description, None))
                 knownInterestIDs.add(chip_id)
                 attachedInterestIDs.append(chip_id)
-                continue
-
-            if typeText == "Language":
-                if languageID is not None:
-                    raise ScrapingError("multiple language interests attached to the same title")
-                newLanguageRegistrations.append((chip_id, chip_name, description))
-                knownLanguageIDs.add(chip_id)
-                languageID = chip_id
                 continue
 
             candidates = self.__getGlobalInterestNameMap().get(parentName)
@@ -767,7 +863,7 @@ class ScrapeIMDbOnline:
             knownInterestIDs.add(chip_id)
             attachedInterestIDs.append(chip_id)
 
-        return attachedInterestIDs, newInterestRegistrations, newLanguageRegistrations, languageID, newFranchiseRegistrations, navigatedAway
+        return attachedInterestIDs, newInterestRegistrations, newIgnoredRegistrations, navigatedAway
 
     def __getGlobalInterestNameMap(self):
         """Lazily fetches and caches IMDb's full interest directory (/interest/all/) as a
@@ -981,7 +1077,7 @@ class ScrapeIMDbOnline:
         A credited person not yet known (not in knownPersonIDs) is minted here as a Person stub --
         name is whatever was scraped from this page, a placeholder until
         ScrapeIMDbOffline.parsePeople resolves the authoritative name.basics.tsv name (see Person).
-        knownPersonIDs is mutated in place, mirroring knownInterestIDs/knownLanguageIDs elsewhere.
+        knownPersonIDs is mutated in place, mirroring knownInterestIDs/knownLanguages elsewhere.
         Returns newPersonRegistrations: a list of such Person stubs, in order of first appearance,
         for the caller to run through ScrapeIMDbOffline.parsePeople and persist before this run's
         write.

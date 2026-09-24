@@ -23,7 +23,7 @@ def queryMedia(search_query, sort_by, order,
                 rating_from, rating_to,
                 votes_from, votes_to,
                 selected_interest_ids,
-                selected_language_id,
+                selected_language_code,
                 show_movies, show_series,
                 limit, offset):
     # media types to include -- episodes never appear here (episodeTitleTypes is never added),
@@ -126,10 +126,10 @@ def queryMedia(search_query, sort_by, order,
         sql += " AND num_votes <= ?"
         params.append(votes_to)
 
-    # filter language
-    if selected_language_id is not None:
-        sql += " AND m.language_id = ?"
-        params.append(selected_language_id)
+    # filter language -- by primary language only (the first one IMDb lists, media_languages ordering 1)
+    if selected_language_code is not None:
+        sql += " AND EXISTS (SELECT 1 FROM media_languages ml WHERE ml.imdb_id = m.imdb_id AND ml.ordering = 1 AND ml.language_code = ?)"
+        params.append(selected_language_code)
 
     # filter genres/interests (AND across all selected)
     if selected_interest_ids:
@@ -200,13 +200,17 @@ def index():
             interestGroups.append(currentGroup)
         currentGroup[2].append((interest_id, interest_name, interest_desc))
 
-    # English (id 0) first, since it's the default/most common; the rest alphabetically
+    # only languages that are some title's PRIMARY language -- the filter matches on that alone, so a
+    # language that only ever appears further down a title's list would be an option with no results.
+    # IMDb's "None" (code zxx, a silent/dialogue-free title) is shown as "Silent". English first, since
+    # it's the most common; the rest alphabetically by displayed name
     cursor.execute("""
-        SELECT imdb_interest_id, name, description
-        FROM language_enum
-        ORDER BY CASE WHEN imdb_interest_id = 0 THEN 0 ELSE 1 END, name
+        SELECT le.language_code, le.name
+        FROM language_enum le
+        WHERE EXISTS (SELECT 1 FROM media_languages ml WHERE ml.language_code = le.language_code AND ml.ordering = 1)
     """)
-    languages = cursor.fetchall()
+    languages = sorted(((code, "Silent" if code == "zxx" else name) for code, name in cursor.fetchall()),
+                       key=lambda language: (language[0] != "en", language[1]))
 
     conn.close()
     return render_template('index.html', genres=genres, interestGroups=interestGroups, languages=languages,
@@ -216,7 +220,7 @@ def index():
 def search():
     args = request.args
     selected_interest_ids = [int(x) for x in args.getlist('genres[]') + args.getlist('interests[]')]
-    selected_language_id = int(args.get('language')) if args.get('language') else None
+    selected_language_code = args.get('language') or None
     show_movies = args.get('movies', '1') == '1'
     show_series = args.get('series', '0') == '1'
 
@@ -240,7 +244,7 @@ def search():
             args.get('votes_from'),
             args.get('votes_to'),
             selected_interest_ids,
-            selected_language_id,
+            selected_language_code,
             show_movies,
             show_series,
             limit,

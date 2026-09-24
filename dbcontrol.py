@@ -42,7 +42,7 @@ class DBControl:
             # intended_order is also episode-only, but purely local data (a season's optional
             # intended_order.txt, see ScrapeLocal.__scrapeSingleSeason) rather than IMDb-sourced --
             # so unlike season_number/episode_number it's cleared on light-remove, same as
-            # language_id/media_interests (see removeSingleMedia)
+            # media_interests/media_languages/media_countries (see removeSingleMedia)
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
             title_type_id integer NOT NULL,
@@ -55,7 +55,6 @@ class DBControl:
             release_month integer,
             release_day integer,
             subdir text,
-            language_id integer NOT NULL DEFAULT 0,
             plot_summary text,
             season_number integer,
             episode_number integer,
@@ -64,10 +63,6 @@ class DBControl:
             PRIMARY KEY (imdb_id),
             FOREIGN KEY (title_type_id)
                 REFERENCES title_type_enum (title_type_id)
-                    ON UPDATE CASCADE
-                    ON DELETE RESTRICT,
-            FOREIGN KEY (language_id)
-                REFERENCES language_enum (imdb_interest_id)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT,
             FOREIGN KEY (series_imdb_id)
@@ -108,19 +103,60 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
-            # lookup for IMDb interests that turned out to be languages rather than genres/subgenres
-            # (e.g. "German"), keyed by the integer form of IMDb's interest id. Referenced by
-            # media.language_id; also serves as a cache to avoid re-classifying an already-known language.
+            # languages and countries of origin as listed in the Details section of a title's IMDb main
+            # page, keyed by IMDb's own codes (language: e.g. "en", "pl", "cmn", and "zxx" for IMDb's
+            # "None" -- silent/dialogue-free; country: e.g. "US", "PL", and historical ones like
+            # "XWG"/"SUHH") and holding IMDb's English display name. Populated dynamically as new
+            # ones are discovered during online scraping, and pruned once no title lists them anymore
+            # (see __pruneOrphanedLanguages/__pruneOrphanedCountries). Nothing is pre-seeded.
             self.c.execute("""CREATE TABLE language_enum (
-            imdb_interest_id integer NOT NULL,
+            language_code text NOT NULL,
             name text NOT NULL UNIQUE,
-            description text NOT NULL,
-            PRIMARY KEY (imdb_interest_id)
+            PRIMARY KEY (language_code)
             )""")
-            # English has no IMDb interest id of its own (confirmed absent from IMDb's full interest
-            # directory) since it's the unmarked default -- 0 is used as a reserved id here, since
-            # real IMDb interest ids (in\d+) are always 1 or greater and can never collide with it
-            self.c.execute("INSERT INTO language_enum VALUES (?, ?, ?)", (0, "English", "English-language cinema encompasses a vast and influential body of filmmaking, from Hollywood's genre-defining blockbusters to British drama and independent voices across the English-speaking world. It has driven major innovations in visual effects, narrative structure, and global distribution, shaping how audiences everywhere experience film. Its reach and influence remain unmatched, setting trends that ripple through the international film industry."))
+            self.c.execute("""CREATE TABLE country_enum (
+            country_code text NOT NULL,
+            name text NOT NULL UNIQUE,
+            PRIMARY KEY (country_code)
+            )""")
+
+            # a title's languages/countries in IMDb's own order -- ordering is 1-based and preserved,
+            # since the first language is the title's PRIMARY language (it alone decides e.g. whether
+            # a cover is auto-downloaded, see ScrapeIMDbOnline.scrapeMainPages; "zxx" being first
+            # makes "zxx" the primary language, no exceptions). A title with no languages/countries
+            # listed simply has no rows here. Like media_interests, only ever populated for
+            # locally-owned movies and series (subdir NOT NULL); episodes and referenced-only media
+            # have none -- and unlike interests they no longer copy their series' either.
+            self.c.execute("""CREATE TABLE media_languages (
+            imdb_id integer NOT NULL,
+            ordering integer NOT NULL,
+            language_code text NOT NULL,
+            PRIMARY KEY (imdb_id, ordering),
+            UNIQUE (imdb_id, language_code),
+            FOREIGN KEY (imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (language_code)
+                REFERENCES language_enum (language_code)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
+            )""")
+            self.c.execute("""CREATE TABLE media_countries (
+            imdb_id integer NOT NULL,
+            ordering integer NOT NULL,
+            country_code text NOT NULL,
+            PRIMARY KEY (imdb_id, ordering),
+            UNIQUE (imdb_id, country_code),
+            FOREIGN KEY (imdb_id)
+                REFERENCES media (imdb_id)
+                    ON UPDATE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (country_code)
+                REFERENCES country_enum (country_code)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
+            )""")
 
             self.c.execute("""CREATE TABLE title_type_enum (
             title_type_id integer NOT NULL,
@@ -390,14 +426,17 @@ class DBControl:
             PRIMARY KEY (imdb_id)
             )""")
 
-            # imdb interest ids already known to be franchise-type (e.g. "Evil Dead") -- these are
-            # deliberately never attached to any medium or added to interest_enum itself (that
-            # relationship is already covered via media_connections/MediaConnection); this table
-            # exists purely so a franchise doesn't need to be re-classified (an extra IMDb page
-            # visit) on every future sync. Populated additively as new ones are discovered, see
-            # ScrapeIMDbOnline.__classifyChips / DBControl.ensureFranchiseInterestExists (or its
-            # _NoCommit variant, when batched -- see DBControl.transaction)
-            self.c.execute("""CREATE TABLE franchise_interest_ids (
+            # imdb interest ids already known to be of a deliberately ignored kind -- franchise-type
+            # (e.g. "Evil Dead") and language-type (e.g. "German") chips.
+            # Neither is ever attached to any medium or added to interest_enum: a franchise
+            # relationship is already covered via media_connections/MediaConnection, and languages
+            # come from the Details section instead (media_languages), since IMDb only has a language
+            # chip for some languages. This table exists purely so such a chip doesn't need to be
+            # re-classified (an extra IMDb page visit) on every future sync. Populated additively as
+            # new ones are discovered, see ScrapeIMDbOnline.__classifyChips /
+            # DBControl.ensureIgnoredInterestExists (or its _NoCommit variant, when batched -- see
+            # DBControl.transaction)
+            self.c.execute("""CREATE TABLE ignored_interest_ids (
             imdb_interest_id integer NOT NULL,
             PRIMARY KEY (imdb_interest_id)
             )""")
@@ -470,13 +509,19 @@ class DBControl:
         self.c.execute("SELECT original_title, subdir FROM media WHERE imdb_id = ?", (thisMedia.imdb_id,)) # need to get original_title as well, as otherwise no NULL subdirs will be returned
         data = self.c.fetchall()
         if len(data) == 0:
-            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.original_title, thisMedia.primary_title, thisMedia.start_year, thisMedia.end_year, thisMedia.rating_mul10, thisMedia.num_votes, thisMedia.release_month, thisMedia.release_day, thisMedia.subdir, thisMedia.language_id, thisMedia.plot_summary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order))
+            self.c.execute("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.original_title, thisMedia.primary_title, thisMedia.start_year, thisMedia.end_year, thisMedia.rating_mul10, thisMedia.num_votes, thisMedia.release_month, thisMedia.release_day, thisMedia.subdir, thisMedia.plot_summary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order))
         elif data[0][1] == None:
-            self.c.execute("UPDATE media SET title_type_id=?, original_title=?, primary_title=?, start_year=?, end_year=?, rating_mul10=?, num_votes=?, release_month=?, release_day=?, subdir=?, language_id=?, plot_summary=?, season_number=?, episode_number=?, series_imdb_id=?, intended_order=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.original_title, thisMedia.primary_title, thisMedia.start_year, thisMedia.end_year, thisMedia.rating_mul10, thisMedia.num_votes, thisMedia.release_month, thisMedia.release_day, thisMedia.subdir, thisMedia.language_id, thisMedia.plot_summary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order, thisMedia.imdb_id))
+            self.c.execute("UPDATE media SET title_type_id=?, original_title=?, primary_title=?, start_year=?, end_year=?, rating_mul10=?, num_votes=?, release_month=?, release_day=?, subdir=?, plot_summary=?, season_number=?, episode_number=?, series_imdb_id=?, intended_order=? WHERE imdb_id=?", (self.__getTitleTypeIDByTitleTypeName(thisMedia.titleType), thisMedia.original_title, thisMedia.primary_title, thisMedia.start_year, thisMedia.end_year, thisMedia.rating_mul10, thisMedia.num_votes, thisMedia.release_month, thisMedia.release_day, thisMedia.subdir, thisMedia.plot_summary, thisMedia.season_number, thisMedia.episode_number, thisMedia.series_imdb_id, thisMedia.intended_order, thisMedia.imdb_id))
         else:
             raise RuntimeError('already existing media object supposed to be newly added: ' + data[0][0])
         for imdb_interest_id in thisMedia.interests:
             self.c.execute("INSERT INTO media_interests VALUES (?, ?)", (thisMedia.imdb_id, imdb_interest_id))
+        # languages/countries: the caller must have made sure the enum rows exist first (see main.py's
+        # step 13), same FK ordering rule as interests above
+        for ordering, language_code in enumerate(thisMedia.languages, start=1):
+            self.c.execute("INSERT INTO media_languages VALUES (?, ?, ?)", (thisMedia.imdb_id, ordering, language_code))
+        for ordering, country_code in enumerate(thisMedia.countries, start=1):
+            self.c.execute("INSERT INTO media_countries VALUES (?, ?, ?)", (thisMedia.imdb_id, ordering, country_code))
         for mediaVersion in thisMedia.mediaVersions:
             # built from explicit column/value lists (rather than a hardcoded run of "?"
             # placeholders, as elsewhere in this file) since this table is wide enough that
@@ -626,20 +671,23 @@ class DBControl:
             # the series as still-referenced if any episode remains afterward
             seriesHasNeededEpisodes = not self.__removeUnneededSeriesEpisodes(mediumToRemove.imdb_id)
 
-            # capture mediumToRemove's current interests, language and credited people before
-            # they're removed, so anything left with no remaining attachments afterward can be pruned
+            # capture mediumToRemove's current interests, languages, countries and credited people
+            # before they're removed, so anything left with no remaining attachments afterward can be
+            # pruned
             self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedInterestIDs = [row[0] for row in self.c.fetchall()]
-            self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-            affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
+            self.c.execute("SELECT language_code FROM media_languages WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            affectedLanguageCodes = [row[0] for row in self.c.fetchall()]
+            self.c.execute("SELECT country_code FROM media_countries WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+            affectedCountryCodes = [row[0] for row in self.c.fetchall()]
             self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
             #2a. if yes: only "light-remove" mediumToRemove (remove subdir, media_versions,
-            # connections FROM it, interests, credits, intended episode order, manually-entered
-            # release day/month, plot summary, and reset language to the default -- every one of
-            # these either only ever gets populated by local-file/online scraping of a locally-owned
-            # title (subdir/plot_summary/language_id/intended_order), or is purely local, manually-
+            # connections FROM it, interests, languages, countries, credits, intended episode order,
+            # manually-entered release day/month, and plot summary -- every one of these either only
+            # ever gets populated by local-file/online scraping of a locally-owned title (subdir/
+            # plot_summary/languages/countries/intended_order), or is purely local, manually-
             # entered data (release_month/release_day, see Media.__init__), so none of it is valid
             # once no longer locally owned. Unlike title_type_id/original_title/primary_title/
             # start_year/end_year/rating_mul10/num_votes/season_number/episode_number/series_imdb_id,
@@ -649,20 +697,23 @@ class DBControl:
             # has to be explicit.
             if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
                 printDetail("Removing " + mediumToRemove.original_title + " from DB as local medium (still being referenced)")
-                self.c.execute("UPDATE media SET subdir = NULL, language_id = 0, intended_order = NULL, release_month = NULL, release_day = NULL, plot_summary = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("UPDATE media SET subdir = NULL, intended_order = NULL, release_month = NULL, release_day = NULL, plot_summary = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("DELETE FROM media_languages WHERE imdb_id=?", (mediumToRemove.imdb_id,))
+                self.c.execute("DELETE FROM media_countries WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
-            #2b. if no: remove media entry (media_versions/media_connections/media_interests/credits
-            # rows are all removed via ON DELETE CASCADE)
+            #2b. if no: remove media entry (media_versions/media_connections/media_interests/
+            # media_languages/media_countries/credits rows are all removed via ON DELETE CASCADE)
             else:
                 printDetail("Removing " + mediumToRemove.original_title + " from DB")
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             self.__pruneOrphanedInterests(affectedInterestIDs)
-            self.__pruneOrphanedLanguages(affectedLanguageIDs)
+            self.__pruneOrphanedLanguages(affectedLanguageCodes)
+            self.__pruneOrphanedCountries(affectedCountryCodes)
             self.__pruneOrphanedPeople(affectedPersonIDs)
 
             # if mediumToRemove was itself an episode, its parent series might now be orphaned
@@ -798,24 +849,45 @@ class DBControl:
     def _ensureInterestExistsNoCommit(self, imdb_interest_id, name, description, parent_imdb_interest_id=None):
         self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
 
-    def getAllKnownLanguageIDs(self):
-        """Set of all IMDb interest ids already known to be languages (in language_enum)."""
+    def getAllKnownLanguages(self):
+        """{language_code: name} of every language already present in language_enum."""
         with self.conn:
-            self.c.execute("SELECT imdb_interest_id FROM language_enum")
-            return set(row[0] for row in self.c.fetchall())
+            self.c.execute("SELECT language_code, name FROM language_enum")
+            return {row[0]: row[1] for row in self.c.fetchall()}
 
-    def getNonEnglishLocallyOwnedMovieIDs(self):
+    def getAllKnownCountries(self):
+        """{country_code: name} of every country already present in country_enum."""
+        with self.conn:
+            self.c.execute("SELECT country_code, name FROM country_enum")
+            return {row[0]: row[1] for row in self.c.fetchall()}
+
+    def getLocallyOwnedMovieIDsWithEnglishPrimaryLanguage(self):
         """Set of imdb_ids for locally-owned movies (subdir IS NOT NULL, title_type_name in
-        Media.movieTitleTypes -- i.e. not a series or episode) whose DB-recorded language_id is
-        not English (id 0). Queries the DB directly rather than trusting a freshly-rescanned Media
-        object's in-memory language_id, which defaults to English for any title not newly scraped
-        this run. Used by main.py's cover-backfill step to give non-English movies the same
-        manual-only cover treatment as series."""
+        Media.movieTitleTypes -- i.e. not a series or episode) whose primary language (the
+        media_languages row with ordering 1) is English ("en"). The only movies whose cover may be
+        auto-downloaded: a cover is only ever fetched automatically if a primary language exists AND
+        is English -- see ScrapeIMDbOnline.scrapeMainPages. Queries the DB directly rather than
+        trusting a freshly-rescanned Media object's in-memory languages, which is empty for any
+        title not newly scraped this run (and a title merely found on disk, but not yet added to
+        the DB, has had no language scraped at all, so it correctly isn't in this set either).
+        Used by main.py's cover-backfill step."""
+        return self.__getLocallyOwnedMovieIDsByEnglishPrimaryLanguage(True)
+
+    def getLocallyOwnedMovieIDsWithoutEnglishPrimaryLanguage(self):
+        """The complement of getLocallyOwnedMovieIDsWithEnglishPrimaryLanguage among locally-owned
+        movies: primary language not English, or no language listed at all. These get the same
+        manual-only cover treatment as series -- main.py's warning for a missing cover uses this."""
+        return self.__getLocallyOwnedMovieIDsByEnglishPrimaryLanguage(False)
+
+    def __getLocallyOwnedMovieIDsByEnglishPrimaryLanguage(self, englishPrimary):
         with self.conn:
             self.c.execute("""SELECT m.imdb_id FROM media m
                 JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
-                WHERE m.subdir IS NOT NULL AND m.language_id != 0
-                AND tt.title_type_name IN (""" + ",".join("?" for _ in Media.movieTitleTypes) + ")",
+                WHERE m.subdir IS NOT NULL
+                AND tt.title_type_name IN (""" + ",".join("?" for _ in Media.movieTitleTypes) + """)
+                AND """ + ("" if englishPrimary else "NOT ") + """EXISTS (
+                    SELECT 1 FROM media_languages ml
+                    WHERE ml.imdb_id = m.imdb_id AND ml.ordering = 1 AND ml.language_code = 'en')""",
                 tuple(Media.movieTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
@@ -826,8 +898,8 @@ class DBControl:
         for any series not newly processed this run -- including one merely discovered on disk this
         run but not yet actually added to the DB (e.g. excluded by the scrape budget), which isn't
         locally owned in any DB sense yet and shouldn't be treated as if it were. Used by main.py's
-        cover-backfill step, mirroring getNonEnglishLocallyOwnedMovieIDs's identical reasoning for
-        non-English movies."""
+        cover-backfill step, mirroring getLocallyOwnedMovieIDsWithoutEnglishPrimaryLanguage's
+        identical reasoning for movies."""
         with self.conn:
             self.c.execute("""SELECT m.imdb_id FROM media m
                 JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
@@ -836,32 +908,35 @@ class DBControl:
                 tuple(Media.seriesTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
-    def getLanguageIDs(self, imdb_ids):
-        """Returns {imdb_id: language_id} for every id in imdb_ids currently in the media table --
-        an id not found (not yet added at all) simply isn't included. Used to propagate a series'
-        language_id to its episodes when the series itself isn't being written this same run (see
-        main.py's step 13), so it has to come from the DB rather than a freshly-rescanned Media
-        object's in-memory value. Public, self-committing -- see _getLanguageIDsNoCommit for the
-        variant used inside a caller-managed "with db.transaction():" block, needed where this must
-        see that same transaction's own not-yet-committed writes (see main.py's step 14)."""
+    def ensureLanguageExists(self, language_code, name):
+        """Insert a newly-discovered language into language_enum if not already known. Public,
+        self-committing -- see ensureInterestExists for the NoCommit-variant convention."""
         with self.conn:
-            return self._getLanguageIDsNoCommit(imdb_ids)
+            self._ensureLanguageExistsNoCommit(language_code, name)
 
-    def _getLanguageIDsNoCommit(self, imdb_ids):
-        imdb_ids = list(imdb_ids)
-        if len(imdb_ids) == 0:
-            return {}
-        self.c.execute("SELECT imdb_id, language_id FROM media WHERE imdb_id IN (" + ",".join("?" for _ in imdb_ids) + ")", imdb_ids)
-        return {row[0]: row[1] for row in self.c.fetchall()}
+    def _ensureLanguageExistsNoCommit(self, language_code, name):
+        self.__ensureCodeNameExistsNoCommit("language_enum", "language_code", language_code, name)
 
-    def ensureLanguageExists(self, imdb_interest_id, name, description):
-        """Insert a newly-discovered language interest into language_enum if not already known.
-        Public, self-committing -- see ensureInterestExists for the NoCommit-variant convention."""
+    def ensureCountryExists(self, country_code, name):
+        """The country_enum analogue of ensureLanguageExists."""
         with self.conn:
-            self._ensureLanguageExistsNoCommit(imdb_interest_id, name, description)
+            self._ensureCountryExistsNoCommit(country_code, name)
 
-    def _ensureLanguageExistsNoCommit(self, imdb_interest_id, name, description):
-        self.c.execute("INSERT OR IGNORE INTO language_enum VALUES (?, ?, ?)", (imdb_interest_id, name, description))
+    def _ensureCountryExistsNoCommit(self, country_code, name):
+        self.__ensureCodeNameExistsNoCommit("country_enum", "country_code", country_code, name)
+
+    def __ensureCodeNameExistsNoCommit(self, table, codeColumn, code, name):
+        """Idempotent for an already-known (code, name) pair, but -- unlike the INSERT OR IGNORE the
+        interest/franchise equivalents use -- loud about a contradiction: a known code arriving with
+        a different name raises here, and a new code reusing another code's name trips the table's
+        UNIQUE(name) constraint on the INSERT (which is deliberately not ignored either), rather
+        than quietly leaving a title pointing at a code that doesn't exist."""
+        self.c.execute("SELECT name FROM " + table + " WHERE " + codeColumn + " = ?", (code,))
+        row = self.c.fetchone()
+        if row is None:
+            self.c.execute("INSERT INTO " + table + " VALUES (?, ?)", (code, name))
+        elif row[0] != name:
+            raise RuntimeError(table + " already has " + repr(code) + " as " + repr(row[0]) + ", but IMDb now calls it " + repr(name))
 
     def getAllKnownPersonIDs(self):
         """Set of all person imdb_ids already present in people."""
@@ -894,22 +969,23 @@ class DBControl:
                 result[imdb_id] = person
             return result
 
-    def getAllKnownFranchiseIDs(self):
-        """Set of all IMDb interest ids already known to be franchise-type (in franchise_interest_ids
-        -- see ScrapeIMDbOnline.__classifyChips)."""
+    def getAllKnownIgnoredInterestIDs(self):
+        """Set of all IMDb interest ids already known to be of a deliberately ignored kind --
+        franchise- or language-type (in ignored_interest_ids -- see ScrapeIMDbOnline.__classifyChips)."""
         with self.conn:
-            self.c.execute("SELECT imdb_interest_id FROM franchise_interest_ids")
+            self.c.execute("SELECT imdb_interest_id FROM ignored_interest_ids")
             return set(row[0] for row in self.c.fetchall())
 
-    def ensureFranchiseInterestExists(self, imdb_interest_id):
-        """Records a newly-discovered franchise-type interest id into franchise_interest_ids if not
-        already known, so it's skipped without re-classification on future syncs. Public,
-        self-committing -- see ensureInterestExists for the NoCommit-variant convention."""
+    def ensureIgnoredInterestExists(self, imdb_interest_id):
+        """Records a newly-discovered franchise- or language-type interest id into
+        ignored_interest_ids if not already known, so it's skipped without re-classification on
+        future syncs. Public, self-committing -- see ensureInterestExists for the NoCommit-variant
+        convention."""
         with self.conn:
-            self._ensureFranchiseInterestExistsNoCommit(imdb_interest_id)
+            self._ensureIgnoredInterestExistsNoCommit(imdb_interest_id)
 
-    def _ensureFranchiseInterestExistsNoCommit(self, imdb_interest_id):
-        self.c.execute("INSERT OR IGNORE INTO franchise_interest_ids VALUES (?)", (imdb_interest_id,))
+    def _ensureIgnoredInterestExistsNoCommit(self, imdb_interest_id):
+        self.c.execute("INSERT OR IGNORE INTO ignored_interest_ids VALUES (?)", (imdb_interest_id,))
 
     def syncWebProvidersFromConfig(self, web_providers):
         """Additively syncs source_web_provider_enum from a {abbreviation: full_name} dict (see
@@ -993,8 +1069,10 @@ class DBControl:
                 printDetail("Removing referenced medium " + original_title + " from DB (now on ignored list)")
                 self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdb_id,))
                 affectedInterestIDs = [row[0] for row in self.c.fetchall()]
-                self.c.execute("SELECT language_id FROM media WHERE imdb_id=?", (imdb_id,))
-                affectedLanguageIDs = [row[0] for row in self.c.fetchall()]
+                self.c.execute("SELECT language_code FROM media_languages WHERE imdb_id=?", (imdb_id,))
+                affectedLanguageCodes = [row[0] for row in self.c.fetchall()]
+                self.c.execute("SELECT country_code FROM media_countries WHERE imdb_id=?", (imdb_id,))
+                affectedCountryCodes = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (imdb_id,))
                 affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
@@ -1012,7 +1090,8 @@ class DBControl:
                 self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,)) # see comment above
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
                 self.__pruneOrphanedInterests(affectedInterestIDs)
-                self.__pruneOrphanedLanguages(affectedLanguageIDs)
+                self.__pruneOrphanedLanguages(affectedLanguageCodes)
+                self.__pruneOrphanedCountries(affectedCountryCodes)
                 self.__pruneOrphanedPeople(affectedPersonIDs)
 
                 # if imdb_id was itself an episode, its parent series might now be orphaned
@@ -1047,18 +1126,25 @@ class DBControl:
             if self.c.rowcount > 0 and parent_id is not None:
                 idsToCheck.append(parent_id)
 
-    def __pruneOrphanedLanguages(self, imdb_interest_ids):
-        """Removes any of the given languages from language_enum once no medium uses them anymore.
-        English (id 0) is never pruned, since it's the permanent default media.language_id falls
-        back to (and is required to exist by that column's foreign key)."""
-        for imdb_interest_id in imdb_interest_ids:
-            if imdb_interest_id == 0:
-                continue
+    def __pruneOrphanedLanguages(self, language_codes):
+        """Removes any of the given languages from language_enum once no medium lists them anymore
+        (in any position, not just as the primary language). Nothing is exempt -- English is an
+        ordinary language here, no longer a permanent default row."""
+        for language_code in language_codes:
             self.c.execute("""
                 DELETE FROM language_enum
-                WHERE imdb_interest_id = ?
-                AND NOT EXISTS (SELECT 1 FROM media WHERE language_id = ?)
-            """, (imdb_interest_id, imdb_interest_id))
+                WHERE language_code = ?
+                AND NOT EXISTS (SELECT 1 FROM media_languages WHERE language_code = ?)
+            """, (language_code, language_code))
+
+    def __pruneOrphanedCountries(self, country_codes):
+        """The country_enum analogue of __pruneOrphanedLanguages."""
+        for country_code in country_codes:
+            self.c.execute("""
+                DELETE FROM country_enum
+                WHERE country_code = ?
+                AND NOT EXISTS (SELECT 1 FROM media_countries WHERE country_code = ?)
+            """, (country_code, country_code))
 
     def __pruneOrphanedPeople(self, person_ids):
         """Removes any of the given people from people once no credits row references them anymore
@@ -1284,7 +1370,7 @@ class DBControl:
             return(self.c.fetchall())
 
     def __getMovieObjectFromDBRow(self, dbRow):
-        # imdb_id, title_type_id, original_title, primary_title, start_year, end_year, rating_mul10, num_votes, release_month, release_day, subdir, language_id, plot_summary, season_number, episode_number, series_imdb_id, intended_order
+        # imdb_id, title_type_id, original_title, primary_title, start_year, end_year, rating_mul10, num_votes, release_month, release_day, subdir, plot_summary, season_number, episode_number, series_imdb_id, intended_order
         mediaObject = Media(None, None, dbRow[0])
         mediaObject.original_title = dbRow[2]
         mediaObject.primary_title = dbRow[3]
@@ -1295,14 +1381,15 @@ class DBControl:
         mediaObject.release_month = dbRow[8]
         mediaObject.release_day = dbRow[9]
         mediaObject.subdir = dbRow[10]
-        mediaObject.language_id = dbRow[11]
-        mediaObject.plot_summary = dbRow[12]
-        mediaObject.season_number = dbRow[13]
-        mediaObject.episode_number = dbRow[14]
-        mediaObject.series_imdb_id = dbRow[15]
-        mediaObject.intended_order = dbRow[16]
+        mediaObject.plot_summary = dbRow[11]
+        mediaObject.season_number = dbRow[12]
+        mediaObject.episode_number = dbRow[13]
+        mediaObject.series_imdb_id = dbRow[14]
+        mediaObject.intended_order = dbRow[15]
         mediaObject.titleType = self.__getTitleTypeNameByTitleTypeID(dbRow[1])
         mediaObject.interests = self.__getInterestIDList(dbRow[0])
+        mediaObject.languages = self.__getOrderedCodeList("media_languages", "language_code", dbRow[0])
+        mediaObject.countries = self.__getOrderedCodeList("media_countries", "country_code", dbRow[0])
         mediaObject.mediaVersions = self.__getMediaVersionList(dbRow[0])
         mediaObject.mediaConnections = self.__getMediaConnectionsList(dbRow[0])
         return mediaObject
@@ -1310,6 +1397,11 @@ class DBControl:
     def __getInterestIDList(self, imdbID):
         with self.conn:
             self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdbID,))
+            return [row[0] for row in self.c.fetchall()]
+
+    def __getOrderedCodeList(self, table, codeColumn, imdbID):
+        with self.conn:
+            self.c.execute("SELECT " + codeColumn + " FROM " + table + " WHERE imdb_id=? ORDER BY ordering", (imdbID,))
             return [row[0] for row in self.c.fetchall()]
 
     def __getMediaVersionList(self, imdbID):

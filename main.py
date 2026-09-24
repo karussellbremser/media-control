@@ -158,7 +158,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # 3. apply local removals, as early as possible -- right after the local scan (and its fail-fast
     # validation) establish the ground truth of what's still locally owned, and before anything else
     # queries the DB for "does X currently exist / is X locally owned". Removals are self-contained
-    # (a removed item's connection edges, and any now-orphaned interests/languages/people, are
+    # (a removed item's connection edges, and any now-orphaned interests/languages/countries/people, are
     # cleaned up within removeSingleMedia itself), so this doesn't need to wait for the rest of the
     # sync to succeed -- "removals applied, nothing added yet" is a perfectly safe, retriable state,
     # same as any other partially-progressed sync. Running it this early instead closes off a whole
@@ -298,23 +298,25 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                         ") this run -- all of its newly-added episodes failed analysis")
             del newlyAddedMediaDict[series_id]
 
-    # 7. scrape main pages of newly added media: download covers if missing, scrape interests/language.
-    # episodes (identified here by series_imdb_id already being set, from step 2) are excluded --
-    # they get none of this: no cover, no interests, no language, no plot summary. Series do get
-    # interests/language/plot summary here, but scrapeMainPages itself skips the cover download for
-    # them -- see its docstring
+    # 7. scrape main pages of newly added media: download covers if missing, scrape interests/
+    # languages/countries. episodes (identified here by series_imdb_id already being set, from step 2)
+    # are excluded -- they get none of this: no cover, no interests, no languages/countries, no plot
+    # summary. Series do get interests/languages/countries/plot summary here, but scrapeMainPages
+    # itself skips the cover download for them -- see its docstring
     moviesAndSeriesDict = {k: v for k, v in newlyAddedMediaDict.items() if v.series_imdb_id is None}
     knownInterestIDs = db.getAllKnownInterestIDs()
-    knownLanguageIDs = db.getAllKnownLanguageIDs()
+    knownLanguages = db.getAllKnownLanguages()
+    knownCountries = db.getAllKnownCountries()
     knownPseudoGenreIDs = db.getAllKnownPseudoGenreIDs()
-    knownFranchiseIDs = db.getAllKnownFranchiseIDs()
-    # newly-discovered interests/languages/franchises are NOT persisted here -- ensureInterestExists
-    # etc. are deferred until just before addMultipleMedia (see below), so an aborted sync can never
-    # leave a subgenre/language registered in the DB without the title that triggered it actually
-    # being added. knownInterestIDs/knownLanguageIDs/knownPseudoGenreIDs/knownFranchiseIDs are mutated
-    # in place regardless, so this deferral costs nothing within this run -- a title later in the same
-    # loop that hits the same new interest still recognizes it as already known.
-    newInterestRegistrations, newLanguageRegistrations, newFranchiseRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguageIDs, knownPseudoGenreIDs, knownFranchiseIDs)
+    knownIgnoredIDs = db.getAllKnownIgnoredInterestIDs()
+    # newly-discovered interests/languages/countries/ignored chips are NOT persisted here --
+    # ensureInterestExists etc. are deferred until just before addMultipleMedia (see below), so an
+    # aborted sync can never leave a subgenre/language registered in the DB without the title that
+    # triggered it actually being added. knownInterestIDs/knownLanguages/knownCountries/
+    # knownPseudoGenreIDs/knownIgnoredIDs are mutated in place regardless, so this deferral costs
+    # nothing within this run -- a title later in the same loop that hits the same new interest still
+    # recognizes it as already known.
+    newInterestRegistrations, newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguages, knownCountries, knownPseudoGenreIDs, knownIgnoredIDs)
 
     # 8. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
@@ -405,22 +407,6 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
         if x.subdir == None:
             printDetail("  adding referenced-only: " + x.original_title + " (" + str(x.start_year) + ")")
 
-    # - propagate each episode's language_id from its parent series -- episodes are never scraped
-    # for their own language (step 7 excludes them; IMDb doesn't show a separate one per episode
-    # anyway), so without this every episode would default to English (language_id 0) regardless of
-    # the series' actual language. The parent series is either already in newlyAddedMediaDict (its
-    # language_id already set by step 7's scrapeMainPages, or left at Media.__init__'s default of 0
-    # if it's itself just a bare referenced-only/catalog-completeness stub -- consistent with such a
-    # stub having no other real data either), or it's an already-owned series not otherwise touched
-    # this run, in which case its language_id has to come from the DB instead (queried once, in a
-    # single batch, rather than per episode).
-    episodesThisRun = [x for x in newlyAddedMediaDict.values() if x.series_imdb_id is not None]
-    externalSeriesIDs = {x.series_imdb_id for x in episodesThisRun if x.series_imdb_id not in newlyAddedMediaDict}
-    externalSeriesLanguages = db.getLanguageIDs(externalSeriesIDs)
-    for x in episodesThisRun:
-        parentSeries = newlyAddedMediaDict.get(x.series_imdb_id)
-        x.language_id = parentSeries.language_id if parentSeries is not None else externalSeriesLanguages.get(x.series_imdb_id, 0)
-
     # - strip any dangling connection edges before writing. A referenced episode dropped above because
     # its series is ignored (step 11) is the known case: other kept items' mediaConnections can still
     # point at it, and since media_connections.foreign_imdb_id has an FK back to media.imdb_id,
@@ -436,7 +422,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
             for x in newlyAddedMediaDict.values():
                 x.mediaConnections = [y for y in x.mediaConnections if y.foreign_imdb_id not in danglingIDs]
 
-    # steps 13/14's writes (new people/interests/languages/franchises, the newly-added
+    # steps 13/14's writes (new people/interests/languages/countries/ignored chips, the newly-added
     # media batch itself, and step 14's episode-catalog-completion stubs) are batched into
     # one atomic commit-or-rollback unit here, rather than each committing independently as
     # soon as it's written -- this closes the exact risk the comments below used to describe
@@ -449,14 +435,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     with db.transaction():
         # - persist newly-discovered people now, right alongside the media whose credits (step 9)
         # reference them -- people rows must exist before addMultipleMedia's credits inserts below (FK).
-        # Same reasoning as the interest/language/franchise registrations right below.
+        # Same reasoning as the interest/language/country/ignored-chip registrations right below.
         for person in newPeopleDict.values():
             printPerson("  new person added: " + str(person.name) + " (" + person.getIDString() + ")")
             db._ensurePersonExistsNoCommit(person)
 
-        # - persist newly-discovered interests/languages/franchises now, right alongside the media that
-        # triggered them -- interest_enum rows must exist before addMultipleMedia's media_interests
-        # inserts below (FK)
+        # - persist newly-discovered interests/languages/countries/ignored chips now, right alongside
+        # the media that triggered them -- interest_enum/language_enum/country_enum rows must exist
+        # before addMultipleMedia's media_interests/media_languages/media_countries inserts below (FK)
         for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
             if imdb_interest_id < 0:
                 printDetail("  new pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
@@ -465,12 +451,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
             else:
                 printDetail("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
             db._ensureInterestExistsNoCommit(imdb_interest_id, name, description, parent_imdb_interest_id)
-        for imdb_interest_id, name, description in newLanguageRegistrations:
-            printDetail("  new language added to language enum: " + name + " (" + str(imdb_interest_id) + ")")
-            db._ensureLanguageExistsNoCommit(imdb_interest_id, name, description)
-        for imdb_interest_id, name in newFranchiseRegistrations:
-            printDetail("  new franchise interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
-            db._ensureFranchiseInterestExistsNoCommit(imdb_interest_id)
+        for language_code, name in newLanguageRegistrations:
+            printDetail("  new language added to language enum: " + name + " (" + language_code + ")")
+            db._ensureLanguageExistsNoCommit(language_code, name)
+        for country_code, name in newCountryRegistrations:
+            printDetail("  new country added to country enum: " + name + " (" + country_code + ")")
+            db._ensureCountryExistsNoCommit(country_code, name)
+        for imdb_interest_id, name, interestType in newIgnoredRegistrations:
+            printDetail("  new " + interestType.lower() + " interest ignored: " + name + " (" + str(imdb_interest_id) + ")")
+            db._ensureIgnoredInterestExistsNoCommit(imdb_interest_id)
 
         # - the write itself
         db._addMultipleMediaNoCommit(newlyAddedMediaDict)
@@ -534,15 +523,6 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                 if newEpisodeStubs:
                     newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
                     newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
-                    # same reasoning as step 13's own episode language_id propagation above -- these
-                    # stubs are never scraped for language either. Queried via the NoCommit variant
-                    # (rather than each readySeries object's own, possibly-stale in-memory value --
-                    # see readySeries' construction above) so a series added earlier in this very
-                    # transaction (step 13's write, just above) is reflected correctly too, same as
-                    # an already-owned one
-                    seriesLanguages = db._getLanguageIDsNoCommit({series.imdb_id for series in readySeries})
-                    for stub in newEpisodeStubs.values():
-                        stub.language_id = seriesLanguages.get(stub.series_imdb_id, 0)
                     seriesTitlesByID = {series.imdb_id: series.original_title for series in readySeries}
                     for episode_imdb_id, stub in newEpisodeStubs.items():
                         # verbosity level 2, not 1: this can print dozens of lines per series for a
@@ -558,32 +538,34 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # 15. recover covers missing for any currently-owned movie (e.g. deleted between syncs), then generate
     # thumbnails. Series covers are deliberately never fetched automatically -- IMDb only offers the latest
     # season's cover as a series' "main" image, which isn't what should represent the whole series locally;
-    # a missing series cover is instead flagged below, for the user to source and place manually. Non-English
-    # movies get the same manual-only treatment (see ScrapeIMDbOnline.scrapeMainPages).
-    # seriesTitleTypesLocal (a pure local-scan signal -- a series not resolved by title.basics this run still
-    # carries its "localSeries" placeholder either way) is good enough for deciding what the backfill sweep
-    # below should never attempt to auto-download, regardless of DB state. But it's NOT good enough for the
-    # warning loop further down: it can't tell a genuinely DB-owned series apart from one merely discovered
-    # on disk this run but never actually added (e.g. excluded by the scrape budget) -- on a first sync of a
-    # large library, that would warn about covers for thousands of series not even in the DB yet, repeating
-    # every subsequent sync until each one is finally processed. So the warning loop instead queries the DB
-    # directly for both categories (getLocallyOwnedSeriesIDs/getNonEnglishLocallyOwnedMovieIDs), same as
-    # nonEnglishMovieIDs already did -- rather than trusting a freshly-rescanned Media object's in-memory
-    # state, which defaults to "not yet known" for anything not newly processed this run.
-    seriesTitleTypesLocal = ["localSeries"] + Media.seriesTitleTypes
-    nonEnglishMovieIDs = db.getNonEnglishLocallyOwnedMovieIDs()
+    # a missing series cover is instead flagged below, for the user to source and place manually. A movie's
+    # cover is only ever fetched automatically if it has a primary language (the first language listed on
+    # IMDb) AND that language is English -- movies with any other primary language, or none listed at all,
+    # get the same manual-only treatment as series (see ScrapeIMDbOnline.scrapeMainPages).
+    # Both the sweep below and the warning loop after it query the DB directly for their categories
+    # (getLocallyOwnedMovieIDsWithEnglishPrimaryLanguage / ...WithoutEnglishPrimaryLanguage /
+    # getLocallyOwnedSeriesIDs) rather than trusting a freshly-rescanned Media object's in-memory state,
+    # which only knows a title's type/languages for something newly processed this run. That matters for
+    # a title merely discovered on disk this run but never actually added (e.g. excluded by the scrape
+    # budget, or failed MediaInfo): it has had no language scraped yet, so the sweep can't know it's
+    # English and leaves it alone -- its cover comes from step 7 once it's actually scraped, not before.
+    # And the warning loop would otherwise, on a first sync of a large library, warn about covers for
+    # thousands of titles not even in the DB yet, repeating every subsequent sync until each one is
+    # finally processed.
+    englishPrimaryMovieIDs = db.getLocallyOwnedMovieIDsWithEnglishPrimaryLanguage()
+    noEnglishPrimaryMovieIDs = db.getLocallyOwnedMovieIDsWithoutEnglishPrimaryLanguage()
     if config.SCRAPE_RECOVER_MISSING_COVERS:
-        moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if v.series_imdb_id is None and v.titleType not in seriesTitleTypesLocal and k not in nonEnglishMovieIDs}
+        moviesOnlyDict = {k: v for k, v in mediaDictOriginal.items() if k in englishPrimaryMovieIDs}
         scrapeimdbonline.downloadCovers(moviesOnlyDict)
     scrapeimdbonline.generateThumbnails()
 
     locallyOwnedSeriesIDs = db.getLocallyOwnedSeriesIDs()
     for v in mediaDictOriginal.values():
-        if v.series_imdb_id is None and (v.imdb_id in locallyOwnedSeriesIDs or v.imdb_id in nonEnglishMovieIDs):
+        if v.series_imdb_id is None and (v.imdb_id in locallyOwnedSeriesIDs or v.imdb_id in noEnglishPrimaryMovieIDs):
             coverPath = os.path.join(coverDir, v.getIDString() + ".jpg")
             if not os.path.isfile(coverPath):
-                kind = "series" if v.imdb_id in locallyOwnedSeriesIDs else "non-English movie"
-                printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.original_title) + " (" + v.getIDString() + ") -- covers for series and non-English movies must be added manually")
+                kind = "series" if v.imdb_id in locallyOwnedSeriesIDs else "movie without an English primary language"
+                printAlways("WARNING: no cover found for locally-owned " + kind + " " + str(v.original_title) + " (" + v.getIDString() + ") -- covers for series and for movies without an English primary language must be added manually")
 
     scrapeimdbonline.close()
 
@@ -639,11 +621,6 @@ def refreshTitleData():
                     stub.series_imdb_id = series.imdb_id
                     stub.season_number = season
                     stub.episode_number = episode
-                    # episodes inherit their parent series' language_id, same reasoning as
-                    # syncLocal's equivalent propagation -- mediaDict here is DB-loaded (see
-                    # getAllMovieObjects above), so series.language_id is already the real,
-                    # authoritative value, no extra lookup needed
-                    stub.language_id = series.language_id
                     newEpisodeStubs[episode_imdb_id] = stub
         if newEpisodeStubs:
             offline.parseTitleRatings(newEpisodeStubs)
