@@ -42,6 +42,7 @@ class ScrapeLocal:
         src_dict = self.__parseDictFile(subdir, sources_file)
         if versions_exists:
             versions_dict = self.__parseDictFile(subdir, "versions.txt")
+            self.__checkVersionsFileKeys('subdirectory ' + subdir, versions_dict, media_files)
 
         for media_file in media_files:
             if media_file in src_dict:
@@ -64,8 +65,9 @@ class ScrapeLocal:
             if not mediaVersion.isKaleidescapeOnly(): # no real local file to stat, see MediaVersion.mtime
                 mediaVersion.mtime = int(os.path.getmtime(self.__complFilePath(subdir, media_file)))
             currentMovie.mediaVersions.append(mediaVersion)
-            
-        
+
+        self.__checkVersionLabels('subdirectory ' + subdir, currentMovie.mediaVersions, set())
+
         return currentMovie
     
     def __scrapeSingleSeries(self, subdir):
@@ -101,6 +103,7 @@ class ScrapeLocal:
         src_dict = self.__parseDictFile(seasonPath, sources_file)
         if versions_exists:
             versions_dict = self.__parseDictFile(seasonPath, "versions.txt")
+            self.__checkVersionsFileKeys('season folder ' + seasonPath, versions_dict, media_files)
 
         # group this season's files by episode; each media_file's suffix (the part after the episode
         # identifier and before its extension, if any) is either a version name (looked up in
@@ -204,6 +207,9 @@ class ScrapeLocal:
                 if not mediaVersion.isKaleidescapeOnly(): # no real local file to stat, see MediaVersion.mtime
                     mediaVersion.mtime = int(os.path.getmtime(self.__complFilePath(seasonPath, media_file)))
                 mediaVersions.append(mediaVersion)
+
+            self.__checkVersionLabels('season folder ' + seasonPath + ' (episode ' + str(episode_key_label) + ')', mediaVersions,
+                                       {media_file for media_file, suffix in fileList if suffix and re.fullmatch(r"Intro\d*", suffix)})
 
             if isUnnumbered:
                 currentSeries.episodes.append(Episode(None, None, mediaVersions, seasonPath, imdb_id=episode_key))
@@ -322,6 +328,39 @@ class ScrapeLocal:
             raise LocalLibraryError('Bad content of season folder ' + seasonPath)
 
         return media_files, sources_file, versions_exists, intended_order_file
+
+    def __checkVersionsFileKeys(self, where, versions_dict, media_files):
+        """Every key of a versions.txt other than the OTHER fallback must be the exact name of a media
+        file in that same folder (extension included, e.g. "Movie_DV.mkv"). A key that matches nothing
+        -- most likely a typo, or a forgotten extension -- would otherwise be silently ignored, and the
+        file it was meant for would quietly fall through to the OTHER entry instead."""
+        unmatched = sorted(key for key in versions_dict if key != "OTHER" and key not in media_files)
+        if unmatched:
+            raise LocalLibraryError('versions.txt in ' + where + ' has entries that match no media file there (keys must be full file names, extension included): ' + ", ".join(unmatched))
+
+    def __checkVersionLabels(self, where, mediaVersions, introFiles):
+        """Validates the version names of ONE medium's files (a movie's, or one episode's): once there
+        is more than one version, each of them -- Intro special versions aside (introFiles: the file
+        names identified as those, exempt from needing a name) -- must have an explicit, non-blank
+        version name (its own versions.txt entry, or the OTHER fallback), and no two files of the
+        medium may share a name. Two files under the same name would otherwise only blow up much later,
+        as a UNIQUE (imdb_id, version) violation when the medium is finally written to the DB."""
+        namedVersions = [v for v in mediaVersions if v.filename not in introFiles]
+        if len(namedVersions) > 1:
+            for v in namedVersions:
+                if v.version is None:
+                    raise LocalLibraryError('Several versions in ' + where + ', but ' + v.filename + ' has no version name')
+        labels = {}
+        for v in mediaVersions:
+            if v.version is None:
+                continue
+            if v.version.strip() == "":
+                raise LocalLibraryError('Blank version name for ' + v.filename + ' in ' + where)
+            labels.setdefault(v.version, []).append(v.filename)
+        for label, filenames in labels.items():
+            if len(filenames) > 1:
+                raise LocalLibraryError('Several files of the same medium share the version name "' + label + '" in ' + where + ': ' +
+                                         ", ".join(filenames) + ' -- each version needs its own name in versions.txt')
 
     def __parseDictFile(self, subdir, dictFile):
         pathToFile = self.__complFilePath(subdir, dictFile)
