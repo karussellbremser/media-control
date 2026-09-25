@@ -168,15 +168,26 @@ def queryMedia(search_query, sort_by, order,
         column = "num_votes"
     elif sort_by == "year":
         column = "start_year"
+    elif sort_by == "modified":
+        # the newest file modification date of the medium (media_versions.mtime, whole seconds): the
+        # newest of a movie's version files, or -- for a series, which has no files of its own -- the
+        # newest file of any of its episodes. The CASE keeps the per-row lookup to the one branch
+        # that applies (its placeholders come after everything above and before LIMIT/OFFSET below).
+        column = ("CASE WHEN tt.title_type_name IN (" + seriesTypePlaceholders + ") "
+                  "THEN (SELECT MAX(mv.mtime) FROM media me JOIN media_versions mv ON mv.imdb_id = me.imdb_id WHERE me.series_imdb_id = m.imdb_id) "
+                  "ELSE (SELECT MAX(mv.mtime) FROM media_versions mv WHERE mv.imdb_id = m.imdb_id) END")
+        params.extend(Media.seriesTitleTypes)
     else:
         column = "original_title"
-    
+
     if order == "asc":
         direction = "ASC"
     else:
         direction = "DESC"
-    
+
     sql += " ORDER BY COALESCE(" + column + ", 0) " + direction
+    if sort_by == "modified":
+        sql += ", m.imdb_id " + direction # many files can share a modification second; keep paging deterministic
     
     # pagination
     sql += " LIMIT ? OFFSET ?"
