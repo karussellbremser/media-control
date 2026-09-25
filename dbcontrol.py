@@ -71,6 +71,14 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
+            # series_imdb_id is a foreign key back into media itself, and lots of queries filter on it
+            # (an episode's siblings, a series' episode counts in the web UI, the removal/prune paths).
+            # Without an index every one of those is a full scan of media -- and so is the check SQLite
+            # runs on every delete/update of a media row to see whether any episode still points at it
+            # -- which adds up as the episode catalogs grow. Full index, not partial: SQLite's foreign
+            # key checks only use a plain index on the child key.
+            self.c.execute("CREATE INDEX idx_media_series_imdb_id ON media (series_imdb_id)")
+
             # media_interests holds both standard genres and IMDb "interests" (subgenres), differentiated in interest_enum
             # only populated for locally-owned media (subdir NOT NULL); referenced-only media have no entries here.
             # imdb_interest_id is stored as the integer form of IMDb's "inXXXXXXX" id (see imdbinterestid.py)
