@@ -74,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	let debounceTimer;
 	let currentOrder = 'desc';
 	
+	const PAGE_SIZE = 50; // must match the page size (limit) server.py's /search returns
 	let currentPage = 1;
 	let isLoading = false;
 	let allLoaded = false;
@@ -623,7 +624,13 @@ document.addEventListener('DOMContentLoaded', () => {
 						img.src = `/cover_small/tt${paddedId}.webp`;
 
 						img.alt = originalTitle;
-						img.loading = "lazy";
+						// eager, not lazy: a chunk is now fetched a couple of screens before it's needed (see
+						// loadMoreIfNearBottom), so its covers should start loading as soon as it's appended --
+						// lazy loading would only start each one once layout has put it near the viewport,
+						// which is exactly the late-covers gap this avoids. Async decoding keeps decoding a
+						// whole chunk's covers off the main thread.
+						img.loading = "eager";
+						img.decoding = "async";
 						img.classList.add("coverImage");
 						
                         const titleElem = document.createElement('h2');
@@ -709,9 +716,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
 					
 					currentPage++;
+					if (data.length < PAGE_SIZE) allLoaded = true; // a short page is the last one -- saves a pointless empty request
                 }
 
 				isLoading = false;
+				// the page may still be within the prefetch distance of its end (a tall window, or a
+				// chunk that's short in pixels), in which case no further scroll event is coming to
+				// trigger the next chunk
+				loadMoreIfNearBottom();
             })
 			.catch((err) => {
 				if (err.name === 'AbortError') return; // superseded by a newer search, not a real failure
@@ -769,11 +781,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	interestSearchInput.addEventListener('input', filterInterests);
 
-	window.addEventListener('scroll', () => {
-		if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) {
+	// Infinite scroll: the next chunk is fetched while the user is still PREFETCH_SCREENS screen heights
+	// away from the end of the list, so it's already in place by the time they get there. (It used to
+	// be a fixed 300px, i.e. less than one row of covers: fast scrolling reached the end of the chunk
+	// before the next one had been fetched, appended and its covers loaded.) A chunk is ~50 covers,
+	// only a few screens tall in a wide window, so this stays well within one chunk of lookahead.
+	const PREFETCH_SCREENS = 2;
+
+	function loadMoreIfNearBottom() {
+		if (allLoaded || isLoading) return;
+		if (window.innerHeight + window.scrollY >= document.body.offsetHeight - PREFETCH_SCREENS * window.innerHeight) {
 			fetchResults(input.value, true);
 		}
-	});
+	}
+
+	window.addEventListener('scroll', loadMoreIfNearBottom);
 	
 	// initially: show everything, via resetFilters() rather than fetchResults('') directly -- this
 	// also forces every filter control back to its default, undoing whatever the browser may have
