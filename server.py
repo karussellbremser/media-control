@@ -52,6 +52,12 @@ def queryMedia(search_query, sort_by, order,
     # the list view's genre line must not show hidden interests either (its params come first: this
     # subquery's placeholders precede the CASE ... IN (...) ones further down the statement)
     hiddenSql, hiddenParams = _excludeHiddenInterests("mi_show.imdb_interest_id")
+    # only a series can have episodes, so the two episode counts are only evaluated for series rows
+    # (CASE branches are lazy): media has no index on series_imdb_id, so each count is a full table
+    # scan, and running them for every movie too made the default query ~100x slower (~800ms vs ~10ms
+    # at ~650 owned titles) for counts that are always 0 there. Each CASE below carries its own copy
+    # of the series-type placeholders, in statement order, hence the repeated params further down.
+    seriesTypePlaceholders = ",".join("?" for _ in Media.seriesTitleTypes)
     sql = """
     SELECT m.imdb_id, m.original_title, m.start_year, m.end_year, m.rating_mul10, m.num_votes,
     (
@@ -61,17 +67,17 @@ def queryMedia(search_query, sort_by, order,
         WHERE mi_show.imdb_id = m.imdb_id""" + hiddenSql + """
         ORDER BY ie.name
     ) as tags,
-    (
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
         SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id
-    ) as total_episodes,
-    (
+    ) ELSE 0 END as total_episodes,
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
         SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NOT NULL
-    ) as owned_episodes,
-    CASE WHEN tt.title_type_name IN (""" + ",".join("?" for _ in Media.seriesTitleTypes) + """) THEN 1 ELSE 0 END as is_series
+    ) ELSE 0 END as owned_episodes,
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN 1 ELSE 0 END as is_series
     FROM media m
     JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
     """
-    params = hiddenParams + list(Media.seriesTitleTypes)
+    params = hiddenParams + list(Media.seriesTitleTypes) * 3
 
     # filter genres/interests (selected_interest_ids may mix genre and subgenre ids)
     if selected_interest_ids:
