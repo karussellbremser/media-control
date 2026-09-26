@@ -75,6 +75,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	let currentOrder = 'desc';
 	
 	const PAGE_SIZE = 50; // must match the page size (limit) server.py's /search returns
+	// "random" sort: a fresh seed is drawn each time that option is SELECTED (see the sortSelect change
+	// handler), and the same seed is sent with every request for as long as it stays selected -- so
+	// adding or changing filters, paging and infinite scroll all keep the same order (the server derives
+	// a title's position from its id and this seed only, see server.py's _randomKey)
+	let randomSeed = 0;
 	let currentPage = 1;
 	let isLoading = false;
 	let allLoaded = false;
@@ -517,6 +522,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		input.value = '';
 
 		sortSelect.value = 'year';
+		orderButton.disabled = false;
 
 		currentOrder = 'desc';
 		orderButton.textContent = '↓ Descending';
@@ -568,6 +574,7 @@ document.addEventListener('DOMContentLoaded', () => {
             q: query,
             sort: sortSelect.value,
             order: currentOrder,
+            seed: randomSeed,
             year_from: yearFrom.value,
             year_to: yearTo.value,
             rating_from: ratingFrom.value,
@@ -757,6 +764,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 	
 	sortSelect.addEventListener('change', () => {
+		if (sortSelect.value === 'random') {
+			// a new random order every time the option is selected; it then stays the same until the
+			// user picks another sort (filters etc. don't touch randomSeed)
+			randomSeed = 1 + Math.floor(Math.random() * 2147483646);
+		}
+		orderButton.disabled = sortSelect.value === 'random'; // ascending/descending means nothing for a random order
         resetAndSearch(input.value);
     });
 

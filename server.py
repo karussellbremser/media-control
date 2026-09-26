@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-import sqlite3, os
+import sqlite3, os, hashlib
 import config
 from imdbinterestid import parseInterestID
 from media import Media
@@ -28,6 +28,17 @@ def _excludeHiddenInterests(column):
     hidden = sorted(HIDDEN_INTEREST_IDS)
     return " AND " + column + " NOT IN (" + ",".join("?" for _ in hidden) + ")", hidden
 
+def _randomKey(imdb_id, seed):
+    """Sort key for the "random" sort: a well-mixed pseudo-random number that depends ONLY on the
+    title's id and the seed. Because a title's key never depends on which other titles are in the
+    result, one seed means one fixed order for the whole library: paging and infinite scroll stay
+    consistent, and adding or removing filters only removes or re-adds titles without ever
+    reshuffling the rest. A different seed gives an unrelated order. (A hash rather than SQLite's own
+    random(), which can't be seeded, or an arithmetic scramble, whose neighbouring ids would follow
+    visible patterns.)"""
+    digest = hashlib.blake2b((str(seed) + ":" + str(imdb_id)).encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big") >> 1 # keep it within SQLite's signed 64-bit integers
+
 def queryMedia(search_query, sort_by, order,
                 year_from, year_to,
                 rating_from, rating_to,
@@ -35,7 +46,7 @@ def queryMedia(search_query, sort_by, order,
                 selected_interest_ids,
                 selected_language_code,
                 show_movies, show_series,
-                limit, offset):
+                limit, offset, random_seed=0):
     # media types to include -- episodes never appear here (episodeTitleTypes is never added),
     # since they were never meant to have their own top-level browsing entry
     allowedTypeNames = []
@@ -162,7 +173,9 @@ def queryMedia(search_query, sort_by, order,
         sql += f" HAVING COUNT(DISTINCT mi_filter.imdb_interest_id) = {len(selected_interest_ids)}"
     
     # sorting
-    if sort_by == "rating":
+    if sort_by == "random":
+        column = None # ordered by _randomKey below instead of by a column
+    elif sort_by == "rating":
         column = "rating_mul10"
     elif sort_by == "votes":
         column = "num_votes"
@@ -185,9 +198,16 @@ def queryMedia(search_query, sort_by, order,
     else:
         direction = "DESC"
 
-    sql += " ORDER BY COALESCE(" + column + ", 0) " + direction
-    if sort_by == "modified":
-        sql += ", m.imdb_id " + direction # many files can share a modification second; keep paging deterministic
+    if sort_by == "random":
+        # direction doesn't apply: the client sends a fresh seed when the option is selected, and keeps
+        # sending the same one for as long as it stays selected (see _randomKey)
+        conn.create_function("randomkey", 2, _randomKey, deterministic=True)
+        sql += " ORDER BY randomkey(m.imdb_id, ?), m.imdb_id"
+        params.append(random_seed)
+    else:
+        sql += " ORDER BY COALESCE(" + column + ", 0) " + direction
+        if sort_by == "modified":
+            sql += ", m.imdb_id " + direction # many files can share a modification second; keep paging deterministic
     
     # pagination
     sql += " LIMIT ? OFFSET ?"
@@ -260,6 +280,10 @@ def search():
     page = int(args.get('page', 1))
     limit = 50
     offset = (page - 1) * limit
+    try:
+        random_seed = int(args.get('seed', 0)) % (2 ** 31) # only used by sort=random; bounded so a silly value can't overflow SQLite's integers
+    except ValueError:
+        random_seed = 0
 
     # a plain sqlite3.Error here (most plausibly "database is locked", from a sync running
     # concurrently in another terminal -- see DBControl's default 5s busy timeout) is reported to
@@ -281,7 +305,8 @@ def search():
             show_movies,
             show_series,
             limit,
-            offset
+            offset,
+            random_seed
         )
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 503
