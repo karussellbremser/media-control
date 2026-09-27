@@ -2,6 +2,7 @@ import requests, re, time, random, math, atexit
 from bs4 import BeautifulSoup
 import os.path
 from seleniumbase import Driver
+from selenium.common.exceptions import WebDriverException
 from media import Media
 from mediaconnection import MediaConnection
 from person import Person
@@ -47,7 +48,8 @@ class ScrapeIMDbOnline:
         "TV Episode": "tvEpisode",
     }
 
-    def __init__(self, cover_directory, thumbnail_directory, delay = 0, maxCount = 0, profile_dir = None, headless = False, page_load_wait = 4):
+    def __init__(self, cover_directory, thumbnail_directory, delay = 0, maxCount = 0, profile_dir = None, headless = False, page_load_wait = 4,
+                 page_load_timeout = 60, network_retry_max_wait = 600, network_retry_delay = 30):
         self.cover_directory = cover_directory
         self.thumbnail_directory = thumbnail_directory
         self.delay = delay
@@ -55,6 +57,9 @@ class ScrapeIMDbOnline:
         self.profile_dir = profile_dir
         self.headless = headless
         self.page_load_wait = page_load_wait # seconds to wait after each __navigate for the page to render before scraping its DOM
+        self.page_load_timeout = page_load_timeout # seconds a single page-navigation attempt may take before it counts as failed (see _retryOnNetworkError)
+        self.network_retry_max_wait = network_retry_max_wait # total seconds to keep retrying a navigation/download after a connectivity failure, see _retryOnNetworkError
+        self.network_retry_delay = network_retry_delay # seconds between retries, see _retryOnNetworkError
         self.__interestNameMap = None # lazily-fetched cache, see __getGlobalInterestNameMap
 
         # the browser itself is started lazily, on first __navigate call -- a sync run that never
@@ -71,8 +76,36 @@ class ScrapeIMDbOnline:
         browser = Driver(uc=True, headless=headless, locale_code="en-US", user_data_dir=self.profile_dir, window_size="1920,1080")
         browser.maximize_window()
         browser.implicitly_wait(10)
+        browser.set_page_load_timeout(self.page_load_timeout) # otherwise defaults to 300s -- see _retryOnNetworkError
         time.sleep(5)
         return browser
+
+    def _retryOnNetworkError(self, description, retryableExceptions, fn):
+        """Retries fn() (a zero-argument callable) for up to self.network_retry_max_wait seconds in
+        total -- wall-clock, across every attempt and delay combined, not per attempt -- while it
+        keeps raising one of retryableExceptions, waiting self.network_retry_delay seconds (or
+        whatever's left of the budget, if less) between attempts. For transient connectivity
+        problems only -- a dropped/refused/reset connection, DNS briefly failing, a stalled request
+        -- never for anything that means the request genuinely won't succeed no matter how many
+        times it's retried (an IMDb block, a human-verification page, a 404, an unexpected page
+        structure); callers keep handling those separately, outside fn(), same as before this
+        existed. Shared by __navigate (a browser.get call) and ScrapeIMDbOffline's dataset downloads
+        (requests.get calls, via this instance), so both survive the same kind of outage the same
+        way. Raises ScrapingError, wrapping the last exception, once the budget is used up."""
+        deadline = time.monotonic() + self.network_retry_max_wait
+        while True:
+            try:
+                return fn()
+            except retryableExceptions as e:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ScrapingError(description + " failed after retrying for " + str(self.network_retry_max_wait) +
+                                         "s (last error: " + str(e).splitlines()[0] + ")") from e
+                delay = min(self.network_retry_delay, remaining)
+                printAlways("WARNING: " + description + " failed (" + str(e).splitlines()[0] + "), retrying in " +
+                            str(round(delay)) + "s... (" + str(round(self.network_retry_max_wait - remaining)) +
+                            "s/" + str(self.network_retry_max_wait) + "s of retry budget used)")
+                time.sleep(delay)
 
     def __isHumanVerificationPage(self):
         # IMDb's bot-detection challenge is a standard AWS WAF CAPTCHA page: <title>Human
@@ -126,7 +159,11 @@ class ScrapeIMDbOnline:
     def __navigate(self, url):
         if self.browser is None:
             self.browser = self.__launchBrowser(self.headless)
-        self.browser.get(url)
+        # WebDriverException covers both a hung attempt hitting page_load_timeout (TimeoutException
+        # is a subclass) and an outright connectivity failure (refused/reset, DNS) -- everything a
+        # plain browser.get() can raise on its own, before the page has even loaded, as opposed to
+        # the structural/content checks below (never retried, see _retryOnNetworkError)
+        self._retryOnNetworkError("navigating to " + url, (WebDriverException,), lambda: self.browser.get(url))
         time.sleep(self.page_load_wait)
         if self.__isBlockedResponse():
             raise ScrapingError("IMDb returned a bare '" + self.browser.title + "' response for " + url +
@@ -508,8 +545,12 @@ class ScrapeIMDbOnline:
             raise ScrapingError("cover link not properly formatted: " + currentMedia.getIDString() + " - " + matches[0])
         cover_direct_link = link_parts[0] + "._V1_.jpg"
 
-        # download cover
-        coverFile = requests.get(cover_direct_link, allow_redirects=True)
+        # download cover -- explicit (connect, read) timeout so a stalled connection fails (and gets
+        # retried, see _retryOnNetworkError) rather than hanging indefinitely, unlike before
+        coverFile = self._retryOnNetworkError(
+            "downloading cover for " + currentMedia.getIDString(),
+            (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError),
+            lambda: requests.get(cover_direct_link, allow_redirects=True, timeout=(10, 30)))
         open(coverPath, 'wb').write(coverFile.content)
 
     def __scrapeInterestChips(self):

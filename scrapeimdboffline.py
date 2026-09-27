@@ -43,7 +43,18 @@ class ScrapeIMDbOffline:
     # ------------------------------------------------------------------
 
     def __downloadAndDecompress(self, out_path, url):
-        with requests.get(url, stream=True) as r:
+        # retried as a whole (see ScrapeIMDbOnline._retryOnNetworkError, reused via
+        # self.scrapeimdbonline rather than duplicated here) -- a connectivity failure can happen
+        # partway through the streamed decompress-and-copy below just as easily as during the
+        # initial request, and out_path is opened fresh ("wb") on every attempt, so a partial file
+        # from an interrupted attempt is simply overwritten by the retry rather than left behind
+        self.scrapeimdbonline._retryOnNetworkError(
+            "downloading " + os.path.basename(out_path),
+            (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError),
+            lambda: self.__downloadAndDecompressOnce(out_path, url))
+
+    def __downloadAndDecompressOnce(self, out_path, url):
+        with requests.get(url, stream=True, timeout=(10, 30)) as r:
             r.raise_for_status()
             with gzip.GzipFile(fileobj=r.raw) as gz:
                 with open(out_path, "wb") as f_out:

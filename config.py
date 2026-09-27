@@ -35,6 +35,12 @@ SCRAPE_MAX_COUNT = _config.getint("scraping", "max_count")
 SCRAPE_RECOVER_MISSING_COVERS = _config.getboolean("scraping", "recover_missing_covers")
 SCRAPE_HEADLESS = _config.getboolean("scraping", "headless")
 SCRAPE_PAGE_LOAD_WAIT = _config.getint("scraping", "page_load_wait")
+# fallback=, not required: newer than config.example.ini's other [scraping] keys, so an existing
+# config.ini from before this was added still works unchanged, at these same default values, until
+# the user opts to add them (see config.example.ini for what each one does)
+SCRAPE_PAGE_LOAD_TIMEOUT = _config.getint("scraping", "page_load_timeout", fallback=60)
+SCRAPE_NETWORK_RETRY_MAX_WAIT = _config.getint("scraping", "network_retry_max_wait", fallback=600)
+SCRAPE_NETWORK_RETRY_DELAY = _config.getint("scraping", "network_retry_delay", fallback=30)
 
 BACKUP_AUTO_ENABLED = _config.getboolean("backup", "auto_backup")
 BACKUP_DIR = _resolve(_config["backup"]["backup_dir"])

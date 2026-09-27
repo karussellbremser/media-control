@@ -184,7 +184,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     newlyAddedMediaDictOriginal = newlyAddedMediaDict.copy()
     printStep(4, str(len(newlyAddedMediaDict)) + " newly-added title(s) found")
 
-    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT)
+    scrapeimdbonline = ScrapeIMDbOnline(coverDir, thumbnailDir, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY)
 
     # 5. restrict to the configured per-run budget before any scraping starts, bounding both how many
     # new movies/series get added this run and the online main-page/connections scraping below (steps
@@ -589,7 +589,7 @@ def refreshTitleData():
 
     mediaDict = db.getAllMovieObjects()
 
-    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH)
+    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY), config.IMDB_HELPER_DB_PATH)
     mediaDict = offline.refreshTitleRatings(mediaDict)
     mediaDict = offline.refreshTitleBasics(mediaDict)
 
@@ -677,7 +677,7 @@ def ensureHelperDBFresh(runAutoRefresh):
         printAlways("IMDb offline dataset helper DB is " +
               ("missing" if not exists else "over " + str(config.HELPER_DB_UPDATE_FREQUENCY_DAYS) + " days old") +
               " -- rebuilding automatically...")
-        ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
+        ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
     except Exception as e:
         printAlways("WARNING: automatic helper DB update failed: " + str(e))
         return
@@ -729,7 +729,7 @@ try:
             stat.printYearlyAverages()
             stat.analyzeMediaConnections()
         elif currentArg in ("-u", "--update"):
-            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
+            ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
             if config.HELPER_DB_AUTO_REFRESH_ENABLED:
                 try:
                     refreshTitleData()

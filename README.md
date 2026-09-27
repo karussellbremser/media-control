@@ -53,6 +53,8 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 - `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title). `max_count` is just the default; `--max-count N` on the command line overrides it for that one run (e.g. a lower number for a quick daily sync)
 - `recover_missing_covers` — whether `--sync` also backfills missing covers (e.g. a deleted file) for every already-owned movie with an English primary language at the end of each run, not just titles newly added that run (its own `max_count`-sized allowance, on top of whatever the rest of the run already spent). Only titles already written to the database are considered, so it finds little to do on a first sync
 - `headless` / `page_load_wait` — Chrome headless mode and per-page render wait for online scraping
+- `page_load_timeout` — how long a single page-navigation attempt may take before it's treated as failed and retried (see `network_retry_max_wait`/`network_retry_delay`)
+- `network_retry_max_wait` / `network_retry_delay` — how a connectivity failure (dropped/refused/reset connection, DNS briefly failing, a stalled request) during online scraping or a file download is retried: keep retrying for up to `network_retry_max_wait` seconds in total, waiting `network_retry_delay` seconds between attempts. Only genuine connectivity failures are retried this way — an IMDb block, a human-verification page, or an unexpected page structure are not, since retrying those wouldn't help
 
 **`[backup]`** — automatic DB backups before `-s`/`-r` (see `-b`/`--backup` below for an on-demand one)
 - `auto_backup` — whether they happen automatically at all
