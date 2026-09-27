@@ -687,14 +687,33 @@ def ensureHelperDBFresh(runAutoRefresh):
         refreshTitleData()
 
 args = sys.argv[1:]
-options = "hcsturb"
-long_options = ["help", "createdb", "sync", "stats", "update", "refresh", "backup"]
+options = "hcsturbm:"
+long_options = ["help", "createdb", "sync", "stats", "update", "refresh", "backup", "max-count="]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
+
+    # -m/--max-count overrides config.ini's [scraping] max_count for this run only, so it has to be
+    # applied before any of the flags below run -- a separate pass first, rather than handling it
+    # inline in the dispatch loop, so it takes effect regardless of where on the command line it's
+    # given relative to -s/-u/-r (e.g. "-m 5 -s" and "-s -m 5" behave identically). config.SCRAPE_MAX_COUNT
+    # is simply reassigned on the module -- every function below already reads it that way (there's
+    # no config object passed around), so nothing else needs to change to pick this up.
+    for currentArg, currentVal in arguments:
+        if currentArg in ("-m", "--max-count"):
+            try:
+                maxCountOverride = int(currentVal)
+            except ValueError:
+                raise getopt.error("--max-count requires an integer, got " + repr(currentVal))
+            if maxCountOverride < 0:
+                raise getopt.error("--max-count must not be negative, got " + str(maxCountOverride))
+            config.SCRAPE_MAX_COUNT = maxCountOverride
+
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section, auto_backup).")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section, auto_backup).\n-m N | --max-count N: Override config.ini's [scraping] max_count for this run only (0 = unlimited). Only -s's per-run scrape budget and cover-backfill sweep actually consult it today; harmless to pass alongside -u/-r as well.")
+        elif currentArg in ("-m", "--max-count"):
+            pass # already applied above, before this loop started
         elif currentArg in ("-c", "--createdb"):
             DBControl(config.DB_PATH).createMediaDB()
         elif currentArg in ("-s", "--sync"):

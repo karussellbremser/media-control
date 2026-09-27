@@ -50,7 +50,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 - `ignored_file_patterns` — comma-separated glob patterns (`*`, `?`) for filenames that may sit alongside real media files but should be silently ignored during the local scan (e.g. `*.nfo`)
 
 **`[scraping]`**
-- `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title)
+- `delay` / `max_count` — throttling for online IMDb scraping (`max_count` counts a series and all its episodes as a single title). `max_count` is just the default; `--max-count N` on the command line overrides it for that one run (e.g. a lower number for a quick daily sync)
 - `recover_missing_covers` — whether `--sync` also backfills missing covers (e.g. a deleted file) for every already-owned movie with an English primary language at the end of each run, not just titles newly added that run (its own `max_count`-sized allowance, on top of whatever the rest of the run already spent). Only titles already written to the database are considered, so it finds little to do on a first sync
 - `headless` / `page_load_wait` — Chrome headless mode and per-page render wait for online scraping
 
@@ -90,6 +90,8 @@ python main.py --refresh  # refresh ratings, basic title data, each owned series
 python main.py --stats    # show statistics about the collection
 python main.py --backup   # immediately create a DB backup, regardless of how recent the last one is
 python main.py --help     # list all options
+
+python main.py --sync --max-count 5  # override config.ini's [scraping] max_count for this run only
 ```
 
 To browse the collection in a browser:
