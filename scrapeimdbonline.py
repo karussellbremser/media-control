@@ -1215,7 +1215,11 @@ class ScrapeIMDbOnline:
             "Pre-production",
             "Coming soon",
             "Completed",
-            "Abandoned" # never finished/released, so never getting real rating data either -- see tt6857128
+            "Abandoned", # never finished/released, so never getting real rating data either -- see tt6857128
+            "Series premiere" # a series' own premiere is imminent/upcoming (like "Coming soon" for a movie) --
+                               # confirmed via tt34352214 "Squid Game: America": badge reads "Series premiere"
+                               # while the page's own structured production-stage data still says "In
+                               # Production" underneath, and it has zero votes -- not actually released yet
         }
 
         statusBadge = soup.find("div", attrs={"data-testid": "tm-box-up-title"})
