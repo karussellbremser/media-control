@@ -227,7 +227,7 @@ def index():
     cursor.execute("""
         SELECT imdb_interest_id, name, description
         FROM interest_enum
-        WHERE parent_imdb_interest_id IS NULL AND imdb_interest_id > 0
+        WHERE parent_imdb_interest_id IS NULL
         ORDER BY name
     """)
     genres = cursor.fetchall()

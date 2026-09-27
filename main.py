@@ -307,16 +307,15 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     knownInterestIDs = db.getAllKnownInterestIDs()
     knownLanguages = db.getAllKnownLanguages()
     knownCountries = db.getAllKnownCountries()
-    knownPseudoGenreIDs = db.getAllKnownPseudoGenreIDs()
     knownIgnoredIDs = db.getAllKnownIgnoredInterestIDs()
     # newly-discovered interests/languages/countries/ignored chips are NOT persisted here --
     # ensureInterestExists etc. are deferred until just before addMultipleMedia (see below), so an
     # aborted sync can never leave a subgenre/language registered in the DB without the title that
     # triggered it actually being added. knownInterestIDs/knownLanguages/knownCountries/
-    # knownPseudoGenreIDs/knownIgnoredIDs are mutated in place regardless, so this deferral costs
-    # nothing within this run -- a title later in the same loop that hits the same new interest still
-    # recognizes it as already known.
-    newInterestRegistrations, newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguages, knownCountries, knownPseudoGenreIDs, knownIgnoredIDs)
+    # knownIgnoredIDs are mutated in place regardless, so this deferral costs nothing within this
+    # run -- a title later in the same loop that hits the same new interest still recognizes it as
+    # already known.
+    newInterestRegistrations, newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguages, knownCountries, knownIgnoredIDs)
 
     # 8. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
@@ -444,9 +443,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
         # the media that triggered them -- interest_enum/language_enum/country_enum rows must exist
         # before addMultipleMedia's media_interests/media_languages/media_countries inserts below (FK)
         for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
-            if imdb_interest_id < 0:
-                printDetail("  new pseudo-genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
-            elif parent_imdb_interest_id is None:
+            if parent_imdb_interest_id is None:
                 printDetail("  new genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
             else:
                 printDetail("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
