@@ -6,6 +6,7 @@ from person import Person
 from credit import Credit
 from exceptions import LocalLibraryError, OfflineDatasetError
 from verbosity import printDetail
+from isolanguages import seedIsoLanguageEnum, buildLookup
 
 class DBControl:
 
@@ -111,17 +112,36 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
-            # languages and countries of origin as listed in the Details section of a title's IMDb main
-            # page, keyed by IMDb's own codes (language: e.g. "en", "pl", "cmn", and "zxx" for IMDb's
-            # "None" -- silent/dialogue-free; country: e.g. "US", "PL", and historical ones like
-            # "XWG"/"SUHH") and holding IMDb's English display name. Populated dynamically as new
-            # ones are discovered during online scraping, and pruned once no title lists them anymore
-            # (see __pruneOrphanedLanguages/__pruneOrphanedCountries). Nothing is pre-seeded.
-            self.c.execute("""CREATE TABLE language_enum (
-            language_code text NOT NULL,
-            name text NOT NULL UNIQUE,
-            PRIMARY KEY (language_code)
+            # canonical ISO 639-3 language reference table, pre-seeded in full from the standard's
+            # own published code tables (see iso639-3/ and isolanguages.py) -- unlike country_enum
+            # below, nothing is minted here at scrape time, and nothing is ever pruned: it's a fixed,
+            # complete standard, not a set of codes this app happens to have seen. iso639_1/iso639_2b/
+            # iso639_2t are NULL for the many languages without a code in that particular set (most
+            # of them -- only 183 of ~7900 have a 639-1 code). macrolanguage is NULL unless this
+            # language is an individual member of a macrolanguage (e.g. "cmn" Mandarin -> "zho"
+            # Chinese) -- see DBControl.getIsoLanguageLookup for how IMDb's and MediaInfo's own,
+            # differently-grained codes both resolve onto this one table.
+            self.c.execute("""CREATE TABLE iso_language_enum (
+            iso639_3 text NOT NULL,
+            iso639_1 text UNIQUE,
+            iso639_2b text UNIQUE,
+            iso639_2t text UNIQUE,
+            macrolanguage text,
+            name text NOT NULL,
+            PRIMARY KEY (iso639_3),
+            FOREIGN KEY (macrolanguage)
+                REFERENCES iso_language_enum (iso639_3)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
+            seedIsoLanguageEnum(self.c)
+
+            # countries of origin as listed in the Details section of a title's IMDb main page, keyed
+            # by IMDb's own codes (e.g. "US", "PL", and historical ones like "XWG"/"SUHH") and holding
+            # IMDb's English display name. Populated dynamically as new ones are discovered during
+            # online scraping, and pruned once no title lists them anymore (see
+            # __pruneOrphanedCountries). Nothing is pre-seeded -- unlike iso_language_enum above,
+            # there's no ISO-backed harmonization for countries yet.
             self.c.execute("""CREATE TABLE country_enum (
             country_code text NOT NULL,
             name text NOT NULL UNIQUE,
@@ -134,7 +154,9 @@ class DBControl:
             # makes "zxx" the primary language, no exceptions). A title with no languages/countries
             # listed simply has no rows here. Like media_interests, only ever populated for
             # locally-owned movies and series (subdir NOT NULL); episodes and referenced-only media
-            # have none -- and unlike interests they no longer copy their series' either.
+            # have none -- and unlike interests they no longer copy their series' either. language_code
+            # holds the canonical ISO 639-3 code (see DBControl.getIsoLanguageLookup), not necessarily
+            # the raw code IMDb's own page showed -- e.g. IMDb's "en" is resolved and stored as "eng".
             self.c.execute("""CREATE TABLE media_languages (
             imdb_id integer NOT NULL,
             ordering integer NOT NULL,
@@ -146,7 +168,7 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE CASCADE,
             FOREIGN KEY (language_code)
-                REFERENCES language_enum (language_code)
+                REFERENCES iso_language_enum (iso639_3)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
@@ -239,12 +261,21 @@ class DBControl:
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
                     ON UPDATE CASCADE
-                    ON DELETE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (language)
+                REFERENCES iso_language_enum (iso639_3)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
 
             # genuinely one-to-many track types (unlike video, see media_versions above) -- one row
             # per audio/subtitle track, keyed by MediaInfo's own "ID" field (unique per file across
-            # all track types, not just this one)
+            # all track types, not just this one). language is resolved to the canonical ISO 639-3
+            # code the same way as media_languages.language_code (see
+            # DBControl.getIsoLanguageLookup) -- MediaInfo's own raw value is "2-letter ISO 639-1 if
+            # it exists, else 3-letter ISO 639-2, optionally with a '-<ISO 3166-1 country>' suffix
+            # (e.g. 'en', 'en-US')" (MediaInfo's own field definition); the optional country suffix is
+            # discarded during resolution (see ScrapeMediaInfo), not stored anywhere.
             self.c.execute("""CREATE TABLE media_audio_tracks (
             imdb_id integer NOT NULL,
             filename text NOT NULL,
@@ -273,7 +304,11 @@ class DBControl:
             FOREIGN KEY (imdb_id, filename)
                 REFERENCES media_versions (imdb_id, filename)
                     ON UPDATE CASCADE
-                    ON DELETE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (language)
+                REFERENCES iso_language_enum (iso639_3)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
 
             self.c.execute("""CREATE TABLE media_subtitle_tracks (
@@ -289,7 +324,11 @@ class DBControl:
             FOREIGN KEY (imdb_id, filename)
                 REFERENCES media_versions (imdb_id, filename)
                     ON UPDATE CASCADE
-                    ON DELETE CASCADE
+                    ON DELETE CASCADE,
+            FOREIGN KEY (language)
+                REFERENCES iso_language_enum (iso639_3)
+                    ON UPDATE CASCADE
+                    ON DELETE RESTRICT
             )""")
 
             # one row per detected/declared cropping reading (the black bars around a file's actual
@@ -679,13 +718,12 @@ class DBControl:
             # the series as still-referenced if any episode remains afterward
             seriesHasNeededEpisodes = not self.__removeUnneededSeriesEpisodes(mediumToRemove.imdb_id)
 
-            # capture mediumToRemove's current interests, languages, countries and credited people
-            # before they're removed, so anything left with no remaining attachments afterward can be
-            # pruned
+            # capture mediumToRemove's current interests, countries and credited people before
+            # they're removed, so anything left with no remaining attachments afterward can be pruned
+            # -- languages aren't captured here anymore: iso_language_enum is a fixed reference table,
+            # nothing to prune (see DBControl.createMediaDB)
             self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedInterestIDs = [row[0] for row in self.c.fetchall()]
-            self.c.execute("SELECT language_code FROM media_languages WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-            affectedLanguageCodes = [row[0] for row in self.c.fetchall()]
             self.c.execute("SELECT country_code FROM media_countries WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedCountryCodes = [row[0] for row in self.c.fetchall()]
             self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
@@ -720,7 +758,6 @@ class DBControl:
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             self.__pruneOrphanedInterests(affectedInterestIDs)
-            self.__pruneOrphanedLanguages(affectedLanguageCodes)
             self.__pruneOrphanedCountries(affectedCountryCodes)
             self.__pruneOrphanedPeople(affectedPersonIDs)
 
@@ -848,11 +885,12 @@ class DBControl:
     def _ensureInterestExistsNoCommit(self, imdb_interest_id, name, description, parent_imdb_interest_id=None):
         self.c.execute("INSERT OR IGNORE INTO interest_enum VALUES (?, ?, ?, ?)", (imdb_interest_id, name, description, parent_imdb_interest_id))
 
-    def getAllKnownLanguages(self):
-        """{language_code: name} of every language already present in language_enum."""
+    def getIsoLanguageLookup(self):
+        """{raw_code: canonical iso639_3 code} for resolving a language code from either IMDb's or
+        MediaInfo's own code conventions (ISO 639-1, 639-2 bibliographic or terminologic, or 639-3
+        directly) to one canonical key. See isolanguages.buildLookup."""
         with self.conn:
-            self.c.execute("SELECT language_code, name FROM language_enum")
-            return {row[0]: row[1] for row in self.c.fetchall()}
+            return buildLookup(self.c)
 
     def getAllKnownCountries(self):
         """{country_code: name} of every country already present in country_enum."""
@@ -863,7 +901,8 @@ class DBControl:
     def getLocallyOwnedMovieIDsWithEnglishPrimaryLanguage(self):
         """Set of imdb_ids for locally-owned movies (subdir IS NOT NULL, title_type_name in
         Media.movieTitleTypes -- i.e. not a series or episode) whose primary language (the
-        media_languages row with ordering 1) is English ("en"). The only movies whose cover may be
+        media_languages row with ordering 1) is English ("eng", the canonical ISO 639-3 code -- see
+        getIsoLanguageLookup). The only movies whose cover may be
         auto-downloaded: a cover is only ever fetched automatically if a primary language exists AND
         is English -- see ScrapeIMDbOnline.scrapeMainPages. Queries the DB directly rather than
         trusting a freshly-rescanned Media object's in-memory languages, which is empty for any
@@ -886,7 +925,7 @@ class DBControl:
                 AND tt.title_type_name IN (""" + ",".join("?" for _ in Media.movieTitleTypes) + """)
                 AND """ + ("" if englishPrimary else "NOT ") + """EXISTS (
                     SELECT 1 FROM media_languages ml
-                    WHERE ml.imdb_id = m.imdb_id AND ml.ordering = 1 AND ml.language_code = 'en')""",
+                    WHERE ml.imdb_id = m.imdb_id AND ml.ordering = 1 AND ml.language_code = 'eng')""",
                 tuple(Media.movieTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
@@ -907,17 +946,11 @@ class DBControl:
                 tuple(Media.seriesTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
-    def ensureLanguageExists(self, language_code, name):
-        """Insert a newly-discovered language into language_enum if not already known. Public,
-        self-committing -- see ensureInterestExists for the NoCommit-variant convention."""
-        with self.conn:
-            self._ensureLanguageExistsNoCommit(language_code, name)
-
-    def _ensureLanguageExistsNoCommit(self, language_code, name):
-        self.__ensureCodeNameExistsNoCommit("language_enum", "language_code", language_code, name)
-
     def ensureCountryExists(self, country_code, name):
-        """The country_enum analogue of ensureLanguageExists."""
+        """Insert a newly-discovered country into country_enum if not already known. Public,
+        self-committing -- see ensureInterestExists for the NoCommit-variant convention. Languages no
+        longer have an equivalent: iso_language_enum is pre-seeded and complete, nothing to insert
+        here at scrape time (see DBControl.createMediaDB/getIsoLanguageLookup)."""
         with self.conn:
             self._ensureCountryExistsNoCommit(country_code, name)
 
@@ -945,7 +978,7 @@ class DBControl:
 
     def ensurePersonExists(self, person):
         """Insert a newly-discovered person into people if not already known. Takes a Person object
-        (rather than plain fields, unlike ensureInterestExists/ensureLanguageExists) since a person
+        (rather than plain fields, unlike ensureInterestExists/ensureCountryExists) since a person
         always carries all three fields together, resolved as a unit by
         ScrapeIMDbOffline.parsePeople before this is ever called. Public, self-committing -- see
         ensureInterestExists for the NoCommit-variant convention."""
@@ -1068,8 +1101,6 @@ class DBControl:
                 printDetail("Removing referenced medium " + original_title + " from DB (now on ignored list)")
                 self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdb_id,))
                 affectedInterestIDs = [row[0] for row in self.c.fetchall()]
-                self.c.execute("SELECT language_code FROM media_languages WHERE imdb_id=?", (imdb_id,))
-                affectedLanguageCodes = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT country_code FROM media_countries WHERE imdb_id=?", (imdb_id,))
                 affectedCountryCodes = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (imdb_id,))
@@ -1089,7 +1120,6 @@ class DBControl:
                 self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,)) # see comment above
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
                 self.__pruneOrphanedInterests(affectedInterestIDs)
-                self.__pruneOrphanedLanguages(affectedLanguageCodes)
                 self.__pruneOrphanedCountries(affectedCountryCodes)
                 self.__pruneOrphanedPeople(affectedPersonIDs)
 
@@ -1125,19 +1155,9 @@ class DBControl:
             if self.c.rowcount > 0 and parent_id is not None:
                 idsToCheck.append(parent_id)
 
-    def __pruneOrphanedLanguages(self, language_codes):
-        """Removes any of the given languages from language_enum once no medium lists them anymore
-        (in any position, not just as the primary language). Nothing is exempt -- English is an
-        ordinary language here, no longer a permanent default row."""
-        for language_code in language_codes:
-            self.c.execute("""
-                DELETE FROM language_enum
-                WHERE language_code = ?
-                AND NOT EXISTS (SELECT 1 FROM media_languages WHERE language_code = ?)
-            """, (language_code, language_code))
-
     def __pruneOrphanedCountries(self, country_codes):
-        """The country_enum analogue of __pruneOrphanedLanguages."""
+        """The country_enum analogue of the old __pruneOrphanedLanguages -- languages no longer need
+        this at all, see iso_language_enum in createMediaDB."""
         for country_code in country_codes:
             self.c.execute("""
                 DELETE FROM country_enum
@@ -1147,7 +1167,7 @@ class DBControl:
 
     def __pruneOrphanedPeople(self, person_ids):
         """Removes any of the given people from people once no credits row references them anymore
-        -- the credits/people analogue of __pruneOrphanedInterests/__pruneOrphanedLanguages."""
+        -- the credits/people analogue of __pruneOrphanedInterests/__pruneOrphanedCountries."""
         for person_id in person_ids:
             self.c.execute("""
                 DELETE FROM people

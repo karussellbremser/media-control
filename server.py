@@ -256,10 +256,10 @@ def index():
     # titles have that language as their primary one, most first (English is just another language
     # here, no longer pinned to the top); ties alphabetically by displayed name
     cursor.execute("""
-        SELECT le.language_code, le.name, COUNT(*)
-        FROM language_enum le
-        JOIN media_languages ml ON ml.language_code = le.language_code AND ml.ordering = 1
-        GROUP BY le.language_code
+        SELECT le.iso639_3, le.name, COUNT(*)
+        FROM iso_language_enum le
+        JOIN media_languages ml ON ml.language_code = le.iso639_3 AND ml.ordering = 1
+        GROUP BY le.iso639_3
     """)
     languages = [(code, name) for code, name, _ in sorted(
         ((code, "Silent" if code == "zxx" else name, count) for code, name, count in cursor.fetchall()),

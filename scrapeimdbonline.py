@@ -260,7 +260,7 @@ class ScrapeIMDbOnline:
             if count == self.maxCount:
                 return
 
-    def scrapeMainPages(self, mediaDict, knownInterestIDs, knownLanguages, knownCountries, knownIgnoredIDs):
+    def scrapeMainPages(self, mediaDict, knownInterestIDs, isoLanguageLookup, knownCountries, knownIgnoredIDs):
         """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
         more /interest/<id>/ pages while classifying newly-discovered chips) and:
         - always scrapes its interests (standard genres and subgenres alike), its languages and
@@ -273,24 +273,25 @@ class ScrapeIMDbOnline:
           the cover-backfill path)
 
         knownInterestIDs is a set of already-known IMDb interest ids, mutated in place as new ones
-        are discovered. knownLanguages/knownCountries are {code: name} maps of the already-known
-        languages/countries, likewise mutated in place. knownIgnoredIDs is a set of already-seen
-        franchise- or language-type interest ids (ignored entirely, see
-        __classifyChips), also mutated in place. Returns (newInterestRegistrations,
-        newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations):
+        are discovered. isoLanguageLookup is the {raw_code: canonical iso639_3 code} map from
+        DBControl.getIsoLanguageLookup -- unlike knownInterestIDs/knownCountries, this is a fixed,
+        complete reference table, so it's read-only here, never mutated (see
+        __resolveLanguageCodes). knownCountries is a {code: name} map of the already-known
+        countries, mutated in place. knownIgnoredIDs is a set of already-seen franchise- or
+        language-type interest ids (ignored entirely, see __classifyChips), also mutated in place.
+        Returns (newInterestRegistrations, newCountryRegistrations, newIgnoredRegistrations):
         newInterestRegistrations is a list of (imdb_interest_id, name, description,
         parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always appears
-        before the subgenre itself); newLanguageRegistrations/newCountryRegistrations are lists of
-        (code, name) tuples; newIgnoredRegistrations is a list of (imdb_interest_id, name, type)
-        tuples. Persist via DBControl (see main.py's step 13) in the order returned."""
+        before the subgenre itself); newCountryRegistrations is a list of (code, name) tuples;
+        newIgnoredRegistrations is a list of (imdb_interest_id, name, type) tuples. Persist via
+        DBControl (see main.py's step 13) in the order returned."""
 
         if len(mediaDict) == 0:
-            return [], [], [], []
+            return [], [], []
 
         self.__printStepHeader(7, "scraping main pages (interests, languages, countries, covers)")
 
         newInterestRegistrations = []
-        newLanguageRegistrations = []
         newCountryRegistrations = []
         newIgnoredRegistrations = []
         first = True
@@ -310,7 +311,7 @@ class ScrapeIMDbOnline:
             chips = self.__scrapeInterestChips()
             currentMedia.plot_summary = self.__scrapePlotSummary()
             languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
-            currentMedia.languages = self.__registerCodes(languages, knownLanguages, newLanguageRegistrations, "language")
+            currentMedia.languages = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             currentMedia.countries = self.__registerCodes(countries, knownCountries, newCountryRegistrations, "country")
 
             attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(chips, knownInterestIDs, knownIgnoredIDs)
@@ -329,14 +330,14 @@ class ScrapeIMDbOnline:
             # restriction on the cover-backfill path). titleType is still the local-scrape
             # placeholder here ("localSeries"), since offline parsing hasn't resolved it to a real
             # IMDb type yet.
-            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes and currentMedia.languages[:1] == ["en"]:
+            if currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes and currentMedia.languages[:1] == ["eng"]:
                 coverPath = os.path.join(self.cover_directory, currentMedia.getIDString() + ".jpg")
                 if not os.path.isfile(coverPath):
                     if navigatedAway:
                         self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
                     self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-        return newInterestRegistrations, newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations
+        return newInterestRegistrations, newCountryRegistrations, newIgnoredRegistrations
 
     def fillMissingBasics(self, mediaDict):
         """For locally-owned titles missing from the offline IMDb datasets (flagged via
@@ -749,6 +750,20 @@ class ScrapeIMDbOnline:
             codes.append(code)
         return codes
 
+    def __resolveLanguageCodes(self, items, isoLanguageLookup):
+        """Resolves each (code, name) IMDb's Details section reports (see
+        __scrapeLanguagesAndCountries) to its canonical ISO 639-3 code via isoLanguageLookup (see
+        DBControl.getIsoLanguageLookup). Unlike __registerCodes, iso_language_enum is a fixed,
+        complete reference table -- there's nothing to register, so a code that doesn't resolve is a
+        genuine anomaly (an IMDb code outside the standard, or a gap in the ISO table), raised rather
+        than silently minted."""
+        resolved = []
+        for code, name in items:
+            if code not in isoLanguageLookup:
+                raise ScrapingError("language code " + repr(code) + " (" + repr(name) + ") is not a recognized ISO 639 code")
+            resolved.append(isoLanguageLookup[code])
+        return resolved
+
     def __classifyChips(self, chips, knownInterestIDs, knownIgnoredIDs):
         """Classifies every (imdb_interest_id, name) in chips as a top-level interest (IMDb's hero
         page labels these "Genre" for most, but "Form" for e.g. Documentary/Short and "Style" for
@@ -1120,7 +1135,7 @@ class ScrapeIMDbOnline:
         A credited person not yet known (not in knownPersonIDs) is minted here as a Person stub --
         name is whatever was scraped from this page, a placeholder until
         ScrapeIMDbOffline.parsePeople resolves the authoritative name.basics.tsv name (see Person).
-        knownPersonIDs is mutated in place, mirroring knownInterestIDs/knownLanguages elsewhere.
+        knownPersonIDs is mutated in place, mirroring knownInterestIDs/knownCountries elsewhere.
         Returns newPersonRegistrations: a list of such Person stubs, in order of first appearance,
         for the caller to run through ScrapeIMDbOffline.parsePeople and persist before this run's
         write.

@@ -12,8 +12,9 @@ class ScrapeMediaInfo:
     output. Only ever called for files belonging to titles that are both newly added this sync run
     and survived the scrape budget -- see main.py's syncLocal."""
 
-    def __init__(self, mediainfo_path):
+    def __init__(self, mediainfo_path, isoLanguageLookup):
         self.mediainfo_path = mediainfo_path
+        self.isoLanguageLookup = isoLanguageLookup
 
     def analyzeMediaVersion(self, mediaDir, subdir, mediaVersion):
         filepath = os.path.join(mediaDir, subdir, mediaVersion.filename)
@@ -103,7 +104,7 @@ class ScrapeMediaInfo:
         mediaVersion.chroma_subsampling_position = video.get("ChromaSubsampling_Position")
         mediaVersion.bit_depth = self.__int_or_none(video.get("BitDepth"))
         mediaVersion.scan_type = video.get("ScanType")
-        mediaVersion.language = video.get("Language")
+        mediaVersion.language = self.__resolveLanguage(video.get("Language"), filepath)
         mediaVersion.title = video.get("Title")
         mediaVersion.color_description_present = self.__parseEnum(video.get("colour_description_present"), {"Yes": 1, "No": 0}, "colour_description_present", filepath)
         mediaVersion.color_range = video.get("colour_range")
@@ -139,7 +140,7 @@ class ScrapeMediaInfo:
             sampling_rate=self.__int_or_none(track.get("SamplingRate")),
             bit_depth=self.__int_or_none(track.get("BitDepth")),
             lossless=self.__parseEnum(track.get("Compression_Mode"), {"Lossless": 1, "Lossy": 0}, "Compression_Mode", filepath),
-            language=self.__require(track, "Language", filepath),
+            language=self.__resolveLanguage(self.__require(track, "Language", filepath), filepath),
             title=track.get("Title"),
             default_track=self.__parseEnum(self.__require(track, "Default", filepath), {"Yes": 1, "No": 0}, "Default", filepath),
             delay=self.__parseAudioDelay(track, filepath),
@@ -149,7 +150,7 @@ class ScrapeMediaInfo:
         return SubtitleTrack(
             track_id=int(self.__require(track, "ID", filepath)),
             format=self.__require(track, "Format", filepath),
-            language=self.__require(track, "Language", filepath),
+            language=self.__resolveLanguage(self.__require(track, "Language", filepath), filepath),
             title=track.get("Title"),
             default_track=self.__parseEnum(self.__require(track, "Default", filepath), {"Yes": 1, "No": 0}, "Default", filepath),
             forced_track=self.__parseEnum(self.__require(track, "Forced", filepath), {"Yes": 1, "No": 0}, "Forced", filepath),
@@ -160,6 +161,21 @@ class ScrapeMediaInfo:
         if value is None:
             raise MediaInfoError("MediaInfo JSON missing required field '" + key + "' for " + filepath)
         return value
+
+    def __resolveLanguage(self, raw, filepath):
+        """Resolves MediaInfo's own "Language" value -- per MediaInfo's field definition, 2-letter
+        ISO 639-1 if it exists, else 3-letter ISO 639-2, optionally with a '-<ISO 3166-1 country>'
+        suffix (e.g. "en", "en-US") -- to the canonical ISO 639-3 code via self.isoLanguageLookup
+        (see DBControl.getIsoLanguageLookup). The optional country suffix is discarded, not stored
+        anywhere -- by design, see the language-harmonization discussion this followed. None (the
+        field is absent, only possible for a video track, never audio/subtitle -- see __require)
+        stays None."""
+        if raw is None:
+            return None
+        baseCode = raw.split("-", 1)[0].lower()
+        if baseCode not in self.isoLanguageLookup:
+            raise MediaInfoError("unrecognized language code '" + raw + "' for " + filepath)
+        return self.isoLanguageLookup[baseCode]
 
     def __int_or_none(self, value):
         return int(value) if value is not None else None

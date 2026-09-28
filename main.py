@@ -69,6 +69,12 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
 
     db = DBControl(config.DB_PATH)
 
+    # fixed, complete reference data (see iso_language_enum in DBControl.createMediaDB) -- fetched
+    # once up front since both step 6 (MediaInfo-parsed track languages) and step 7 (IMDb-parsed
+    # languages) need it, and unlike knownInterestIDs/knownCountries below there's no per-run
+    # mutation or dependency ordering to worry about
+    isoLanguageLookup = db.getIsoLanguageLookup()
+
     # captured before anything else in this run touches the DB (including the ignored/wontadd
     # enforcement right below, which can itself remove a referenced-only medium) -- otherwise the
     # final "Sync complete" summary's before/after comparison would miss whatever that enforcement
@@ -260,7 +266,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     mediaWithVersions = [m for m in newlyAddedMediaDict.values() if m.mediaVersions]
     if mediaWithVersions:
         printStep(6, "analyzing local media files with MediaInfo and detecting cropping")
-    scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH)
+    scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH, isoLanguageLookup)
     scrapeCropping = ScrapeCropping(config.FFMPEG_PATH, config.CROPPING_BURST_FRAME_COUNT, config.CROPPING_RUNTIME_PERCENTAGES,
                                      config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
                                      config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE,
@@ -305,17 +311,16 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # itself skips the cover download for them -- see its docstring
     moviesAndSeriesDict = {k: v for k, v in newlyAddedMediaDict.items() if v.series_imdb_id is None}
     knownInterestIDs = db.getAllKnownInterestIDs()
-    knownLanguages = db.getAllKnownLanguages()
     knownCountries = db.getAllKnownCountries()
     knownIgnoredIDs = db.getAllKnownIgnoredInterestIDs()
-    # newly-discovered interests/languages/countries/ignored chips are NOT persisted here --
-    # ensureInterestExists etc. are deferred until just before addMultipleMedia (see below), so an
-    # aborted sync can never leave a subgenre/language registered in the DB without the title that
-    # triggered it actually being added. knownInterestIDs/knownLanguages/knownCountries/
-    # knownIgnoredIDs are mutated in place regardless, so this deferral costs nothing within this
-    # run -- a title later in the same loop that hits the same new interest still recognizes it as
-    # already known.
-    newInterestRegistrations, newLanguageRegistrations, newCountryRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, knownLanguages, knownCountries, knownIgnoredIDs)
+    # newly-discovered interests/countries/ignored chips are NOT persisted here -- ensureInterestExists
+    # etc. are deferred until just before addMultipleMedia (see below), so an aborted sync can never
+    # leave a subgenre/country registered in the DB without the title that triggered it actually being
+    # added. knownInterestIDs/knownCountries/knownIgnoredIDs are mutated in place regardless, so this
+    # deferral costs nothing within this run -- a title later in the same loop that hits the same new
+    # interest still recognizes it as already known. isoLanguageLookup (fetched up front, see above)
+    # needs none of this -- it's fixed reference data, not grown as new ones are discovered.
+    newInterestRegistrations, newCountryRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, isoLanguageLookup, knownCountries, knownIgnoredIDs)
 
     # 8. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
@@ -439,18 +444,16 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
             printPerson("  new person added: " + str(person.name) + " (" + person.getIDString() + ")")
             db._ensurePersonExistsNoCommit(person)
 
-        # - persist newly-discovered interests/languages/countries/ignored chips now, right alongside
-        # the media that triggered them -- interest_enum/language_enum/country_enum rows must exist
-        # before addMultipleMedia's media_interests/media_languages/media_countries inserts below (FK)
+        # - persist newly-discovered interests/countries/ignored chips now, right alongside the media
+        # that triggered them -- interest_enum/country_enum rows must exist before addMultipleMedia's
+        # media_interests/media_countries inserts below (FK). iso_language_enum needs no equivalent --
+        # it's pre-seeded and complete, see DBControl.createMediaDB.
         for imdb_interest_id, name, description, parent_imdb_interest_id in newInterestRegistrations:
             if parent_imdb_interest_id is None:
                 printDetail("  new genre added to interest enum: " + name + " (" + str(imdb_interest_id) + ")")
             else:
                 printDetail("  new subgenre added to interest enum: " + name + " (" + str(imdb_interest_id) + "), parent: " + str(parent_imdb_interest_id))
             db._ensureInterestExistsNoCommit(imdb_interest_id, name, description, parent_imdb_interest_id)
-        for language_code, name in newLanguageRegistrations:
-            printDetail("  new language added to language enum: " + name + " (" + language_code + ")")
-            db._ensureLanguageExistsNoCommit(language_code, name)
         for country_code, name in newCountryRegistrations:
             printDetail("  new country added to country enum: " + name + " (" + country_code + ")")
             db._ensureCountryExistsNoCommit(country_code, name)
