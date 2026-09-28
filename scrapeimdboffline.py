@@ -513,6 +513,17 @@ class ScrapeIMDbOffline:
                     printDetail("  discarding referenced-only title " + x.getIDString() + ": unacceptable title type '" + str(x.titleType) + "'")
                     illegal_ids.append(x.imdb_id)
 
+            # cascade: any entry whose parent series was just discarded above must go too -- its
+            # series_imdb_id FK can never be satisfied, since that series row will now never exist
+            # either in this batch or the DB. series_imdb_id isn't a mediaConnections entry, so it's
+            # otherwise invisible to the cleanup below -- this is what a referenced-only episode of
+            # an in-development/dataset-missing/wrong-type series would silently slip through as.
+            for x in content_dict.values():
+                if x.series_imdb_id is not None and x.series_imdb_id in illegal_ids and x.imdb_id not in illegal_ids:
+                    printDetail("  discarding referenced episode " + x.getIDString() +
+                                ": parent series tt" + str(x.series_imdb_id).zfill(7) + " was itself discarded this run")
+                    illegal_ids.append(x.imdb_id)
+
             # remove illegal media from dict
             for x in illegal_ids:
                 content_dict.pop(x)
