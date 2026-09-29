@@ -7,6 +7,7 @@ from credit import Credit
 from exceptions import LocalLibraryError, OfflineDatasetError
 from verbosity import printDetail
 from isolanguages import seedIsoLanguageEnum, buildLookup
+from isocountries import seedIsoCountryEnum, buildLookup as buildCountryLookup
 
 class DBControl:
 
@@ -113,7 +114,7 @@ class DBControl:
             )""")
 
             # canonical ISO 639-3 language reference table, pre-seeded in full from the standard's
-            # own published code tables (see iso639-3/ and isolanguages.py) -- unlike country_enum
+            # own published code tables (see iso639-3/ and isolanguages.py) -- like iso_country_enum
             # below, nothing is minted here at scrape time, and nothing is ever pruned: it's a fixed,
             # complete standard, not a set of codes this app happens to have seen. iso639_1/iso639_2b/
             # iso639_2t are NULL for the many languages without a code in that particular set (most
@@ -136,17 +137,24 @@ class DBControl:
             )""")
             seedIsoLanguageEnum(self.c)
 
-            # countries of origin as listed in the Details section of a title's IMDb main page, keyed
-            # by IMDb's own codes (e.g. "US", "PL", and historical ones like "XWG"/"SUHH") and holding
-            # IMDb's English display name. Populated dynamically as new ones are discovered during
-            # online scraping, and pruned once no title lists them anymore (see
-            # __pruneOrphanedCountries). Nothing is pre-seeded -- unlike iso_language_enum above,
-            # there's no ISO-backed harmonization for countries yet.
-            self.c.execute("""CREATE TABLE country_enum (
+            # canonical ISO 3166 country reference table, pre-seeded in full from ISO 3166-1
+            # (current countries) and ISO 3166-3 (formerly used ones, e.g. "SUHH" for the USSR --
+            # see isocountries.py), mirroring iso_language_enum above. country_code is the current
+            # alpha_2 for a current country, or the ISO 3166-3 alpha_4 for a historical one.
+            # alpha_2/alpha_3/numeric_code are NOT unique -- ISO 3166 itself reuses them (a renamed-
+            # in-place country's old and new entries share an alpha_2, and some retired codes were
+            # later reassigned to an unrelated new country) -- see isocountries.buildLookup for how
+            # that ambiguity is resolved (current always wins over historical).
+            self.c.execute("""CREATE TABLE iso_country_enum (
             country_code text NOT NULL,
-            name text NOT NULL UNIQUE,
+            alpha_2 text,
+            alpha_3 text,
+            numeric_code text,
+            name text NOT NULL,
+            is_historical integer NOT NULL,
             PRIMARY KEY (country_code)
             )""")
+            seedIsoCountryEnum(self.c)
 
             # a title's languages/countries in IMDb's own order -- ordering is 1-based and preserved,
             # since the first language is the title's PRIMARY language (it alone decides e.g. whether
@@ -172,6 +180,9 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
+            # country_code holds the canonical ISO 3166 code (see DBControl.getIsoCountryLookup),
+            # not necessarily the raw code IMDb's own page showed -- e.g. IMDb's historical "AN" is
+            # resolved and stored as "ANHH".
             self.c.execute("""CREATE TABLE media_countries (
             imdb_id integer NOT NULL,
             ordering integer NOT NULL,
@@ -183,7 +194,7 @@ class DBControl:
                     ON UPDATE CASCADE
                     ON DELETE CASCADE,
             FOREIGN KEY (country_code)
-                REFERENCES country_enum (country_code)
+                REFERENCES iso_country_enum (country_code)
                     ON UPDATE CASCADE
                     ON DELETE RESTRICT
             )""")
@@ -718,14 +729,12 @@ class DBControl:
             # the series as still-referenced if any episode remains afterward
             seriesHasNeededEpisodes = not self.__removeUnneededSeriesEpisodes(mediumToRemove.imdb_id)
 
-            # capture mediumToRemove's current interests, countries and credited people before
-            # they're removed, so anything left with no remaining attachments afterward can be pruned
-            # -- languages aren't captured here anymore: iso_language_enum is a fixed reference table,
-            # nothing to prune (see DBControl.createMediaDB)
+            # capture mediumToRemove's current interests and credited people before they're removed,
+            # so anything left with no remaining attachments afterward can be pruned -- languages/
+            # countries aren't captured here anymore: iso_language_enum/iso_country_enum are fixed
+            # reference tables, nothing to prune (see DBControl.createMediaDB)
             self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedInterestIDs = [row[0] for row in self.c.fetchall()]
-            self.c.execute("SELECT country_code FROM media_countries WHERE imdb_id=?", (mediumToRemove.imdb_id,))
-            affectedCountryCodes = [row[0] for row in self.c.fetchall()]
             self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
@@ -758,7 +767,6 @@ class DBControl:
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (mediumToRemove.imdb_id,))
 
             self.__pruneOrphanedInterests(affectedInterestIDs)
-            self.__pruneOrphanedCountries(affectedCountryCodes)
             self.__pruneOrphanedPeople(affectedPersonIDs)
 
             # if mediumToRemove was itself an episode, its parent series might now be orphaned
@@ -892,11 +900,12 @@ class DBControl:
         with self.conn:
             return buildLookup(self.c)
 
-    def getAllKnownCountries(self):
-        """{country_code: name} of every country already present in country_enum."""
+    def getIsoCountryLookup(self):
+        """{raw_code: canonical country_code} for resolving a country code from IMDb's own code
+        conventions (current ISO 3166-1, formerly-used ISO 3166-3, or the handful of non-standard
+        codes IMDb itself uses) to one canonical key. See isocountries.buildLookup."""
         with self.conn:
-            self.c.execute("SELECT country_code, name FROM country_enum")
-            return {row[0]: row[1] for row in self.c.fetchall()}
+            return buildCountryLookup(self.c)
 
     def getLocallyOwnedMovieIDsWithEnglishPrimaryLanguage(self):
         """Set of imdb_ids for locally-owned movies (subdir IS NOT NULL, title_type_name in
@@ -946,30 +955,6 @@ class DBControl:
                 tuple(Media.seriesTitleTypes))
             return set(row[0] for row in self.c.fetchall())
 
-    def ensureCountryExists(self, country_code, name):
-        """Insert a newly-discovered country into country_enum if not already known. Public,
-        self-committing -- see ensureInterestExists for the NoCommit-variant convention. Languages no
-        longer have an equivalent: iso_language_enum is pre-seeded and complete, nothing to insert
-        here at scrape time (see DBControl.createMediaDB/getIsoLanguageLookup)."""
-        with self.conn:
-            self._ensureCountryExistsNoCommit(country_code, name)
-
-    def _ensureCountryExistsNoCommit(self, country_code, name):
-        self.__ensureCodeNameExistsNoCommit("country_enum", "country_code", country_code, name)
-
-    def __ensureCodeNameExistsNoCommit(self, table, codeColumn, code, name):
-        """Idempotent for an already-known (code, name) pair, but -- unlike the INSERT OR IGNORE the
-        interest/franchise equivalents use -- loud about a contradiction: a known code arriving with
-        a different name raises here, and a new code reusing another code's name trips the table's
-        UNIQUE(name) constraint on the INSERT (which is deliberately not ignored either), rather
-        than quietly leaving a title pointing at a code that doesn't exist."""
-        self.c.execute("SELECT name FROM " + table + " WHERE " + codeColumn + " = ?", (code,))
-        row = self.c.fetchone()
-        if row is None:
-            self.c.execute("INSERT INTO " + table + " VALUES (?, ?)", (code, name))
-        elif row[0] != name:
-            raise RuntimeError(table + " already has " + repr(code) + " as " + repr(row[0]) + ", but IMDb now calls it " + repr(name))
-
     def getAllKnownPersonIDs(self):
         """Set of all person imdb_ids already present in people."""
         with self.conn:
@@ -978,7 +963,7 @@ class DBControl:
 
     def ensurePersonExists(self, person):
         """Insert a newly-discovered person into people if not already known. Takes a Person object
-        (rather than plain fields, unlike ensureInterestExists/ensureCountryExists) since a person
+        (rather than plain fields, unlike ensureInterestExists) since a person
         always carries all three fields together, resolved as a unit by
         ScrapeIMDbOffline.parsePeople before this is ever called. Public, self-committing -- see
         ensureInterestExists for the NoCommit-variant convention."""
@@ -1101,8 +1086,6 @@ class DBControl:
                 printDetail("Removing referenced medium " + original_title + " from DB (now on ignored list)")
                 self.c.execute("SELECT imdb_interest_id FROM media_interests WHERE imdb_id=?", (imdb_id,))
                 affectedInterestIDs = [row[0] for row in self.c.fetchall()]
-                self.c.execute("SELECT country_code FROM media_countries WHERE imdb_id=?", (imdb_id,))
-                affectedCountryCodes = [row[0] for row in self.c.fetchall()]
                 self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (imdb_id,))
                 affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
@@ -1120,7 +1103,6 @@ class DBControl:
                 self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,)) # see comment above
                 self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
                 self.__pruneOrphanedInterests(affectedInterestIDs)
-                self.__pruneOrphanedCountries(affectedCountryCodes)
                 self.__pruneOrphanedPeople(affectedPersonIDs)
 
                 # if imdb_id was itself an episode, its parent series might now be orphaned
@@ -1155,19 +1137,11 @@ class DBControl:
             if self.c.rowcount > 0 and parent_id is not None:
                 idsToCheck.append(parent_id)
 
-    def __pruneOrphanedCountries(self, country_codes):
-        """The country_enum analogue of the old __pruneOrphanedLanguages -- languages no longer need
-        this at all, see iso_language_enum in createMediaDB."""
-        for country_code in country_codes:
-            self.c.execute("""
-                DELETE FROM country_enum
-                WHERE country_code = ?
-                AND NOT EXISTS (SELECT 1 FROM media_countries WHERE country_code = ?)
-            """, (country_code, country_code))
-
     def __pruneOrphanedPeople(self, person_ids):
         """Removes any of the given people from people once no credits row references them anymore
-        -- the credits/people analogue of __pruneOrphanedInterests/__pruneOrphanedCountries."""
+        -- the credits/people analogue of __pruneOrphanedInterests. Languages/countries no longer
+        need an equivalent: iso_language_enum/iso_country_enum are fixed reference tables, see
+        DBControl.createMediaDB."""
         for person_id in person_ids:
             self.c.execute("""
                 DELETE FROM people

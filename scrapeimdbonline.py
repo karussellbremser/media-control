@@ -260,7 +260,7 @@ class ScrapeIMDbOnline:
             if count == self.maxCount:
                 return
 
-    def scrapeMainPages(self, mediaDict, knownInterestIDs, isoLanguageLookup, knownCountries, knownIgnoredIDs):
+    def scrapeMainPages(self, mediaDict, knownInterestIDs, isoLanguageLookup, isoCountryLookup, knownIgnoredIDs):
         """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
         more /interest/<id>/ pages while classifying newly-discovered chips) and:
         - always scrapes its interests (standard genres and subgenres alike), its languages and
@@ -273,26 +273,23 @@ class ScrapeIMDbOnline:
           the cover-backfill path)
 
         knownInterestIDs is a set of already-known IMDb interest ids, mutated in place as new ones
-        are discovered. isoLanguageLookup is the {raw_code: canonical iso639_3 code} map from
-        DBControl.getIsoLanguageLookup -- unlike knownInterestIDs/knownCountries, this is a fixed,
-        complete reference table, so it's read-only here, never mutated (see
-        __resolveLanguageCodes). knownCountries is a {code: name} map of the already-known
-        countries, mutated in place. knownIgnoredIDs is a set of already-seen franchise- or
-        language-type interest ids (ignored entirely, see __classifyChips), also mutated in place.
-        Returns (newInterestRegistrations, newCountryRegistrations, newIgnoredRegistrations):
+        are discovered. isoLanguageLookup/isoCountryLookup are the {raw_code: canonical code} maps
+        from DBControl.getIsoLanguageLookup/getIsoCountryLookup -- unlike knownInterestIDs, both are
+        fixed, complete reference tables, so they're read-only here, never mutated (see
+        __resolveLanguageCodes/__resolveCountryCodes). knownIgnoredIDs is a set of already-seen
+        franchise- or language-type interest ids (ignored entirely, see __classifyChips), also
+        mutated in place. Returns (newInterestRegistrations, newIgnoredRegistrations):
         newInterestRegistrations is a list of (imdb_interest_id, name, description,
         parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always appears
-        before the subgenre itself); newCountryRegistrations is a list of (code, name) tuples;
-        newIgnoredRegistrations is a list of (imdb_interest_id, name, type) tuples. Persist via
-        DBControl (see main.py's step 13) in the order returned."""
+        before the subgenre itself); newIgnoredRegistrations is a list of (imdb_interest_id, name,
+        type) tuples. Persist via DBControl (see main.py's step 13) in the order returned."""
 
         if len(mediaDict) == 0:
-            return [], [], []
+            return [], []
 
         self.__printStepHeader(7, "scraping main pages (interests, languages, countries, covers)")
 
         newInterestRegistrations = []
-        newCountryRegistrations = []
         newIgnoredRegistrations = []
         first = True
 
@@ -312,7 +309,7 @@ class ScrapeIMDbOnline:
             currentMedia.plot_summary = self.__scrapePlotSummary()
             languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
             currentMedia.languages = self.__resolveLanguageCodes(languages, isoLanguageLookup)
-            currentMedia.countries = self.__registerCodes(countries, knownCountries, newCountryRegistrations, "country")
+            currentMedia.countries = self.__resolveCountryCodes(countries, isoCountryLookup)
 
             attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(chips, knownInterestIDs, knownIgnoredIDs)
             currentMedia.interests = attachedInterestIDs
@@ -337,7 +334,7 @@ class ScrapeIMDbOnline:
                         self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/")
                     self.__downloadCoverFromLoadedMainPage(currentMedia, coverPath)
 
-        return newInterestRegistrations, newCountryRegistrations, newIgnoredRegistrations
+        return newInterestRegistrations, newIgnoredRegistrations
 
     def fillMissingBasics(self, mediaDict):
         """For locally-owned titles missing from the offline IMDb datasets (flagged via
@@ -731,37 +728,27 @@ class ScrapeIMDbOnline:
         if not any(squash(domText) == squash(label) + joinedNames for label in labels):
             raise ScrapingError("visible " + what + " row " + repr(domText[:80]) + " doesn't match the embedded data " + str(items))
 
-    def __registerCodes(self, items, known, newRegistrations, what):
-        """Returns the codes of items ([(code, name), ...]) in order, recording every not-yet-known
-        one in newRegistrations (and in known, in place -- see scrapeMainPages). Raises if a known
-        code arrives under a different name, or a new code under a name another code already has:
-        both enum tables have a UNIQUE name, and finding that out here beats finding it out only
-        when step 13 tries to write it, after all the scraping is done."""
-        codes = []
-        for code, name in items:
-            if code in known:
-                if known[code] != name:
-                    raise ScrapingError(what + " code " + code + " is already known as " + repr(known[code]) + ", but this page calls it " + repr(name))
-            else:
-                if name in known.values():
-                    raise ScrapingError(what + " name " + repr(name) + " is already used by a different code, but this page lists it as " + code)
-                known[code] = name
-                newRegistrations.append((code, name))
-            codes.append(code)
-        return codes
-
     def __resolveLanguageCodes(self, items, isoLanguageLookup):
         """Resolves each (code, name) IMDb's Details section reports (see
         __scrapeLanguagesAndCountries) to its canonical ISO 639-3 code via isoLanguageLookup (see
-        DBControl.getIsoLanguageLookup). Unlike __registerCodes, iso_language_enum is a fixed,
-        complete reference table -- there's nothing to register, so a code that doesn't resolve is a
-        genuine anomaly (an IMDb code outside the standard, or a gap in the ISO table), raised rather
-        than silently minted."""
+        DBControl.getIsoLanguageLookup). iso_language_enum is a fixed, complete reference table --
+        there's nothing to register, so a code that doesn't resolve is a genuine anomaly (an IMDb
+        code outside the standard, or a gap in the ISO table), raised rather than silently minted."""
         resolved = []
         for code, name in items:
             if code not in isoLanguageLookup:
                 raise ScrapingError("language code " + repr(code) + " (" + repr(name) + ") is not a recognized ISO 639 code")
             resolved.append(isoLanguageLookup[code])
+        return resolved
+
+    def __resolveCountryCodes(self, items, isoCountryLookup):
+        """The isoCountryLookup/iso_country_enum analogue of __resolveLanguageCodes -- see
+        DBControl.getIsoCountryLookup."""
+        resolved = []
+        for code, name in items:
+            if code not in isoCountryLookup:
+                raise ScrapingError("country code " + repr(code) + " (" + repr(name) + ") is not a recognized ISO 3166 code")
+            resolved.append(isoCountryLookup[code])
         return resolved
 
     def __classifyChips(self, chips, knownInterestIDs, knownIgnoredIDs):
@@ -1135,7 +1122,7 @@ class ScrapeIMDbOnline:
         A credited person not yet known (not in knownPersonIDs) is minted here as a Person stub --
         name is whatever was scraped from this page, a placeholder until
         ScrapeIMDbOffline.parsePeople resolves the authoritative name.basics.tsv name (see Person).
-        knownPersonIDs is mutated in place, mirroring knownInterestIDs/knownCountries elsewhere.
+        knownPersonIDs is mutated in place, mirroring knownInterestIDs elsewhere.
         Returns newPersonRegistrations: a list of such Person stubs, in order of first appearance,
         for the caller to run through ScrapeIMDbOffline.parsePeople and persist before this run's
         write.
