@@ -437,10 +437,16 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
+            # is_custom marks a row as user-declared (see customconnections.py) rather than IMDb-
+            # scraped -- deliberately NOT part of the primary key: there is only ever one row per
+            # (imdb_id, foreign_imdb_id, connection_type_id) regardless of source, this just records
+            # which one produced it. Reconciled at the end of every sync run; an is_custom=0 row is
+            # never touched by that reconciliation.
             self.c.execute("""CREATE TABLE media_connections (
             imdb_id integer NOT NULL,
             foreign_imdb_id integer NOT NULL,
             connection_type_id integer NOT NULL,
+            is_custom integer NOT NULL DEFAULT 0,
             PRIMARY KEY (imdb_id, foreign_imdb_id, connection_type_id),
             FOREIGN KEY (imdb_id)
                 REFERENCES media (imdb_id)
@@ -674,7 +680,72 @@ class DBControl:
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
         for mediaConnection in thisMedia.mediaConnections:
-            self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreign_imdb_id, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connection_type)))
+            # is_custom defaults to 0 -- every connection scraped through this path is IMDb-sourced
+            self.c.execute("INSERT INTO media_connections (imdb_id, foreign_imdb_id, connection_type_id) VALUES (?, ?, ?)",
+                            (thisMedia.imdb_id, mediaConnection.foreign_imdb_id, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connection_type)))
+
+    def _isLocallyOwnedNoCommit(self, imdb_id):
+        """True if imdb_id exists and is locally owned (subdir NOT NULL); False if it doesn't exist
+        at all or is referenced-only. No transaction of its own -- see _addMultipleMediaNoCommit;
+        used by main.py's reconcileCustomConnections from inside its own "with db.transaction():"
+        block, so (like every other NoCommit method) it must never open/close a transaction of its
+        own -- doing so would prematurely commit that block's not-yet-finished writes."""
+        self.c.execute("SELECT subdir FROM media WHERE imdb_id=?", (imdb_id,))
+        row = self.c.fetchone()
+        return row is not None and row[0] is not None
+
+    def _mediaExistsNoCommit(self, imdb_id):
+        """True if imdb_id has any row in media at all, owned or referenced-only. No transaction of
+        its own -- see _isLocallyOwnedNoCommit."""
+        self.c.execute("SELECT 1 FROM media WHERE imdb_id=?", (imdb_id,))
+        return self.c.fetchone() is not None
+
+    def _connectionExistsNoCommit(self, imdb_id, foreign_imdb_id, connection_type_name):
+        """True if this exact (imdb_id, foreign_imdb_id, connection_type_name) row already exists,
+        regardless of is_custom -- used to detect a custom fact that's a harmless duplicate of
+        already-real IMDb data (which would otherwise hit the primary key on INSERT). No transaction
+        of its own -- see _isLocallyOwnedNoCommit."""
+        self.c.execute("""SELECT 1 FROM media_connections mc
+            JOIN connection_type_enum ct ON ct.connection_type_id = mc.connection_type_id
+            WHERE mc.imdb_id=? AND mc.foreign_imdb_id=? AND ct.connection_type_name=?""",
+            (imdb_id, foreign_imdb_id, connection_type_name))
+        return self.c.fetchone() is not None
+
+    def _getAllCustomConnectionFactsNoCommit(self):
+        """{(imdb_id, foreign_imdb_id, connection_type_name)} for every currently-stored is_custom=1
+        row. No transaction of its own -- see _isLocallyOwnedNoCommit."""
+        self.c.execute("""SELECT mc.imdb_id, mc.foreign_imdb_id, ct.connection_type_name
+            FROM media_connections mc JOIN connection_type_enum ct
+            ON ct.connection_type_id = mc.connection_type_id
+            WHERE mc.is_custom = 1""")
+        return set(self.c.fetchall())
+
+    def _getConnectionEdgesByTypeNoCommit(self, connection_type_names):
+        """{(imdb_id, foreign_imdb_id, connection_type_name)} for every currently-stored row (either
+        source, is_custom or not) whose type is one of connection_type_names -- the "everything
+        already on record" graph that a new custom fact's contradiction/cycle check is validated
+        against (see customconnections.py/main.py's reconcileCustomConnections). No transaction of
+        its own -- see _isLocallyOwnedNoCommit."""
+        placeholders = ",".join("?" for _ in connection_type_names)
+        self.c.execute("""SELECT mc.imdb_id, mc.foreign_imdb_id, ct.connection_type_name
+            FROM media_connections mc JOIN connection_type_enum ct
+            ON ct.connection_type_id = mc.connection_type_id
+            WHERE ct.connection_type_name IN (""" + placeholders + ")", tuple(connection_type_names))
+        return set(self.c.fetchall())
+
+    def _addCustomConnectionNoCommit(self, imdb_id, foreign_imdb_id, connection_type_name):
+        """Inserts one is_custom=1 media_connections row. No transaction of its own -- see
+        _addMultipleMediaNoCommit. Caller is responsible for every check (activation, contradiction/
+        cycle, ignored-id) -- this just writes."""
+        self.c.execute("INSERT INTO media_connections (imdb_id, foreign_imdb_id, connection_type_id, is_custom) VALUES (?, ?, ?, 1)",
+                        (imdb_id, foreign_imdb_id, self.__getConnectionTypeIDByConnectionTypeName(connection_type_name)))
+
+    def _removeCustomConnectionNoCommit(self, imdb_id, foreign_imdb_id, connection_type_name):
+        """Removes one is_custom=1 media_connections row and prunes its target if that was the last
+        thing keeping it around (see _pruneIfOrphanedNoCommit). No transaction of its own."""
+        self.c.execute("DELETE FROM media_connections WHERE imdb_id=? AND foreign_imdb_id=? AND connection_type_id=?",
+                        (imdb_id, foreign_imdb_id, self.__getConnectionTypeIDByConnectionTypeName(connection_type_name)))
+        self._pruneIfOrphanedNoCommit(foreign_imdb_id)
 
     def addSingleMediumCredits(self, thisMedia):
         # unlike media_connections, a credit only ever references thisMedia.imdb_id itself (never

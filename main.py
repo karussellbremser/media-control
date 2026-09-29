@@ -1,4 +1,5 @@
 from media import Media
+import customconnections
 from dbcontrol import DBControl
 from dbbackup import DBBackup
 from scrapelocal import ScrapeLocal
@@ -567,8 +568,144 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
 
     scrapeimdbonline.close()
 
+    # 16. reconcile custom_connections.txt -- see customconnections.py and reconcileCustomConnections's
+    # own docstring. Its own transaction, run last, so it always sees the fully up-to-date post-sync
+    # state (including any stubs/removals from everything above).
+    reconcileCustomConnections(db, scrapeimdboffline, ignoredIDs)
+
     referencedOnlyMedia = db.getReferencedOnlyMedia()
     printAlways("\nSync complete. To-be-added media: " + str(len(referencedOnlyMedia)) + " total (was " + str(referencedInitial) + " before this run).")
+
+def reconcileCustomConnections(db, scrapeimdboffline, ignoredIDs):
+    """Reconciles config.CUSTOM_CONNECTIONS_PATH (see customconnections.py) against the DB: removes
+    any is_custom=1 media_connections row that's no longer declared in the file or no longer valid,
+    then adds whatever newly-valid facts are eligible this run (source locally owned), creating
+    referenced-only stubs for not-yet-known targets via the same offline-resolution pipeline steps
+    10/11 use. Never touches an is_custom=0 (IMDb-sourced) row.
+
+    Every problem with an individual fact -- a malformed line, an ignored target, a contradiction --
+    is a warning, never a raise: the file is fully re-read and re-expanded fresh every run, so a
+    fixed line (or a fact that becomes valid/invalid purely because of unrelated IMDb changes) is
+    simply picked up correctly next time regardless. This also means every currently-stored custom
+    connection gets explicitly re-validated every run, not just ones the file itself still mentions
+    unchanged -- closing the gap where an unrelated IMDb change could otherwise silently leave a
+    stale custom fact in place."""
+
+    def warn(message):
+        printAlways("WARNING: custom connection " + message)
+
+    def label(imdb_id, foreign_imdb_id, connection_type_name):
+        return "tt" + str(imdb_id).zfill(7) + " " + connection_type_name + " tt" + str(foreign_imdb_id).zfill(7)
+
+    facts = customconnections.parseFile(config.CUSTOM_CONNECTIONS_PATH, warn)
+
+    with db.transaction():
+        existingCustom = db._getAllCustomConnectionFactsNoCommit()
+        if not facts and not existingCustom:
+            return
+        printStep(16, "reconciling custom connections")
+
+        # validation graphs, seeded from everything currently on record (real + custom alike) --
+        # accept() below grows them in place as this pass accepts more facts, so a later fact in the
+        # same pass is checked against everything accepted so far too
+        followsGraph = customconnections.buildFollowsGraph(db._getConnectionEdgesByTypeNoCommit(["follows", "followed_by"]))
+        pairEdges = {family: db._getConnectionEdgesByTypeNoCommit(list(family)) for family in customconnections.PAIR_FAMILIES}
+
+        def pairFamilyFor(connection_type_name):
+            for family in customconnections.PAIR_FAMILIES:
+                if connection_type_name in family:
+                    return family
+            return None
+
+        def isStillValid(imdb_id, foreign_imdb_id, connection_type_name):
+            if imdb_id in ignoredIDs or foreign_imdb_id in ignoredIDs:
+                warn(label(imdb_id, foreign_imdb_id, connection_type_name) + ": one side is on the ignored list")
+                return False
+            if connection_type_name in customconnections.CHAIN_TYPES:
+                earlier, later = customconnections.normalizeFollowsEdge(imdb_id, foreign_imdb_id, connection_type_name)
+                if customconnections.wouldCreateFollowsCycle(followsGraph, earlier, later):
+                    warn(label(imdb_id, foreign_imdb_id, connection_type_name) + ": contradicts an already-established chronological order")
+                    return False
+            else:
+                family = pairFamilyFor(connection_type_name)
+                if family is not None and customconnections.wouldContradictPairEdge(pairEdges[family], imdb_id, foreign_imdb_id, connection_type_name):
+                    warn(label(imdb_id, foreign_imdb_id, connection_type_name) + ": contradicts an already-established " + connection_type_name + " direction")
+                    return False
+            return True
+
+        def accept(imdb_id, foreign_imdb_id, connection_type_name):
+            if connection_type_name in customconnections.CHAIN_TYPES:
+                earlier, later = customconnections.normalizeFollowsEdge(imdb_id, foreign_imdb_id, connection_type_name)
+                customconnections.addFollowsEdge(followsGraph, earlier, later)
+            else:
+                family = pairFamilyFor(connection_type_name)
+                if family is not None:
+                    pairEdges[family].add((imdb_id, foreign_imdb_id, connection_type_name))
+
+        # 1. re-validate every currently-stored custom connection; remove whatever is no longer
+        # declared in the file, or no longer valid (see the docstring above for why this always runs,
+        # not just when the file itself changed)
+        for imdb_id, foreign_imdb_id, connection_type_name in existingCustom:
+            stillDeclared = (imdb_id, foreign_imdb_id, connection_type_name) in facts
+            if stillDeclared and isStillValid(imdb_id, foreign_imdb_id, connection_type_name):
+                accept(imdb_id, foreign_imdb_id, connection_type_name)
+                continue
+            if not stillDeclared:
+                printDetail("  removing custom connection " + label(imdb_id, foreign_imdb_id, connection_type_name) +
+                            " (no longer in " + config.CUSTOM_CONNECTIONS_PATH + ")")
+            db._removeCustomConnectionNoCommit(imdb_id, foreign_imdb_id, connection_type_name)
+
+        # 2. determine which not-yet-stored facts are eligible this run -- source locally owned
+        # (the activation rule: each directional row activates independently), not already present as
+        # real IMDb data, and valid
+        eligible = []
+        for imdb_id, foreign_imdb_id, connection_type_name in facts:
+            if (imdb_id, foreign_imdb_id, connection_type_name) in existingCustom:
+                continue # handled in step 1
+            if not db._isLocallyOwnedNoCommit(imdb_id):
+                continue # not yet relevant -- retried next run
+            if db._connectionExistsNoCommit(imdb_id, foreign_imdb_id, connection_type_name):
+                warn(label(imdb_id, foreign_imdb_id, connection_type_name) + ": already exists as real IMDb data")
+                continue
+            if not isStillValid(imdb_id, foreign_imdb_id, connection_type_name):
+                continue
+            eligible.append((imdb_id, foreign_imdb_id, connection_type_name))
+            accept(imdb_id, foreign_imdb_id, connection_type_name) # so a later fact this same pass sees it too
+
+        # 3. resolve referenced-only stubs for any eligible fact's not-yet-existing target -- the
+        # exact same offline-resolution sequence as main.py's own step 10/11 (parseTitleEpisode's
+        # series resolution, then ratings/basics with their illegal-discard cascade -- see
+        # scrapeimdboffline.py's __applyTitles for why a discarded target's dependent facts simply
+        # never reach step 4 below, rather than needing special handling here)
+        newStubsDict = {}
+        for imdb_id, foreign_imdb_id, connection_type_name in eligible:
+            if not db._mediaExistsNoCommit(foreign_imdb_id) and foreign_imdb_id not in newStubsDict:
+                newStubsDict[foreign_imdb_id] = Media(None, None, foreign_imdb_id)
+
+        if newStubsDict:
+            scrapeimdboffline.parseTitleEpisode(newStubsDict)
+            existingIDs = {row[0] for row in db._getAllMediaIDsNoCommit()}
+            for imdb_id, x in list(newStubsDict.items()):
+                if x.series_imdb_id is None:
+                    continue
+                if x.series_imdb_id in ignoredIDs:
+                    del newStubsDict[imdb_id]
+                elif x.series_imdb_id not in newStubsDict and x.series_imdb_id not in existingIDs:
+                    newStubsDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
+            newStubsDict = scrapeimdboffline.parseTitleRatings(newStubsDict)
+            newStubsDict = scrapeimdboffline.parseTitleBasics(newStubsDict)
+            for imdb_id, stub in newStubsDict.items():
+                printDetail("  new referenced-only title from custom connection: " + str(stub.primary_title) + " (" + stub.getIDString() + ")")
+            db._addMultipleMediaNoCommit(newStubsDict)
+
+        # 4. finally add the custom connection rows themselves -- only for facts whose target now
+        # actually exists (pre-existing, or just resolved above; one discarded as illegal, or whose
+        # series was ignored, simply stays not-yet-relevant and is retried next run)
+        for imdb_id, foreign_imdb_id, connection_type_name in eligible:
+            if not db._mediaExistsNoCommit(foreign_imdb_id):
+                continue
+            printDetail("  adding custom connection " + label(imdb_id, foreign_imdb_id, connection_type_name))
+            db._addCustomConnectionNoCommit(imdb_id, foreign_imdb_id, connection_type_name)
 
 def refreshTitleData():
     # fail fast, before any real work starts. requireMainDBExists() raises FileNotFoundError -- a

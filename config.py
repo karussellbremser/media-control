@@ -27,6 +27,9 @@ IMDB_HELPER_DB_PATH = _resolve(_config["paths"]["imdb_helper_db_path"])
 IGNORED_IDS_PATH = _resolve(_config["paths"]["ignored_ids_path"])
 WONTADD_IDS_PATH = _resolve(_config["paths"]["wontadd_ids_path"])
 HIDDEN_INTEREST_IDS_PATH = _resolve(_config["paths"]["hidden_interest_ids_path"])
+# fallback=, not required: newer than config.example.ini's other [paths] keys, so an existing
+# config.ini from before this was added still works unchanged, at this same default value
+CUSTOM_CONNECTIONS_PATH = _resolve(_config.get("paths", "custom_connections_path", fallback="custom_connections.txt"))
 
 LOCAL_SCAN_IGNORED_FILE_PATTERNS = [p.strip() for p in _config["local_scan"]["ignored_file_patterns"].split(",")]
 
