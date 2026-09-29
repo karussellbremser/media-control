@@ -13,8 +13,10 @@ Management functionality is similar to the ones of Plex or Kodi, but specificall
 - Auto-detects each file's actual black-bar cropping/aspect ratio via `ffmpeg`'s `cropdetect`, sampled across the runtime and reduced to one confident answer -- or left for manual review (a `cropping.txt` override file alongside the media, also usable for content with genuinely variable aspect ratio, e.g. IMAX-expansion scenes) when the detected data doesn't actually support a single confident result.
 - Optional, opt-in auto-update: detects a locally-owned file that's been replaced (e.g. with a new remux/remaster, via a newer file mtime) and re-scrapes it from scratch.
 - Automatic, rotating DB backups before a sync/refresh, plus an on-demand backup command.
-- Flask web UI for browsing/searching/filtering the collection (by title, year, rating, votes, genre/subgenre, movies vs. series), including per-series episode ownership.
+- Flask web UI for browsing/searching/filtering the collection (by title, year, rating, votes, genre/subgenre, primary language, movies vs. series) and sorting (title, year, rating, votes, last-modified, random), including per-series episode ownership.
 - Basic statistics (yearly counts/ratings charts, franchise/connection clustering) via matplotlib.
+- Languages and countries of origin are stored against canonical ISO 639-3/ISO 3166 reference tables rather than raw, differently-shaped codes from each source, so IMDb-parsed and MediaInfo-parsed language data are directly comparable.
+- Custom connections: a `custom_connections.txt` file lets you declare relationships between titles that IMDb itself doesn't list (e.g. `tt_id follows tt_id`, `tt_id spin_off_from tt_id`, chains and groups for ordered/undirected relationships) -- reconciled against the database at the end of every sync, without ever overriding or conflicting with IMDb-sourced connections.
 - Three-tier console verbosity, configurable per run.
 
 ## Requirements
@@ -43,8 +45,9 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 - `ffmpeg_path` — path to the ffmpeg executable
 - `chrome_profile_dir` — persistent Chrome profile (cookies/session state), reused across runs
 - `imdb_helper_db_path` — where the indexed IMDb offline-dataset helper DB is stored (built by `--update`)
-- `ignored_ids_path` / `wontadd_ids_path` — text files of IMDb ids (one per line): ignored ids must never appear in the DB at all; wontadd ids are fine to have (and, for a series, to partially own) but aren't worth actively adding locally
+- `ignored_ids_path` / `wontadd_ids_path` — text files of IMDb ids (one per line, `#` comments supported): ignored ids must never appear in the DB at all; wontadd ids are fine to have (and, for a series, to partially own) but aren't worth actively adding locally
 - `hidden_interest_ids_path` — text file of subgenre interest ids to keep out of the web UI's filter list
+- `custom_connections_path` — text file declaring connections between titles that IMDb doesn't list itself (one relationship per line, `#` comments supported); optional, defaults to `custom_connections.txt` if not set -- see the Features list above and the file's own format comments in `config.example.ini`
 
 **`[local_scan]`**
 - `ignored_file_patterns` — comma-separated glob patterns (`*`, `?`) for filenames that may sit alongside real media files but should be silently ignored during the local scan (e.g. `*.nfo`)
