@@ -44,7 +44,7 @@ class DBControl:
             # intended_order is also episode-only, but purely local data (a season's optional
             # intended_order.txt, see ScrapeLocal.__scrapeSingleSeason) rather than IMDb-sourced --
             # so unlike season_number/episode_number it's cleared on light-remove, same as
-            # media_interests/media_languages/media_countries (see removeSingleMedia)
+            # media_interests/media_languages/media_countries (see removeSingleMedium)
             self.c.execute("""CREATE TABLE media (
             imdb_id integer NOT NULL,
             title_type_id integer NOT NULL,
@@ -558,7 +558,7 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
-    def addSingleMediaWoConnections(self, thisMedia):
+    def addSingleMediumWoConnections(self, thisMedia):
         # unlike most public methods here, this one manages no transaction of its own -- it's only
         # ever called from _addMultipleMediaNoCommit (via the public addMultipleMedia or as part of
         # a larger caller-managed transaction, see DBControl.transaction), which owns the
@@ -669,19 +669,19 @@ class DBControl:
                     (thisMedia.imdb_id, mediaVersion.filename, ordering, top, bottom, left, right)
                 )
 
-    def addSingleMediaConnections(self, thisMedia):
-        # no transaction of its own -- see addSingleMediaWoConnections
+    def addSingleMediumConnections(self, thisMedia):
+        # no transaction of its own -- see addSingleMediumWoConnections
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
         for mediaConnection in thisMedia.mediaConnections:
             self.c.execute("INSERT INTO media_connections VALUES (?, ?, ?)", (thisMedia.imdb_id, mediaConnection.foreign_imdb_id, self.__getConnectionTypeIDByConnectionTypeName(mediaConnection.connection_type)))
 
-    def addSingleMediaCredits(self, thisMedia):
+    def addSingleMediumCredits(self, thisMedia):
         # unlike media_connections, a credit only ever references thisMedia.imdb_id itself (never
         # another medium), so -- as long as every credited person's row already exists in people,
         # which _addMultipleMediaNoCommit guarantees by calling this only after main.py has
         # persisted new people -- this has no cross-medium ordering dependency the way
-        # addSingleMediaConnections does. No transaction of its own -- see addSingleMediaWoConnections.
+        # addSingleMediumConnections does. No transaction of its own -- see addSingleMediumWoConnections.
         if not isinstance(thisMedia, Media):
             raise TypeError('no media object')
         for credit in thisMedia.credits:
@@ -702,17 +702,17 @@ class DBControl:
         # once the episode is found to need it). Sorting movies/series (series_imdb_id is None)
         # ahead of episodes here guarantees the dependency regardless of insertion order.
         for x in sorted(mediaDict.values(), key=lambda m: m.series_imdb_id is not None):
-            self.addSingleMediaWoConnections(x)
+            self.addSingleMediumWoConnections(x)
         for x in mediaDict.values():
-            self.addSingleMediaConnections(x)
+            self.addSingleMediumConnections(x)
         for x in mediaDict.values():
-            self.addSingleMediaCredits(x)
+            self.addSingleMediumCredits(x)
 
     def removeMultipleMedia(self, removedDict):
         for x in removedDict.values():
-            self.removeSingleMedia(x)
+            self.removeSingleMedium(x)
 
-    def removeSingleMedia(self, mediumToRemove):
+    def removeSingleMedium(self, mediumToRemove):
         with self.conn:
             #1. save all connections FROM mediumToRemove to list referencesToRemove -- removal
             # itself is deferred to #2a below, since it's only actually needed there (media_versions/
@@ -782,7 +782,7 @@ class DBControl:
     def removeVanishedEpisode(self, episodeMedium):
         """Removes an episode that a fresh title.episode.tsv scan no longer lists at all (e.g. an
         announced season got cancelled) -- called only for a non-owned episode; an owned one raises
-        before ever reaching this. Unlike removeSingleMedia's light-remove, this raises
+        before ever reaching this. Unlike removeSingleMedium's light-remove, this raises
         OfflineDatasetError if anything still references the episode: IMDb itself no longer
         considers it to exist, so anything in our DB still pointing at it is a genuine
         inconsistency to surface, not something to quietly preserve as a stub."""
@@ -1040,7 +1040,7 @@ class DBControl:
         partially-owned series, same as if the series weren't on the list at all; wontadd here only
         keeps such a series' still-unowned episodes out of any to-be-added list generated from the
         DB). Also removes any referenced-only medium whose id is on ignored_ids -- fully, regardless
-        of what still references it, unlike removeSingleMedia's "light-remove" (which exists for
+        of what still references it, unlike removeSingleMedium's "light-remove" (which exists for
         media that merely stopped being locally owned, not for media that must never be in the DB
         at all). Meant to be called right after syncIgnoredAndWontaddIDs, at the very start of every
         sync (before any local scanning/scraping) -- this reconciles drift left over from a list
@@ -1173,7 +1173,7 @@ class DBControl:
         No transaction of its own -- only call this from inside an already-open "with self.conn:"/
         "with db.transaction():" block, same convention as _addMultipleMediaNoCommit. Shared by
         every caller that might have just removed the last thing keeping some other medium around
-        (removeSingleMedia's own outgoing connections and its removed episode's parent series,
+        (removeSingleMedium's own outgoing connections and its removed episode's parent series,
         removeVanishedEpisode's parent series, enforceIgnoredAndWontaddIDs' parent series)."""
         self.c.execute("""SELECT m.subdir, m.original_title, tt.title_type_name FROM media m
             JOIN title_type_enum tt ON tt.title_type_id = m.title_type_id
@@ -1199,7 +1199,7 @@ class DBControl:
 
     def __getTitleTypeIDByTitleTypeName(self, title_type_name):
         # no transaction of its own -- called from within other methods' own "with self.conn:"
-        # (addSingleMediaWoConnections, refreshTitleBasics), which a nested one here would
+        # (addSingleMediumWoConnections, refreshTitleBasics), which a nested one here would
         # prematurely commit (Python's sqlite3 context manager doesn't nest)
         self.c.execute("SELECT title_type_id FROM title_type_enum WHERE title_type_name=?", (title_type_name,))
         title_type_id = self.c.fetchone()
@@ -1313,7 +1313,7 @@ class DBControl:
         re-added (removals commit immediately, independent of the rest of the sync). Including the
         series here instead means an abort leaves it in the same, already-safe "not locally owned"
         state as a genuine removal. No particular ordering is needed in the returned dict for this to
-        resolve correctly -- removeSingleMedia re-checks each episode's series via
+        resolve correctly -- removeSingleMedium re-checks each episode's series via
         _pruneIfOrphanedNoCommit as it goes, so the series converges to fully removed by the end of
         the batch regardless of whether it's processed before or after its episodes."""
         with self.conn:

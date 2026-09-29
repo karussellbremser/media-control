@@ -8,7 +8,7 @@ class Media:
     # fail-loud methodology (see scrapeimdboffline.py/scrapeimdbonline.py), catching when IMDb's
     # own titleType disagrees with the local structural convention a title was parsed under (a
     # files-only folder is expected to be a movie, a dirs-only folder a series -- see
-    # ScrapeLocal.__scrapeSingleMedia)
+    # ScrapeLocal.__scrapeSingleMedium)
     movieTitleTypes = ["movie", "video", "short", "tvMovie", "tvSpecial", "tvShort"]
     seriesTitleTypes = ["tvSeries", "tvMiniSeries"]
 
@@ -51,7 +51,7 @@ class Media:
         self.season_number = None # None unless this is an episode (titleType in episodeTitleTypes); None also covers IMDb's own "unnumbered" episodes, never conflated with a real season/episode number (see ScrapeIMDbOffline.parseTitleEpisode)
         self.episode_number = None
         self.series_imdb_id = None # imdb_id of the parent series; None unless this is an episode
-        self.intended_order = None # this episode's 1-indexed rank in its season's intended_order.txt, if any -- purely local data (unlike season_number/episode_number), so cleared like interests/languages/countries once no longer locally owned (see DBControl.removeSingleMedia)
+        self.intended_order = None # this episode's 1-indexed rank in its season's intended_order.txt, if any -- purely local data (unlike season_number/episode_number), so cleared like interests/languages/countries once no longer locally owned (see DBControl.removeSingleMedium)
         self.end_year = None
         self.rating_mul10 = None
         self.num_votes = None

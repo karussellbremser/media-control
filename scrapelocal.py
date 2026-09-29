@@ -18,13 +18,13 @@ class ScrapeLocal:
         for subdir in dirs:
             if "!" in subdir or subdir == "#recycle": #skip 'in progress' directories and trash bin
                 continue
-            currentMedia = self.__scrapeSingleMedia(subdir)
+            currentMedia = self.__scrapeSingleMedium(subdir)
             if currentMedia != None:
                 mediaDict[currentMedia.imdb_id] = currentMedia
         
         return mediaDict
             
-    def __scrapeSingleMedia(self, subdir):
+    def __scrapeSingleMedium(self, subdir):
         root, dirs, files = next(os.walk(self.__complDirPath(subdir)))
         
         if len(dirs) == 0:
@@ -74,7 +74,7 @@ class ScrapeLocal:
         currentSeries = Media(subdir, True)
 
         root, seasonDirs, files = next(os.walk(self.__complDirPath(subdir)))
-        # files is already known to be empty here -- __scrapeSingleMedia only routes a subdir here
+        # files is already known to be empty here -- __scrapeSingleMedium only routes a subdir here
         # when it contains no files directly, only subdirectories
         if len(seasonDirs) == 0:
             raise LocalLibraryError('Series subdirectory contains no season folders: ' + subdir)

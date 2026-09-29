@@ -166,7 +166,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # validation) establish the ground truth of what's still locally owned, and before anything else
     # queries the DB for "does X currently exist / is X locally owned". Removals are self-contained
     # (a removed item's connection edges, and any now-orphaned interests/languages/countries/people, are
-    # cleaned up within removeSingleMedia itself), so this doesn't need to wait for the rest of the
+    # cleaned up within removeSingleMedium itself), so this doesn't need to wait for the rest of the
     # sync to succeed -- "removals applied, nothing added yet" is a perfectly safe, retriable state,
     # same as any other partially-progressed sync. Running it this early instead closes off a whole
     # class of stale-DB-state bugs further down: e.g. without this, a series about to be removed
