@@ -772,29 +772,12 @@ class DBControl:
 
             # if mediumToRemove was itself an episode, its parent series might now be orphaned
             if mediumToRemove.series_imdb_id is not None:
-                self.__pruneOrphanedSeries([mediumToRemove.series_imdb_id])
+                self._pruneIfOrphanedNoCommit(mediumToRemove.series_imdb_id)
 
-            #3. for all x in list referencesToRemove:
+            #3. for all x in list referencesToRemove: prune each former outgoing connection's
+            # target, now that this connection to it is gone -- see _pruneIfOrphanedNoCommit
             for x in referencesToRemove:
-
-                #3a. if x not in db table media or if subdir NOT EMPTY: continue
-                self.c.execute("SELECT imdb_id, original_title, subdir FROM media WHERE imdb_id=?", (x[1],))
-                mediumData = self.c.fetchall()
-                if len(mediumData) == 0 or mediumData[0][2] != None:
-                    continue
-
-                #3b. check whether there are any connections TO x
-                self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (x[1],))
-                remainingConnections = self.c.fetchall()
-
-                #3b1. if yes: continue
-                if len(remainingConnections) != 0:
-                    continue
-
-                #3b2. if no: remove media entry (media_interests rows are removed via ON DELETE CASCADE)
-                else:
-                    printDetail("Removing referenced medium " + mediumData[0][1] + " from DB")
-                    self.c.execute("DELETE FROM media WHERE imdb_id=?", (x[1],))
+                self._pruneIfOrphanedNoCommit(x[1])
 
     def removeVanishedEpisode(self, episodeMedium):
         """Removes an episode that a fresh title.episode.tsv scan no longer lists at all (e.g. an
@@ -811,7 +794,7 @@ class DBControl:
             printDetail("Removing episode " + str(episodeMedium.original_title) + " from DB (no longer listed in title.episode.tsv)")
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (episodeMedium.imdb_id,)) # media_connections rows removed via ON DELETE CASCADE
             if episodeMedium.series_imdb_id is not None:
-                self.__pruneOrphanedSeries([episodeMedium.series_imdb_id])
+                self._pruneIfOrphanedNoCommit(episodeMedium.series_imdb_id)
 
     def refreshRatings(self, mediaDict):
         with self.conn:
@@ -1108,7 +1091,7 @@ class DBControl:
 
                 # if imdb_id was itself an episode, its parent series might now be orphaned
                 if series_imdb_id is not None:
-                    self.__pruneOrphanedSeries([series_imdb_id])
+                    self._pruneIfOrphanedNoCommit(series_imdb_id)
 
     def __pruneOrphanedInterests(self, imdb_interest_ids):
         """Removes any of the given interests (genre or subgenre) from interest_enum once they're
@@ -1176,28 +1159,43 @@ class DBControl:
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (episode_id,))
         return not anyStillNeeded
 
-    def __pruneOrphanedSeries(self, series_imdb_ids):
-        """Removes any of the given series once it's no longer locally owned, no longer referenced
-        by anything else, and has no episode still depending on it either (via
-        __removeUnneededSeriesEpisodes) -- the series/episode analogue of __pruneOrphanedInterests's
-        genre/subgenre shape. Unlike that one, no further cascading re-check is needed here: a
-        series has no "parent" of its own to affect once it's gone."""
-        for series_imdb_id in series_imdb_ids:
-            self.c.execute("SELECT subdir, original_title FROM media WHERE imdb_id=?", (series_imdb_id,))
-            row = self.c.fetchone()
-            if row is None or row[0] is not None:
-                continue # already removed, never existed, or still locally owned
-            self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (series_imdb_id,))
-            if len(self.c.fetchall()) != 0:
-                continue # still referenced by something else
-            if not self.__removeUnneededSeriesEpisodes(series_imdb_id):
-                continue # still has a needed episode
-            printDetail("Removing series " + str(row[1]) + " from DB (no longer needed)")
-            # only the incoming (foreign_imdb_id) side needs a manual delete -- it's ON DELETE
-            # RESTRICT, unlike the outgoing (imdb_id) side, which cascades from the DELETE FROM
-            # media right below
-            self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (series_imdb_id,))
-            self.c.execute("DELETE FROM media WHERE imdb_id=?", (series_imdb_id,))
+    def _pruneIfOrphanedNoCommit(self, imdb_id):
+        """Removes imdb_id's media row if it's a referenced-only title (subdir IS NULL) that's no
+        longer referenced by anything (no remaining media_connections pointing at it) -- and, if
+        it's a series, only once every one of its episodes is independently removable too (via
+        __removeUnneededSeriesEpisodes: a series can't be safely deleted while it still has an
+        episode that's owned or referenced, since series_imdb_id's FK requires the series row to
+        exist as long as any episode points at it -- checked explicitly here rather than relying on
+        that FK to reject an unsafe delete, since a referenced-only series can and does have its own
+        referenced-only episodes in practice). A no-op if imdb_id doesn't exist, is locally owned,
+        is still referenced, or (for a series) still has a needed episode.
+
+        No transaction of its own -- only call this from inside an already-open "with self.conn:"/
+        "with db.transaction():" block, same convention as _addMultipleMediaNoCommit. Shared by
+        every caller that might have just removed the last thing keeping some other medium around
+        (removeSingleMedia's own outgoing connections and its removed episode's parent series,
+        removeVanishedEpisode's parent series, enforceIgnoredAndWontaddIDs' parent series)."""
+        self.c.execute("""SELECT m.subdir, m.original_title, tt.title_type_name FROM media m
+            JOIN title_type_enum tt ON tt.title_type_id = m.title_type_id
+            WHERE m.imdb_id=?""", (imdb_id,))
+        row = self.c.fetchone()
+        if row is None or row[0] is not None:
+            return # doesn't exist, already removed, or still locally owned
+        _, original_title, title_type_name = row
+
+        self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,))
+        if len(self.c.fetchall()) != 0:
+            return # still referenced by something else
+
+        if title_type_name in Media.seriesTitleTypes and not self.__removeUnneededSeriesEpisodes(imdb_id):
+            return # still has a needed episode
+
+        printDetail("Removing referenced medium " + str(original_title) + " from DB (no longer needed)")
+        # only the incoming (foreign_imdb_id) side needs a manual delete -- it's ON DELETE
+        # RESTRICT, unlike the outgoing (imdb_id) side, which cascades from the DELETE FROM
+        # media right below
+        self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,))
+        self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
 
     def __getTitleTypeIDByTitleTypeName(self, title_type_name):
         # no transaction of its own -- called from within other methods' own "with self.conn:"
@@ -1316,8 +1314,8 @@ class DBControl:
         series here instead means an abort leaves it in the same, already-safe "not locally owned"
         state as a genuine removal. No particular ordering is needed in the returned dict for this to
         resolve correctly -- removeSingleMedia re-checks each episode's series via
-        __pruneOrphanedSeries as it goes, so the series converges to fully removed by the end of the
-        batch regardless of whether it's processed before or after its episodes."""
+        _pruneIfOrphanedNoCommit as it goes, so the series converges to fully removed by the end of
+        the batch regardless of whether it's processed before or after its episodes."""
         with self.conn:
             self.c.execute("SELECT imdb_id, filename, mtime FROM media_versions WHERE mtime IS NOT NULL")
             storedMtimes = {(imdb_id, filename): mtime for imdb_id, filename, mtime in self.c.fetchall()}
