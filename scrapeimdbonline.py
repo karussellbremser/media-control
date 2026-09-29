@@ -1225,11 +1225,19 @@ class ScrapeIMDbOnline:
                                # while the page's own structured production-stage data still says "In
                                # Production" underneath, and it has zero votes -- not actually released yet
         }
+        # a returning series' upcoming (non-first) season premiere -- same idea as "Series premiere"
+        # above (imminent/upcoming, no real rating data for it yet), just worded per-season instead of
+        # for the show's first-ever season. Confirmed via tt14688458 "Silo", currently mid-run with
+        # seasons 1-3 already aired: badge reads "Season 4 premiere" for the upcoming season
+        seasonPremiereRegex = re.compile(r"^Season (\d+) premiere$")
 
         statusBadge = soup.find("div", attrs={"data-testid": "tm-box-up-title"})
         if statusBadge is not None:
             text = statusBadge.get_text(strip=True)
             if text in expectedValues:
+                return True
+            match = seasonPremiereRegex.match(text)
+            if match is not None and int(match.group(1)) >= 2:
                 return True
             raise ScrapingError("unknown production status '" + text + "' for IMDb ID " + str(imdb_id))
 
