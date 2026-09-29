@@ -162,8 +162,9 @@ class DBControl:
             # makes "zxx" the primary language, no exceptions). A title with no languages/countries
             # listed simply has no rows here. Like media_interests, only ever populated for
             # locally-owned movies and series (subdir NOT NULL); episodes and referenced-only media
-            # have none -- and unlike interests they no longer copy their series' either. language_code
-            # holds the canonical ISO 639-3 code (see DBControl.getIsoLanguageLookup), not necessarily
+            # have none -- an episode's only route to any of this is its parent series' own row, via
+            # series_imdb_id. language_code holds the canonical ISO 639-3 code (see
+            # DBControl.getIsoLanguageLookup), not necessarily
             # the raw code IMDb's own page showed -- e.g. IMDb's "en" is resolved and stored as "eng".
             self.c.execute("""CREATE TABLE media_languages (
             imdb_id integer NOT NULL,
