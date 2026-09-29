@@ -27,12 +27,19 @@ def requireMainDBExists():
                                  " -- run 'python main.py -c' (or --createdb) to create it first")
 
 def readIDList(path):
-    """Reads a user-maintained list of imdb ids, one 'tt#######' per line (blank lines ignored).
-    A missing file is treated as an empty list, since these lists are optional."""
+    """Reads a user-maintained list of imdb ids, one 'tt#######' per line (blank lines ignored). A
+    '#' starts a comment, either on its own line or trailing after an id -- everything from '#'
+    onward on a line is discarded before parsing. A missing file is treated as an empty list, since
+    these lists are optional."""
     if not os.path.exists(path):
         return set()
     with open(path, "r") as f:
-        return {int(line.strip()[2:]) for line in f if line.strip()}
+        ids = set()
+        for line in f:
+            content = line.split("#", 1)[0].strip()
+            if content:
+                ids.add(int(content[2:]))
+        return ids
 
 def printStep(number, description):
     """Prints a step-header line for syncLocal's console output, matching the step numbering in

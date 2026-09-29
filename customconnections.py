@@ -167,17 +167,18 @@ def wouldContradictPairEdge(existingEdges, imdb_id, foreign_imdb_id, connection_
 
 def parseFile(path, warn):
     """Reads path (a custom_connections.txt-formatted file) and returns the union of every valid
-    line's expandLine() result, as a set of (source, target, connection_type_name) tuples. A missing
-    file is treated as empty, same convention as main.py's readIDList. Any malformed line is passed
-    to warn(message) and skipped entirely -- never raises, so one bad line never blocks every other
-    line in the file."""
+    line's expandLine() result, as a set of (source, target, connection_type_name) tuples. A '#'
+    starts a comment, either on its own line or trailing after a relationship -- everything from '#'
+    onward on a line is discarded before parsing. A missing file is treated as empty, same
+    convention as main.py's readIDList. Any malformed line is passed to warn(message) and skipped
+    entirely -- never raises, so one bad line never blocks every other line in the file."""
     if not os.path.exists(path):
         return set()
 
     facts = set()
     with open(path, "r") as f:
         for lineNumber, line in enumerate(f, 1):
-            tokens = line.split()
+            tokens = line.split("#", 1)[0].split()
             if not tokens:
                 continue
             try:
