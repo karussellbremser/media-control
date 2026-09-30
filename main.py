@@ -225,7 +225,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
 
     # fail-fast, before any of the expensive per-title work below (steps 6-10) runs: catch a
     # locally-owned title whose folder-parsed start_year (or movie/series/episode category) already
-    # disagrees with the offline dataset -- same check step 11's parseTitleBasics would eventually
+    # disagrees with the offline dataset -- same check step 11's parseTitleFields would eventually
     # raise on anyway, just early enough to not waste this run's MediaInfo/cropping analysis and
     # online scraping on titles that would only get discarded once that check ran. No step number of
     # its own (see printStep's docstring) -- nothing to print on success, only ever an exception on
@@ -369,7 +369,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     newPeopleDict = scrapeimdboffline.parsePeople(newPeopleDict)
 
     # a referenced connection target might be an episode rather than a movie/series -- resolve any
-    # such id's season/episode/parent series (must run before parseTitleBasics, see
+    # such id's season/episode/parent series (must run before parseTitleFields, see
     # parseTitleEpisode), then add the parent series too if not already known: series_imdb_id's FK
     # requires the series row to exist, not just nice for display. If the series is itself ignored,
     # drop the episode instead (it can't be added without its series; a locally-owned series being
@@ -388,8 +388,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
         elif x.series_imdb_id not in newlyAddedMediaDict and x.series_imdb_id not in existingIDs:
             newlyAddedMediaDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
 
-    newlyAddedMediaDict = scrapeimdboffline.parseTitleRatings(newlyAddedMediaDict)
-    newlyAddedMediaDict = scrapeimdboffline.parseTitleBasics(newlyAddedMediaDict)
+    newlyAddedMediaDict = scrapeimdboffline.parseTitleFields(newlyAddedMediaDict)
 
     # 12. online fallback for locally-owned titles missing from the offline dataset (should happen very
     # infrequently). No cap of its own -- needsOnlineFallback is only ever set for locally-owned media
@@ -527,8 +526,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                             stub.episode_number = episode
                             newEpisodeStubs[episode_imdb_id] = stub
                 if newEpisodeStubs:
-                    newEpisodeStubs = offlineForCompleteness.parseTitleRatings(newEpisodeStubs)
-                    newEpisodeStubs = offlineForCompleteness.parseTitleBasics(newEpisodeStubs)
+                    newEpisodeStubs = offlineForCompleteness.parseTitleFields(newEpisodeStubs)
                     seriesTitlesByID = {series.imdb_id: series.original_title for series in readySeries}
                     for episode_imdb_id, stub in newEpisodeStubs.items():
                         # verbosity level 2, not 1: this can print dozens of lines per series for a
@@ -681,7 +679,7 @@ def reconcileCustomConnections(db, scrapeimdboffline, ignoredIDs):
 
         # 3. resolve referenced-only stubs for any eligible fact's not-yet-existing target -- the
         # exact same offline-resolution sequence as main.py's own step 10/11 (parseTitleEpisode's
-        # series resolution, then ratings/basics with their illegal-discard cascade -- see
+        # series resolution, then parseTitleFields with its illegal-discard cascade -- see
         # scrapeimdboffline.py's __applyTitles for why a discarded target's dependent facts simply
         # never reach step 4 below, rather than needing special handling here)
         newStubsDict = {}
@@ -699,8 +697,7 @@ def reconcileCustomConnections(db, scrapeimdboffline, ignoredIDs):
                     del newStubsDict[imdb_id]
                 elif x.series_imdb_id not in newStubsDict and x.series_imdb_id not in existingIDs:
                     newStubsDict[x.series_imdb_id] = Media(None, None, x.series_imdb_id)
-            newStubsDict = scrapeimdboffline.parseTitleRatings(newStubsDict)
-            newStubsDict = scrapeimdboffline.parseTitleBasics(newStubsDict)
+            newStubsDict = scrapeimdboffline.parseTitleFields(newStubsDict)
             for imdb_id, stub in newStubsDict.items():
                 printDetail("  new referenced-only title from custom connection: " + str(stub.primary_title) + " (" + stub.getIDString() + ")")
             db._addMultipleMediaNoCommit(newStubsDict)
@@ -732,8 +729,7 @@ def refreshTitleData():
     mediaDict = db.getAllMovieObjects()
 
     offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY), config.IMDB_HELPER_DB_PATH)
-    mediaDict = offline.refreshTitleRatings(mediaDict)
-    mediaDict = offline.refreshTitleBasics(mediaDict)
+    mediaDict = offline.refreshTitleFields(mediaDict)
 
     db.refreshRatings(mediaDict)
     db.refreshTitleBasics(mediaDict)
@@ -745,7 +741,7 @@ def refreshTitleData():
     # discover new episodes / detect vanished ones for every currently-owned series. New episodes
     # are added as referenced-only stubs, purely offline-dataset driven -- except for one conditional
     # online check: a new episode with no vote count yet in the offline ratings dataset triggers a
-    # live isInDevelopment() check (via parseTitleRatings) to tell a real upcoming episode apart from
+    # live isInDevelopment() check (via parseTitleFields) to tell a real upcoming episode apart from
     # an IMDb placeholder, same as the equivalent sync-side check documented at step 14 above. A
     # vanished, locally-owned episode is an error (see removeVanishedEpisode's docstring for the
     # referenced-only case).
@@ -765,8 +761,7 @@ def refreshTitleData():
                     stub.episode_number = episode
                     newEpisodeStubs[episode_imdb_id] = stub
         if newEpisodeStubs:
-            offline.parseTitleRatings(newEpisodeStubs)
-            offline.parseTitleBasics(newEpisodeStubs)
+            offline.parseTitleFields(newEpisodeStubs)
             for episode_imdb_id, stub in newEpisodeStubs.items():
                 printDetail("New episode discovered: " + str(stub.original_title) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].original_title if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
             db.addMultipleMedia(newEpisodeStubs)

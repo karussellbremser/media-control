@@ -873,10 +873,10 @@ class DBControl:
                 self.c.execute("UPDATE media SET rating_mul10=?, num_votes=? WHERE imdb_id=?", (media.rating_mul10, media.num_votes, imdbID))
 
     def refreshTitleBasics(self, mediaDict):
-        """Writes back the fields ScrapeIMDbOffline.refreshTitleBasics may have updated in place --
+        """Writes back the fields ScrapeIMDbOffline.refreshTitleFields may have updated in place --
         titleType, primary_title, original_title, end_year, start_year. start_year is included
         because it's no longer always immutable during a refresh: it stays fixed for a locally-owned
-        movie/series (refreshTitleBasics raises before this would ever see a differing value there),
+        movie/series (refreshTitleFields raises before this would ever see a differing value there),
         but an episode or a referenced-only title's start_year can legitimately change (silently
         updated, not raised -- see __insertTitleBasicsRefresh), and that new value needs to actually
         land in the DB, not just live in the in-memory Media object for this run."""

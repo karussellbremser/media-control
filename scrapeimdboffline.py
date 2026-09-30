@@ -251,30 +251,36 @@ class ScrapeIMDbOffline:
     # looking things up in the helper DB
     # ------------------------------------------------------------------
 
-    def parseTitleRatings(self, content_dict):
-        return self.__applyTitles(content_dict, mode="ratings", remove_illegal=True)
+    def parseTitleFields(self, content_dict):
+        """Resolves ratings (rating_mul10/num_votes) and basics (titleType/primary_title/
+        original_title/start_year/end_year) for every id in content_dict against the helper DB's
+        titles table, in one combined pass -- both used to be two separate methods/dataset files
+        (title.ratings.tsv/title.basics.tsv), but every caller has always needed both together
+        (never one without the other) and the helper DB has long since merged them into a single
+        titles row anyway, so the split no longer reflected anything real. An id found to be
+        illegal (missing from the dataset with no usable fallback, an unacceptable title type, or
+        confirmed in-development with no real ratings yet) is discarded, cascading to any of its
+        episodes also present in content_dict -- see __applyTitles."""
+        return self.__applyTitles(content_dict, is_refresh=False)
 
-    def refreshTitleRatings(self, content_dict):
-        return self.__applyTitles(content_dict, mode="ratings", remove_illegal=False)
-
-    def parseTitleBasics(self, content_dict):
-        return self.__applyTitles(content_dict, mode="basics", remove_illegal=True)
-
-    def refreshTitleBasics(self, content_dict):
-        """Like refreshTitleRatings, but for title basics: primary_title/original_title/end_year are
-        always silently updated to whatever the dataset currently says (titles get corrected, an
-        airing series' end_year becomes known once it concludes). titleType is treated as
-        near-immutable for everything (may only move within its movie/series/episode category).
-        start_year is near-immutable only for a locally-owned movie/series -- for an episode or a
-        referenced-only title it's silently updated too, same as primary_title/original_title/
-        end_year. See __insertTitleBasicsRefresh for exactly what's allowed to change and what
-        raises OfflineDatasetError."""
-        return self.__applyTitles(content_dict, mode="basics_refresh", remove_illegal=False)
+    def refreshTitleFields(self, content_dict):
+        """Like parseTitleFields, but refreshes an already-known medium's ratings and basics against
+        the current dataset instead of resolving a new one -- nothing is ever discarded here (an
+        already-owned/referenced medium disagreeing with the dataset is a hard OfflineDatasetError,
+        never a silent removal). rating_mul10/num_votes and primary_title/original_title/end_year
+        are always silently updated to whatever the dataset currently says (titles get corrected, an
+        airing series' end_year becomes known once it concludes). titleType is near-immutable for
+        everything (may only move within its movie/series/episode category). start_year is
+        near-immutable only for a locally-owned movie/series -- for an episode or a referenced-only
+        title it's silently updated too, same as primary_title/original_title/end_year. See
+        __insertTitleBasicsRefresh for exactly what's allowed to change and what raises
+        OfflineDatasetError."""
+        return self.__applyTitles(content_dict, is_refresh=True)
 
     def parsePeople(self, content_dict):
         """Resolves name/birth_year/death_year for every newly-discovered person in content_dict
-        (a {imdb_id: Person} dict) from the helper DB's people table. Unlike parseTitleBasics/
-        parseTitleRatings, a person missing from the dataset (e.g. added to IMDb more recently than
+        (a {imdb_id: Person} dict) from the helper DB's people table. Unlike parseTitleFields, a
+        person missing from the dataset (e.g. added to IMDb more recently than
         the dataset snapshot) is tolerated rather than treated as an error or discarded -- a person
         record is supplementary to a credit, not structural the way a title's own basics are, so
         this just leaves the person's name as whatever was scraped from the credits page (see
@@ -282,7 +288,7 @@ class ScrapeIMDbOffline:
         return self.__applyPeople(content_dict)
 
     def refreshPeople(self, content_dict):
-        """Like refreshTitleBasics, but for people: name/birth_year/death_year are silently updated
+        """Like refreshTitleFields, but for people: name/birth_year/death_year are silently updated
         to whatever the dataset currently says (a living person's death_year becomes known, names
         get corrected). A person missing from the dataset keeps their current DB values unchanged,
         same tolerance as parsePeople."""
@@ -316,14 +322,14 @@ class ScrapeIMDbOffline:
     def parseTitleEpisode(self, content_dict):
         """Resolves season_number/episode_number/series_imdb_id for every id in content_dict that
         turns out to be an episode, via one batched lookup against the helper DB's episodes table.
-        An id with no matching row simply isn't an episode -- unlike parseTitleBasics/
-        parseTitleRatings, membership in this table is what DEFINES an id as an episode here, not
-        something checked against an already-known type. A season/episode value of None means
-        IMDb itself has no number for it (e.g. an uncategorized episode), never 0 -- 0 is a
-        legitimate real episode number, and real season numbers are always >= 1, so None stays
-        unambiguous regardless of what season/episode number IMDb might use in the future.
+        An id with no matching row simply isn't an episode -- unlike parseTitleFields, membership in
+        this table is what DEFINES an id as an episode here, not something checked against an
+        already-known type. A season/episode value of None means IMDb itself has no number for it
+        (e.g. an uncategorized episode), never 0 -- 0 is a legitimate real episode number, and real
+        season numbers are always >= 1, so None stays unambiguous regardless of what season/episode
+        number IMDb might use in the future.
 
-        Must run before parseTitleBasics: __insertTitleBasics's fail-loud type-consistency check
+        Must run before parseTitleFields: __insertTitleBasics's fail-loud type-consistency check
         relies on series_imdb_id already being set to know an id is expected to be an episode."""
 
         if len(content_dict) == 0:
@@ -430,40 +436,29 @@ class ScrapeIMDbOffline:
                 result[row[0]] = row[1:]
         return result
 
-    def __applyTitles(self, content_dict, mode, remove_illegal): # mode: "ratings" | "basics" | "basics_refresh"
+    def __applyTitles(self, content_dict, is_refresh):
         if len(content_dict) == 0:
             return content_dict
 
         titlesById = self.__fetchTitles(content_dict.keys())
         for imdb_id, row in titlesById.items():
             media_obj = content_dict[imdb_id]
-            if mode == "ratings":
-                content_dict[imdb_id] = self.__insertTitleRatings(media_obj, row)
-            elif mode == "basics":
-                content_dict[imdb_id] = self.__insertTitleBasics(media_obj, row)
-            elif mode == "basics_refresh":
-                content_dict[imdb_id] = self.__insertTitleBasicsRefresh(media_obj, row)
+            if is_refresh:
+                media_obj = self.__insertTitleBasicsRefresh(media_obj, row)
             else:
-                raise RuntimeError("unknown mode " + str(mode)) # internal misuse: mode is always one of the above, passed by this class's own methods
+                media_obj = self.__insertTitleBasics(media_obj, row)
+            content_dict[imdb_id] = self.__insertTitleRatings(media_obj, row)
 
-        if remove_illegal:
-            # make sure that all items have been touched; mark ones that are illegal for deletion
+        if not is_refresh:
+            # make sure that all items have been touched; mark ones that are illegal for deletion.
+            # The offline-only checks (missing entirely from the dataset / unacceptable title type)
+            # always run before the online in-development check below, even though historically (as
+            # two separate ratings/basics passes) it was the other way around -- a title that's going
+            # to be discarded for a free, offline reason anyway should never first pay for a live
+            # isInDevelopment() page load.
             illegal_ids = []
             for x in content_dict.values():
-                if mode == "ratings" and x.num_votes == None and x.subdir == None:
-                    # num_votes missing entirely is otherwise unremarkable (see __insertTitleRatings --
-                    # it's a perfectly normal, nullable field), so this specific combination -- no
-                    # votes at all, and not locally owned -- is the only case worth an online check;
-                    # print it as it happens, since it's the one thing in this whole step that
-                    # actually visits an IMDb page rather than just querying the local helper DB
-                    printDetail("  checking in-development status for " + x.getIDString() + "...")
-                    if self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
-                        printDetail("  discarding referenced-only title " + x.getIDString() + ": in development, no ratings yet")
-                        # illegal title. mark for deletion from dict keys and mediaConnections
-                        illegal_ids.append(x.imdb_id)
-                        continue
-
-                if mode == "basics" and x.titleType in (None, "localMovie", "localSeries"): # titleType still unset or still the local-scrape placeholder: no usable row was found in titles
+                if x.titleType in (None, "localMovie", "localSeries"): # titleType still unset or still the local-scrape placeholder: no usable row was found in titles
                     if x.series_imdb_id is not None:
                         # known to be an episode via the episodes table, but missing from titles --
                         # the two offline datasets disagree with each other. A real, fairly common gap
@@ -508,10 +503,24 @@ class ScrapeIMDbOffline:
                         x.needsOnlineFallback = True
                         continue
 
-                if mode == "basics" and x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes + Media.episodeTitleTypes:
+                if x.titleType not in Media.movieTitleTypes + Media.seriesTitleTypes + Media.episodeTitleTypes:
                     # found in the dataset, but not an acceptable title type (e.g. a TV episode ending up in the movie library)
                     printDetail("  discarding referenced-only title " + x.getIDString() + ": unacceptable title type '" + str(x.titleType) + "'")
                     illegal_ids.append(x.imdb_id)
+                    continue
+
+                if x.num_votes == None and x.subdir == None:
+                    # num_votes missing entirely is otherwise unremarkable (see __insertTitleRatings --
+                    # it's a perfectly normal, nullable field), so this specific combination -- no
+                    # votes at all, and not locally owned -- is the only case worth an online check;
+                    # only reached once titleType is already known acceptable (see above). Print it as
+                    # it happens, since it's the one thing in this whole step that actually visits an
+                    # IMDb page rather than just querying the local helper DB
+                    printDetail("  checking in-development status for " + x.getIDString() + "...")
+                    if self.scrapeimdbonline.isInDevelopment(x.imdb_id): # in-development titles are excluded
+                        printDetail("  discarding referenced-only title " + x.getIDString() + ": in development, no ratings yet")
+                        # illegal title. mark for deletion from dict keys and mediaConnections
+                        illegal_ids.append(x.imdb_id)
 
             # cascade: any entry whose parent series was just discarded above must go too -- its
             # series_imdb_id FK can never be satisfied, since that series row will now never exist
@@ -625,9 +634,9 @@ class ScrapeIMDbOffline:
         Only locally-owned ids are checked -- referenced-only titles have no folder-parsed data to
         protect, and aren't even discovered yet this early in main.py's pipeline anyway. An id
         missing from the dataset entirely is left alone here too: that's the legitimate "flag for
-        online fallback" case, not an error, and stays exclusively parseTitleBasics's job at its
+        online fallback" case, not an error, and stays exclusively parseTitleFields's job at its
         usual point in the pipeline. This is a pure duplicate of a subset of __insertTitleBasics's
-        checks (see __checkTitleTypeAndYear) -- parseTitleBasics still runs its own full,
+        checks (see __checkTitleTypeAndYear) -- parseTitleFields still runs its own full,
         authoritative pass later regardless of whether this ran first."""
         localIDs = [imdb_id for imdb_id, x in content_dict.items() if x.subdir is not None]
         if len(localIDs) == 0:
