@@ -462,6 +462,17 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
+            # foreign_imdb_id is the child key of an ON DELETE RESTRICT foreign key back into media
+            # itself -- same reasoning as idx_media_series_imdb_id above: it's the leftmost column of
+            # nothing here (the PK's own automatic index covers imdb_id and (imdb_id, foreign_imdb_id),
+            # but not foreign_imdb_id alone), yet it's queried on its own throughout the removal/prune
+            # paths (removeSingleMedium, __removeUnneededSeriesEpisodes -- once per episode,
+            # _pruneIfOrphanedNoCommit -- once per removed reference and per custom-connection
+            # re-validated every sync run, enforceIgnoredAndWontaddIDs), and it's the check SQLite
+            # itself runs on every relevant DELETE FROM media regardless. Full index, not partial --
+            # same reason as idx_media_series_imdb_id.
+            self.c.execute("CREATE INDEX idx_media_connections_foreign_imdb_id ON media_connections (foreign_imdb_id)")
+
             self.c.execute("""CREATE TABLE connection_type_enum (
             connection_type_id integer NOT NULL,
             connection_type_name text NOT NULL UNIQUE,
