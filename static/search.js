@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const resetButton = document.getElementById('resetButton');
 
     const input = document.getElementById('searchInput');
+    const searchClearBtn = document.getElementById('searchClearBtn');
     const results = document.getElementById('results');
 	const errorBanner = document.getElementById('errorBanner');
 	const sortSelect = document.getElementById('sortSelect');
@@ -518,8 +519,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 
+	function updateSearchClearButton() {
+		searchClearBtn.classList.toggle('visible', input.value.length > 0);
+	}
+
 	function resetFilters() {
 		input.value = '';
+		updateSearchClearButton();
 
 		sortSelect.value = 'year';
 		orderButton.disabled = false;
@@ -760,9 +766,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     input.addEventListener('input', () => {
+        updateSearchClearButton();
         debounceSearch(input.value);
     });
-	
+
+	searchClearBtn.addEventListener('click', () => {
+		input.value = '';
+		updateSearchClearButton();
+		input.focus();
+		resetAndSearch(input.value);
+	});
+
 	sortSelect.addEventListener('change', () => {
 		if (sortSelect.value === 'random') {
 			// a new random order every time the option is selected; it then stays the same until the

@@ -55,7 +55,49 @@
             padding: 5px;
             box-sizing: border-box;
         }
-		
+
+		.search-field {
+			position: relative;
+			margin-bottom: 10px; /* moved here from the input itself, so the wrapper's own height
+			                        exactly matches the input's box -- an <input> is inline-block by
+			                        default, so its margin doesn't collapse into the wrapper, which
+			                        would otherwise throw off the clear button's vertical centering */
+		}
+
+		.search-field input {
+			padding-right: 24px;
+			margin-bottom: 0;
+		}
+
+		.search-field-clear {
+			display: none;
+			position: absolute;
+			right: 4px;
+			top: 50%;
+			transform: translateY(-50%);
+			width: 20px;
+			height: 20px;
+			align-items: center;
+			justify-content: center;
+			border: none;
+			background: none;
+			color: #777;
+			font-size: 16px;
+			line-height: 1;
+			cursor: pointer;
+			padding: 0;
+			margin: 0;
+		}
+
+		.search-field-clear:hover {
+			color: #333;
+			background: none;
+		}
+
+		.search-field-clear.visible {
+			display: flex;
+		}
+
 		.genre-list label {
 			display: flex;
 			align-items: center;
@@ -797,7 +839,10 @@
 		
 		<h2>Search</h2>
 		
-		<input type="text" id="searchInput" placeholder="Search titles">
+		<div class="search-field">
+			<input type="text" id="searchInput" placeholder="Search titles">
+			<button type="button" id="searchClearBtn" class="search-field-clear" aria-label="Clear search">✕</button>
+		</div>
 
 		<h3>Type</h3>
 		<div class="genre-list">
