@@ -1284,14 +1284,19 @@ class DBControl:
         "with db.transaction():" block, same convention as _addMultipleMediaNoCommit. Shared by
         every caller that might have just removed the last thing keeping some other medium around
         (removeSingleMedium's own outgoing connections and its removed episode's parent series,
-        removeVanishedEpisode's parent series, enforceIgnoredAndWontaddIDs' parent series)."""
-        self.c.execute("""SELECT m.subdir, m.original_title, tt.title_type_name FROM media m
+        removeVanishedEpisode's parent series, enforceIgnoredAndWontaddIDs' parent series).
+
+        If imdb_id itself turns out to be an episode, removing it recurses into its own parent
+        series -- without this, a caller that doesn't already know imdb_id's series_imdb_id ahead of
+        time (e.g. pruning a former outgoing connection target, which could be anything) would leave
+        that series behind as a dangling stub with no episodes once its last one is pruned here."""
+        self.c.execute("""SELECT m.subdir, m.original_title, tt.title_type_name, m.series_imdb_id FROM media m
             JOIN title_type_enum tt ON tt.title_type_id = m.title_type_id
             WHERE m.imdb_id=?""", (imdb_id,))
         row = self.c.fetchone()
         if row is None or row[0] is not None:
             return # doesn't exist, already removed, or still locally owned
-        _, original_title, title_type_name = row
+        _, original_title, title_type_name, series_imdb_id = row
 
         self.c.execute("SELECT * FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,))
         if len(self.c.fetchall()) != 0:
@@ -1306,6 +1311,8 @@ class DBControl:
         # media right below
         self.c.execute("DELETE FROM media_connections WHERE foreign_imdb_id=?", (imdb_id,))
         self.c.execute("DELETE FROM media WHERE imdb_id=?", (imdb_id,))
+        if series_imdb_id is not None:
+            self._pruneIfOrphanedNoCommit(series_imdb_id)
 
     def __getTitleTypeIDByTitleTypeName(self, title_type_name):
         # no transaction of its own -- called from within other methods' own "with self.conn:"
