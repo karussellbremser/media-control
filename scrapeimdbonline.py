@@ -1128,7 +1128,10 @@ class ScrapeIMDbOnline:
         write.
 
         Raises ScrapingError on any unexpected structure (missing person link, an unrecognized
-        credits-list-item shape)."""
+        credits-list-item shape). Also raises if none of director/writer/cast matched anything AND
+        the page doesn't show IMDb's own "no full cast & crew" message -- the latter is a real,
+        if rare, legitimate state for an obscure title (confirmed via tt1336794), but is otherwise
+        indistinguishable from a changed page layout silently yielding zero credits."""
 
         if len(mediaDict) == 0:
             return []
@@ -1149,6 +1152,7 @@ class ScrapeIMDbOnline:
             self.__navigate("https://www.imdb.com/title/" + currentMedia.getIDString() + "/fullcredits/")
             soup = BeautifulSoup(self.browser.page_source, 'html.parser')
 
+            anyRoleFound = False
             for credit_role, headingText, exactMatch in (
                 ("director", "Director", False), # "Director" or "Directors"
                 ("writer", "Writer", False),      # "Writer" or "Writers"
@@ -1160,6 +1164,7 @@ class ScrapeIMDbOnline:
                                       else h.get_text(strip=True).startswith(headingText))]
                 if len(matchingHeadings) == 0:
                     continue # e.g. no credited writer at all -- tolerated, not every title has one
+                anyRoleFound = True
                 if len(matchingHeadings) > 1:
                     raise ScrapingError("multiple '" + headingText + "' headings found on " + currentMedia.getIDString() + "/fullcredits/")
                 section = matchingHeadings[0].find_parent("section")
@@ -1191,6 +1196,18 @@ class ScrapeIMDbOnline:
 
                     ordering += 1
                     currentMedia.credits.append(Credit(person_id, ordering, credit_role, credit_details))
+
+            if not anyRoleFound:
+                # none of director/writer/cast matched anything -- tolerated ONLY when the page
+                # itself explicitly says so (confirmed via tt1336794/tt1337228: IMDb genuinely has no
+                # credits at all for some obscure titles, shown as this exact message instead of any
+                # of the three sections); otherwise this is indistinguishable from a changed page
+                # layout or some other scrape malfunction, so it's not safe to silently record zero
+                # credits for it
+                if "don't have any full cast & crew for this title yet" not in soup.get_text():
+                    raise ScrapingError("no director/writer/cast section found on " + currentMedia.getIDString() +
+                                         "/fullcredits/, and the page doesn't show IMDb's own " +
+                                         "'no full cast & crew' message either -- possible page structure change")
 
         return newPersonRegistrations
 
