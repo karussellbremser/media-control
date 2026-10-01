@@ -883,6 +883,18 @@ class DBControl:
             for imdbID, media in mediaDict.items():
                 self.c.execute("UPDATE media SET rating_mul10=?, num_votes=? WHERE imdb_id=?", (media.rating_mul10, media.num_votes, imdbID))
 
+    def refreshEpisodeNumbering(self, mediaDict):
+        """Writes back season_number/episode_number for every episode in mediaDict -- paired with
+        main.py's refreshTitleData, which detects an already-known episode whose position in the
+        offline dataset no longer matches what's stored (an IMDb renumbering/correction) and updates
+        the in-memory Media object before calling this. Only ever called for referenced-only episodes
+        in practice -- a locally-owned one is deliberately left stale instead (see refreshTitleData's
+        own comment for why), so this itself has no ownership-based rule of its own; a given position
+        is always just written through."""
+        with self.conn:
+            for imdbID, media in mediaDict.items():
+                self.c.execute("UPDATE media SET season_number=?, episode_number=? WHERE imdb_id=?", (media.season_number, media.episode_number, imdbID))
+
     def refreshTitleBasics(self, mediaDict):
         """Writes back the fields ScrapeIMDbOffline.refreshTitleFields may have updated in place --
         titleType, primary_title, original_title, end_year, start_year. start_year is included
@@ -928,6 +940,22 @@ class DBControl:
     def _getAllLocallyOwnedMediaIDsNoCommit(self):
         self.c.execute("SELECT imdb_id FROM media WHERE subdir IS NOT NULL")
         return(self.c.fetchall())
+
+    def getLocallyOwnedEpisodeAtPosition(self, series_imdb_id, season_number, episode_number, excluding_imdb_id):
+        """The imdb_id of whichever OTHER locally-owned episode (if any) already occupies this exact
+        (series, season, episode) position -- used by main.py step 2 to detect an IMDb renumbering/
+        correction that reassigned a season/episode slot to a different id since this local file was
+        last resolved: without this check, a local file still named after the OLD position would
+        otherwise get silently reattached to whatever id now claims that slot, misattributing the
+        file to the wrong episode (see main.py step 2's own comment for the full scenario).
+        excluding_imdb_id is the id this local file just resolved to this run -- excluded so a file
+        that's always correctly resolved to the same id doesn't flag itself. Public, self-committing:
+        called before any transaction is open this early in a sync."""
+        with self.conn:
+            self.c.execute("""SELECT imdb_id FROM media WHERE series_imdb_id=? AND season_number=? AND episode_number=?
+                AND subdir IS NOT NULL AND imdb_id != ?""", (series_imdb_id, season_number, episode_number, excluding_imdb_id))
+            row = self.c.fetchone()
+            return row[0] if row is not None else None
 
     def getDictWithImdbIDs(self):
         dbResult = self.getAllMediaIDs()

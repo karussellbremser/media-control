@@ -136,6 +136,20 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                         raise LocalLibraryError("locally-found episode S" + str(localEpisode.season_number) + "E" + str(localEpisode.episode_number) +
                                                  " of " + series.original_title + " not found in title.episode.tsv")
                     episode_imdb_id = seriesEpisodes[key]
+                    # catch IMDb reassigning this exact season/episode slot to a different id since
+                    # this local file was last resolved (e.g. a renumbering/correction) -- without
+                    # this, the file (still named after the OLD position -- nothing renames it
+                    # automatically) would otherwise get silently reattached to whichever id now
+                    # claims the slot, misattributing it to the wrong episode. Only reachable for a
+                    # locally-owned episode whose stored position still disagrees with the fresh
+                    # dataset -- refreshTitleData deliberately leaves that staleness in place rather
+                    # than correcting it, specifically so this check still has something to catch
+                    conflictingID = db.getLocallyOwnedEpisodeAtPosition(series.imdb_id, localEpisode.season_number, localEpisode.episode_number, episode_imdb_id)
+                    if conflictingID is not None:
+                        raise LocalLibraryError("local episode file in " + localEpisode.subdir + " resolves to tt" + str(episode_imdb_id).zfill(7) +
+                                                 " for S" + str(localEpisode.season_number) + "E" + str(localEpisode.episode_number) + " of " + series.original_title +
+                                                 ", but tt" + str(conflictingID).zfill(7) + " is already locally owned at that exact position -- " +
+                                                 "IMDb's episode numbering for this series appears to have changed; verify and rename the local file to match if so")
                 episodeMedia = Media(None, None, episode_imdb_id)
                 episodeMedia.subdir = localEpisode.subdir
                 episodeMedia.season_number = localEpisode.season_number
@@ -769,13 +783,53 @@ def refreshTitleData():
 
         for series in ownedSeries:
             currentEpisodeIDs = {m.imdb_id for m in mediaDict.values() if m.series_imdb_id == series.imdb_id}
-            freshEpisodeIDs = {episode_imdb_id for (_, _, episode_imdb_id) in fullEpisodeLists[series.imdb_id]}
+            freshPositionByID = {episode_imdb_id: (season, episode) for (season, episode, episode_imdb_id) in fullEpisodeLists[series.imdb_id]}
+            freshEpisodeIDs = set(freshPositionByID)
+
             for vanished_id in currentEpisodeIDs - freshEpisodeIDs:
                 episodeMedia = mediaDict[vanished_id]
                 if episodeMedia.subdir is not None:
                     raise OfflineDatasetError("locally-owned episode " + episodeMedia.getIDString() + " of " +
                                                str(series.original_title) + " is no longer listed in title.episode.tsv")
                 db.removeVanishedEpisode(episodeMedia)
+
+            # a still-listed episode's season/episode can still have changed (IMDb renumbering/
+            # correction) -- update it here rather than leaving it stale indefinitely, since nothing
+            # else ever revisits an already-known episode's position (see getFullEpisodeListForSeries's
+            # docstring). A referenced-only stub is pure display data, so it's corrected outright. A
+            # locally-owned episode's physical file is named after the OLD position and never renamed
+            # automatically -- its stored position is deliberately left AS-IS (only warned about, not
+            # corrected) so it keeps disagreeing with the local file's parsed position until the file
+            # is actually renamed; that staleness is what lets main.py step 2's own check (see
+            # DBControl.getLocallyOwnedEpisodeAtPosition) catch a future sync silently reattaching the
+            # unrenamed file to whatever now claims the old slot instead -- "correcting" it here would
+            # erase that tripwire before step 2 ever got a chance to use it.
+            renumberedEpisodes = {}
+            for stillPresentID in currentEpisodeIDs & freshEpisodeIDs:
+                episodeMedia = mediaDict[stillPresentID]
+                freshSeason, freshEpisode = freshPositionByID[stillPresentID]
+                if (episodeMedia.season_number, episodeMedia.episode_number) == (freshSeason, freshEpisode):
+                    continue
+
+                oldLabel = ("S" + str(episodeMedia.season_number).zfill(2) + "E" + str(episodeMedia.episode_number).zfill(2)
+                            if episodeMedia.season_number is not None else episodeMedia.getIDString())
+                newLabel = ("S" + str(freshSeason).zfill(2) + "E" + str(freshEpisode).zfill(2)
+                            if freshSeason is not None else episodeMedia.getIDString())
+                if episodeMedia.subdir is not None:
+                    printAlways("WARNING: locally-owned episode " + episodeMedia.getIDString() + " of " + str(series.original_title) +
+                                " moved from " + oldLabel + " to " + newLabel + " per the latest offline dataset -- " +
+                                "rename the local file in " + str(episodeMedia.subdir) + " to match, or a future sync " +
+                                "may misattribute it to whatever now claims " + oldLabel)
+                    continue # deliberately not updated -- see comment above
+
+                printDetail("  episode " + episodeMedia.getIDString() + " of " + str(series.original_title) +
+                            " renumbered from " + oldLabel + " to " + newLabel)
+                episodeMedia.season_number = freshSeason
+                episodeMedia.episode_number = freshEpisode
+                renumberedEpisodes[stillPresentID] = episodeMedia
+
+            if renumberedEpisodes:
+                db.refreshEpisodeNumbering(renumberedEpisodes)
 
 def ensureHelperDBFresh(runAutoRefresh):
     """If config.HELPER_DB_AUTO_UPDATE_ENABLED and the IMDb offline dataset helper DB is either
