@@ -647,7 +647,9 @@ class ScrapeIMDbOffline:
 
     def __insertTitleBasicsRefresh(self, media_obj, row): # row: (title_type_name, primary_title, original_title, start_year, end_year, rating_mul10, num_votes)
         """Refreshes an already-known medium's basics against the current dataset. primary_title/
-        original_title/end_year are silently updated. titleType may only change within the same
+        original_title/end_year are updated without raising. Any actual change to titleType,
+        primary_title, original_title, start_year or end_year is reported in one printDetail line per
+        medium, listing each old -> new value. titleType may only change within the same
         category (movie/series/episode) it was already in -- e.g. "movie" -> "tvMovie" is fine,
         "movie" -> "tvSeries" is not, since that would mean this id fundamentally isn't the kind of
         thing it was added as -- this always raises OfflineDatasetError on a violation, regardless
@@ -660,7 +662,7 @@ class ScrapeIMDbOffline:
         referenced-only movies/series have no local folder year to protect -- an episode's local
         path never encodes a year at all, and a referenced-only title's start_year only ever came
         from the dataset itself in the first place -- so for those a changed start_year is just the
-        dataset's own correction, silently updated like primary_title/original_title/end_year.
+        dataset's own correction, updated without raising like primary_title/original_title/end_year.
 
         An id with no matching row at all (gone missing, or now missing titleType/primary_title/
         original_title/start_year, since it was first read) is left with its previously-known
@@ -671,16 +673,26 @@ class ScrapeIMDbOffline:
         newCategory = self.__titleTypeCategory(titleType)
         if newCategory is None or newCategory != oldCategory:
             raise OfflineDatasetError("titleType for " + media_obj.getIDString() + " changed from '" + str(media_obj.titleType) + "' to '" + titleType + "', crossing categories")
-        media_obj.titleType = titleType
-
-        media_obj.primary_title = row[1]
-        media_obj.original_title = row[2]
 
         isOwnedNonEpisode = media_obj.subdir is not None and media_obj.series_imdb_id is None
         if isOwnedNonEpisode and media_obj.start_year != row[3]:
             raise OfflineDatasetError("start_year for " + media_obj.getIDString() + " changed from " + str(media_obj.start_year) + " to " + str(row[3]))
-        media_obj.start_year = row[3]
 
+        changes = []
+        for fieldName, oldValue, newValue in (("titleType", media_obj.titleType, titleType),
+                                              ("primary_title", media_obj.primary_title, row[1]),
+                                              ("original_title", media_obj.original_title, row[2]),
+                                              ("start_year", media_obj.start_year, row[3]),
+                                              ("end_year", media_obj.end_year, row[4])):
+            if oldValue != newValue:
+                changes.append(fieldName + " '" + str(oldValue) + "' -> '" + str(newValue) + "'")
+        if changes:
+            printDetail("  " + str(media_obj.original_title) + " (" + media_obj.getIDString() + ") changed in the offline dataset: " + ", ".join(changes))
+
+        media_obj.titleType = titleType
+        media_obj.primary_title = row[1]
+        media_obj.original_title = row[2]
+        media_obj.start_year = row[3]
         media_obj.end_year = row[4]
 
         return media_obj
