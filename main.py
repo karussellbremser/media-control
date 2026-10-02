@@ -325,13 +325,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                             ") this run -- MediaInfo/cropping analysis failed: " + str(e))
                 excluded = True
                 break
-        # pruning needs this title's CURRENT full version set, which excluded's early break above
-        # means we don't reliably have -- skip it rather than risk pruning an entry that's actually
-        # still valid (it'll simply be reconsidered next run, same as the rest of an excluded title)
+        # pruning needs this title's processing for this run to be fully complete, which excluded's
+        # early break above means it isn't -- skip it rather than risk pruning an entry that's
+        # actually still valid (it'll simply be reconsidered next run, same as the rest of an
+        # excluded title)
         if excluded:
             excludedIDs.append(currentMedia.imdb_id)
         elif croppingCache is not None:
-            croppingCache.pruneUnused(currentMedia.imdb_id, {mv.filename for mv in currentMedia.mediaVersions})
+            croppingCache.pruneUnused(currentMedia.imdb_id)
     for imdb_id in excludedIDs:
         del newlyAddedMediaDict[imdb_id]
     if croppingCache is not None:

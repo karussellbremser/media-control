@@ -19,7 +19,13 @@ class CroppingCache:
     Pruning is scoped to exactly the ids actually processed in a given run (see pruneUnused) -- a
     title removed from the library entirely (e.g. folder prefixed with "!" to temporarily hide it)
     simply leaves its entries untouched indefinitely, ready to be reused immediately if it's restored
-    unchanged later, rather than being cleaned up proactively."""
+    unchanged later, rather than being cleaned up proactively.
+
+    pruneUnused keeps exactly the entries lookup confirmed as a hit or store just wrote THIS run --
+    not merely "this filename still belongs to the medium". A file whose cropping.txt now covers it
+    never calls either (detectCropping's override branch returns before touching the cache at all),
+    so a stale entry left over from before it gained that override is correctly pruned even though
+    the file itself didn't go anywhere -- the cache was simply never consulted for it this run."""
 
     def __init__(self, cache_path, burst_frame_count, runtime_percentages, cluster_tolerance,
                  symmetry_tolerance, minimum_cluster_size, windowboxing_tolerance, minimum_deviation):
@@ -35,6 +41,7 @@ class CroppingCache:
         ))
         self.__data = None # {str(imdb_id): {filename: {"mtime": int, "params": str, "cropping": [t, b, l, r]}}}
         self.__dirty = False # avoids rewriting the file on a run that never actually changed anything
+        self.__touched = set() # {(imdb_id, filename)} confirmed hit (lookup) or written (store) this run
 
     def __load(self):
         if self.__data is not None:
@@ -48,37 +55,43 @@ class CroppingCache:
     def lookup(self, imdb_id, filename, mtime):
         """Returns the cached [(top, bottom, left, right)] cropping result for this exact
         (imdb_id, filename, mtime, current detection parameters), or None if there's no entry or any
-        of those four don't match."""
+        of those four don't match. A hit marks (imdb_id, filename) as touched this run -- see
+        pruneUnused."""
         self.__load()
         entry = self.__data.get(str(imdb_id), {}).get(filename)
         if entry is None or entry["mtime"] != mtime or entry["params"] != self.__parametersFingerprint:
             return None
+        self.__touched.add((imdb_id, filename))
         return [tuple(entry["cropping"])]
 
     def store(self, imdb_id, filename, mtime, cropping):
         """Records a freshly auto-detected cropping result (cropping: a [(top, bottom, left, right)]
         single-element list, same shape ScrapeCropping.detectCropping sets on mediaVersion.cropping)
-        under the current detection parameters. Written immediately as each version succeeds, not
-        deferred until its whole title finishes -- so one sibling version failing later doesn't
-        discard an already-valid result for this one."""
+        under the current detection parameters, and marks (imdb_id, filename) as touched this run --
+        see pruneUnused. Written immediately as each version succeeds, not deferred until its whole
+        title finishes -- so one sibling version failing later doesn't discard an already-valid
+        result for this one."""
         self.__load()
         self.__data.setdefault(str(imdb_id), {})[filename] = {
             "mtime": mtime,
             "params": self.__parametersFingerprint,
             "cropping": list(cropping[0]),
         }
+        self.__touched.add((imdb_id, filename))
         self.__dirty = True
 
-    def pruneUnused(self, imdb_id, usedFilenames):
-        """Removes every cached entry for imdb_id whose filename isn't in usedFilenames (a rename or
-        a removed version leaving a stale entry behind). Only call this once imdb_id's mediaVersions
-        for this run are fully known -- i.e. never for a title excluded mid-run by a sibling
-        version's analysis failure, since usedFilenames wouldn't reflect its true current state."""
+    def pruneUnused(self, imdb_id):
+        """Removes every cached entry for imdb_id except ones lookup confirmed as a hit or store just
+        wrote during this run (see __touched) -- not "every filename still in the medium", since a
+        file now covered by a cropping.txt override never calls either one and must still have its
+        stale entry (if any) removed. Only call this once imdb_id's mediaVersions for this run are
+        fully known -- i.e. never for a title excluded mid-run by a sibling version's analysis
+        failure, since __touched wouldn't reflect its true current state yet."""
         self.__load()
         key = str(imdb_id)
         if key not in self.__data:
             return
-        filtered = {filename: entry for filename, entry in self.__data[key].items() if filename in usedFilenames}
+        filtered = {filename: entry for filename, entry in self.__data[key].items() if (imdb_id, filename) in self.__touched}
         if filtered == self.__data[key]:
             return # nothing actually pruned -- no need to mark dirty
         if filtered:
