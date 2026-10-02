@@ -196,12 +196,14 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # skip creating a stub for it -- if that series then legitimately gets removed while a brand-new
     # referenced episode (discovered elsewhere this same run) still points at it, the write in step
     # 13 would hit a foreign-key violation over a series row that no longer exists.
-    # Media whose file(s) changed (newer mtime than stored, see config.ini's [media_update]) are
-    # removed here too, for the exact same reason -- they're then simply rediscovered as newly-added
-    # by step 4 below and re-added from scratch like any other title, no special-casing needed past
-    # this point.
+    # Media whose file(s) changed are removed here too, for the exact same reason -- they're then
+    # simply rediscovered as newly-added by step 4 below and re-added from scratch like any other
+    # title, no special-casing needed past this point. A changed filename set (renamed/added/removed
+    # version) is always checked; config.ini's [media_update] auto_update_media only additionally
+    # gates the mtime-bump heuristic (see DBControl.determineMediaNeedingUpdate for why that part is
+    # opt-in and the filename-set part isn't).
     removedDict = db.determineLocallyRemovedMedia(mediaDictOriginal)
-    updatedDict = db.determineMediaNeedingUpdate(mediaDictOriginal) if config.MEDIA_AUTO_UPDATE_ENABLED else {}
+    updatedDict = db.determineMediaNeedingUpdate(mediaDictOriginal, config.MEDIA_AUTO_UPDATE_ENABLED)
     if removedDict or updatedDict:
         printStep(3, "removing " + str(len(removedDict)) + " title(s) no longer locally owned, " +
                   str(len(updatedDict)) + " needing an update")

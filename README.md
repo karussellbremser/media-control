@@ -68,7 +68,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 - `auto_refresh` — whether an update (automatic or manual `-u`) is immediately followed by a full `-r`-equivalent refresh of all known media
 
 **`[media_update]`**
-- `auto_update_media` — opt-in detection of locally-owned files that changed (newer mtime than what's stored), automatically re-scraping them from scratch on `-s`
+- `auto_update_media` — `-s` always detects and re-scrapes a locally-owned medium whose set of version files changed (a rename, an added version, or one version removed while another survives); this setting additionally opts into detecting an unchanged filename whose content was replaced in place (via a newer mtime than what's stored), which is a heuristic rather than a guarantee
 
 **`[cropping]`** — tuning for the black-bar/aspect-ratio auto-detection
 - `burst_frame_count`, `runtime_percentages` — how the video is sampled

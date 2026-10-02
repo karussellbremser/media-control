@@ -1413,14 +1413,25 @@ class DBControl:
                     removedDict[removedMedium.imdb_id] = removedMedium
         return removedDict
 
-    def determineMediaNeedingUpdate(self, mediaDict):
-        """Compares mediaDict's freshly-scanned mediaVersions' mtimes against what's currently
-        stored -- any medium with at least one mediaVersion whose local file has a newer mtime than
-        what's on record is returned, so the caller can remove and re-add it (see config.ini's
-        [media_update]). A brand-new file (no stored mtime yet at all) doesn't count -- that's an
-        ordinary newly-added title, not an update. A Kaleidescape-only version (mtime always None,
-        nothing to stat) never triggers this either. Unconditional -- the config.MEDIA_AUTO_UPDATE_
-        ENABLED gate belongs at the call site (main.py), not in here.
+    def determineMediaNeedingUpdate(self, mediaDict, checkMtimeHeuristic):
+        """Compares mediaDict's freshly-scanned mediaVersions against what's currently stored -- any
+        medium whose set of version filenames no longer matches what's on record (a file renamed, a
+        version added, a version removed while another survives -- anything that changes WHICH files
+        exist, not just their content) is returned, so the caller can remove and re-add it (see
+        config.ini's [media_update]). This part is unconditional, regardless of checkMtimeHeuristic --
+        a renamed/added/removed file is a plain fact about what's on disk, not a guess, so there's no
+        reason to make it opt-in.
+
+        If checkMtimeHeuristic is also true, a medium whose files match the same set but has at
+        least one mediaVersion with a newer mtime than what's on record is included too (the
+        original, narrower case this started as: an unchanged filename whose content was replaced in
+        place, e.g. a remux/remaster overwriting the same path). This part IS opt-in (see
+        config.MEDIA_AUTO_UPDATE_ENABLED, gated at the main.py call site) -- unlike a changed
+        filename set, an mtime bump is a heuristic, not a guarantee: a copy/restore could bump it
+        without real content changing.
+
+        A medium with no existing media_versions rows at all doesn't count either way -- that's an
+        ordinary newly-added title, not an update.
 
         Also includes a series itself once every one of its currently-known episodes ends up in the
         result: episodes are the only things ever flagged directly (a series has no mediaVersions of
@@ -1434,15 +1445,33 @@ class DBControl:
         _pruneIfOrphanedNoCommit as it goes, so the series converges to fully removed by the end of
         the batch regardless of whether it's processed before or after its episodes."""
         with self.conn:
-            self.c.execute("SELECT imdb_id, filename, mtime FROM media_versions WHERE mtime IS NOT NULL")
-            storedMtimes = {(imdb_id, filename): mtime for imdb_id, filename, mtime in self.c.fetchall()}
+            self.c.execute("SELECT imdb_id, filename, mtime FROM media_versions")
+            storedVersionsByID = {}
+            for imdb_id, filename, mtime in self.c.fetchall():
+                storedVersionsByID.setdefault(imdb_id, {})[filename] = mtime
 
         updatedDict = {}
         for medium in mediaDict.values():
+            storedVersions = storedVersionsByID.get(medium.imdb_id)
+            if storedVersions is None:
+                continue # no existing media_versions rows at all -- newly-added, not an update
+
+            freshFilenames = {mediaVersion.filename for mediaVersion in medium.mediaVersions}
+            if freshFilenames != set(storedVersions):
+                # the set of files itself changed -- a rename, an added version, or a removed one
+                # (while at least one other survives; losing every version entirely instead means
+                # this medium wasn't found by the local scan at all, so it's not in mediaDict to
+                # begin with -- that's determineLocallyRemovedMedia's case, not this one)
+                updatedDict[medium.imdb_id] = medium
+                continue
+
+            if not checkMtimeHeuristic:
+                continue
+
             for mediaVersion in medium.mediaVersions:
                 if mediaVersion.mtime is None:
                     continue
-                storedMtime = storedMtimes.get((medium.imdb_id, mediaVersion.filename))
+                storedMtime = storedVersions[mediaVersion.filename]
                 if storedMtime is not None and mediaVersion.mtime > storedMtime:
                     updatedDict[medium.imdb_id] = medium
                     break
