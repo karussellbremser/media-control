@@ -73,6 +73,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 **`[cropping]`** — tuning for the black-bar/aspect-ratio auto-detection
 - `burst_frame_count`, `runtime_percentages` — how the video is sampled
 - `cluster_tolerance`, `symmetry_tolerance`, `minimum_cluster_size`, `windowboxing_tolerance`, `minimum_deviation` — thresholds controlling when a detected result is trusted versus left for manual review via a `cropping.txt` override
+- `cropping_cache_enabled`, `cropping_cache_path` — a JSON cache (outside the main database) of auto-detected results keyed on imdb_id/filename/mtime/these detection parameters, so an unchanged file's expensive ffmpeg analysis isn't repeated just because a sibling version of the same title changed
 
 **`[output]`**
 - `verbosity` — 0 (warnings/status only), 1 (+ everything else), or 2 (+ individual "new person added" lines)

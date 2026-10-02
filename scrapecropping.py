@@ -15,10 +15,16 @@ class ScrapeCropping:
     titles that are both newly added this sync run and survived the scrape budget -- see main.py's
     syncLocal, same scope as ScrapeMediaInfo. Always run immediately after
     ScrapeMediaInfo.analyzeMediaVersion for the same file, so mediaVersion.duration/width/height are
-    already known here -- no separate ffmpeg probe needed for them."""
+    already known here -- no separate ffmpeg probe needed for them.
+
+    Auto-detection is CPU-expensive and the title-level remove-and-re-add scope above means even an
+    untouched sibling version gets re-detected whenever any one of its title's other versions
+    changes -- see CroppingCache, optionally injected via the cache constructor argument, for how
+    that waste is avoided."""
 
     def __init__(self, ffmpeg_path, burst_frame_count, runtime_percentages, cluster_tolerance,
-                 symmetry_tolerance, minimum_cluster_size, windowboxing_tolerance, minimum_deviation):
+                 symmetry_tolerance, minimum_cluster_size, windowboxing_tolerance, minimum_deviation,
+                 cache=None):
         self.ffmpeg_path = ffmpeg_path
         self.burst_frame_count = burst_frame_count
         self.runtime_percentages = runtime_percentages
@@ -27,11 +33,15 @@ class ScrapeCropping:
         self.minimum_cluster_size = minimum_cluster_size
         self.windowboxing_tolerance = windowboxing_tolerance
         self.minimum_deviation = minimum_deviation
+        self.cache = cache # CroppingCache, or None when config.ini's cropping_cache_enabled is off
 
-    def detectCropping(self, mediaDir, subdir, mediaVersion):
+    def detectCropping(self, mediaDir, subdir, mediaVersion, imdb_id):
         """Sets mediaVersion.cropping to a list of (top, bottom, left, right) tuples -- normally
         just one, more than one only when a cropping.txt override supplies several (genuinely
-        variable aspect ratio content, e.g. IMAX-expansion scenes)."""
+        variable aspect ratio content, e.g. IMAX-expansion scenes). An override always takes priority
+        and is never cached -- re-read fresh every time, since it's cheap and user-authoritative (and
+        caching it against mtime/parameters that have nothing to do with the override file's own
+        content would risk serving a stale result after the user edits cropping.txt)."""
         overridePath = os.path.join(mediaDir, subdir, "cropping.txt")
         if os.path.isfile(overridePath):
             overrides = self.__parseOverrideFile(overridePath)
@@ -40,6 +50,13 @@ class ScrapeCropping:
                 return
             if "OTHER" in overrides:
                 mediaVersion.cropping = overrides["OTHER"]
+                return
+
+        if self.cache is not None:
+            cached = self.cache.lookup(imdb_id, mediaVersion.filename, mediaVersion.mtime)
+            if cached is not None:
+                mediaVersion.cropping = cached
+                printVerbose("Cropping cache hit for " + os.path.join(mediaDir, subdir, mediaVersion.filename))
                 return
 
         filepath = os.path.join(mediaDir, subdir, mediaVersion.filename)
@@ -61,6 +78,8 @@ class ScrapeCropping:
         result = self.__deriveCropping(readings, filepath)
         printVerbose("  -> accepted: " + self.__formatReading(result, width, height))
         mediaVersion.cropping = [result]
+        if self.cache is not None:
+            self.cache.store(imdb_id, mediaVersion.filename, mediaVersion.mtime, mediaVersion.cropping)
 
     def __runBurst(self, filepath, seekSeconds, width, height):
         """Runs one cropdetect burst seeked to seekSeconds and returns (top, bottom, left, right),

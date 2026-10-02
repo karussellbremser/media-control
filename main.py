@@ -7,6 +7,7 @@ from scrapeimdboffline import ScrapeIMDbOffline
 from scrapeimdbonline import ScrapeIMDbOnline
 from scrapemediainfo import ScrapeMediaInfo
 from scrapecropping import ScrapeCropping
+from croppingcache import CroppingCache
 from statistics import Statistics
 from exceptions import LocalLibraryError, OfflineDatasetError, MediaInfoError, FFmpegError, CroppingError
 from verbosity import printAlways, printDetail, printPerson, printVerbose
@@ -292,10 +293,18 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     if mediaWithVersions:
         printStep(6, "analyzing local media files with MediaInfo and detecting cropping")
     scrapeMediaInfo = ScrapeMediaInfo(config.MEDIAINFO_PATH, isoLanguageLookup)
+    # see CroppingCache: persists auto-detected cropping results across runs (outside myMovieDB.db),
+    # since every version of a title gets re-detected here whenever any one of its sibling versions
+    # changes -- without this an unchanged file would pay for ffmpeg's cropdetect analysis again for
+    # no reason. config.CROPPING_CACHE_ENABLED is the only thing deciding whether this exists at all.
+    croppingCache = CroppingCache(config.CROPPING_CACHE_PATH, config.CROPPING_BURST_FRAME_COUNT, config.CROPPING_RUNTIME_PERCENTAGES,
+                                   config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
+                                   config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE,
+                                   config.CROPPING_MINIMUM_DEVIATION) if config.CROPPING_CACHE_ENABLED else None
     scrapeCropping = ScrapeCropping(config.FFMPEG_PATH, config.CROPPING_BURST_FRAME_COUNT, config.CROPPING_RUNTIME_PERCENTAGES,
                                      config.CROPPING_CLUSTER_TOLERANCE, config.CROPPING_SYMMETRY_TOLERANCE,
                                      config.CROPPING_MINIMUM_CLUSTER_SIZE, config.CROPPING_WINDOWBOXING_TOLERANCE,
-                                     config.CROPPING_MINIMUM_DEVIATION)
+                                     config.CROPPING_MINIMUM_DEVIATION, cache=croppingCache)
     excludedIDs = []
     for i, currentMedia in enumerate(mediaWithVersions, 1):
         printProgress(i, len(mediaWithVersions), currentMedia)
@@ -310,16 +319,23 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
                     mediaVersion.cropping = [(0, 0, 0, 0)]
                     continue
                 scrapeMediaInfo.analyzeMediaVersion(mediaDir, currentMedia.subdir, mediaVersion)
-                scrapeCropping.detectCropping(mediaDir, currentMedia.subdir, mediaVersion)
+                scrapeCropping.detectCropping(mediaDir, currentMedia.subdir, mediaVersion, currentMedia.imdb_id)
             except (LocalLibraryError, MediaInfoError, FFmpegError, CroppingError) as e:
                 printAlways("WARNING: skipping " + str(currentMedia.original_title) + " (" + currentMedia.getIDString() +
                             ") this run -- MediaInfo/cropping analysis failed: " + str(e))
                 excluded = True
                 break
+        # pruning needs this title's CURRENT full version set, which excluded's early break above
+        # means we don't reliably have -- skip it rather than risk pruning an entry that's actually
+        # still valid (it'll simply be reconsidered next run, same as the rest of an excluded title)
         if excluded:
             excludedIDs.append(currentMedia.imdb_id)
+        elif croppingCache is not None:
+            croppingCache.pruneUnused(currentMedia.imdb_id, {mv.filename for mv in currentMedia.mediaVersions})
     for imdb_id in excludedIDs:
         del newlyAddedMediaDict[imdb_id]
+    if croppingCache is not None:
+        croppingCache.save()
 
     affectedSeriesIDs = {m.series_imdb_id for m in mediaWithVersions if m.imdb_id in excludedIDs and m.series_imdb_id is not None}
     for series_id in affectedSeriesIDs:
