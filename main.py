@@ -796,7 +796,11 @@ def refreshTitleData():
         if newEpisodeStubs:
             offline.parseTitleFields(newEpisodeStubs)
             for episode_imdb_id, stub in newEpisodeStubs.items():
-                printDetail("New episode discovered: " + str(stub.original_title) + " (" + stub.getIDString() + ") of " + str(mediaDict[stub.series_imdb_id].original_title if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
+                # by position, never by the episode's own title (see step 14's equivalent label) -- an
+                # unnumbered episode has no position, so its id stands in
+                episodeLabel = ("S" + str(stub.season_number).zfill(2) + "E" + str(stub.episode_number).zfill(2)
+                                if stub.season_number is not None else stub.getIDString())
+                printDetail("New episode discovered: " + episodeLabel + " of " + str(mediaDict[stub.series_imdb_id].original_title if stub.series_imdb_id in mediaDict else stub.series_imdb_id))
             db.addMultipleMedia(newEpisodeStubs)
             mediaDict.update(newEpisodeStubs)
 

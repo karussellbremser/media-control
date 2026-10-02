@@ -873,7 +873,18 @@ class DBControl:
             if len(self.c.fetchall()) != 0:
                 raise OfflineDatasetError("episode " + episodeMedium.getIDString() + " (" + str(episodeMedium.original_title) +
                                            ") is no longer listed in title.episode.tsv, but is still referenced by other media")
-            printDetail("Removing episode " + str(episodeMedium.original_title) + " from DB (no longer listed in title.episode.tsv)")
+            # labelled by position and series, never by the episode's own title -- a referenced-only
+            # stub's title is often just the generic "Episode S01E07"-style placeholder (see
+            # ScrapeIMDbOffline.__applyTitles), which says nothing about which series it belonged to
+            seriesTitle = None
+            if episodeMedium.series_imdb_id is not None:
+                self.c.execute("SELECT original_title FROM media WHERE imdb_id=?", (episodeMedium.series_imdb_id,))
+                seriesRow = self.c.fetchone()
+                seriesTitle = seriesRow[0] if seriesRow is not None else "tt" + str(episodeMedium.series_imdb_id).zfill(7)
+            episodeLabel = ("S" + str(episodeMedium.season_number).zfill(2) + "E" + str(episodeMedium.episode_number).zfill(2)
+                            if episodeMedium.season_number is not None else episodeMedium.getIDString())
+            printDetail("Removing episode " + episodeLabel + (" of " + str(seriesTitle) if seriesTitle is not None else "") +
+                        " from DB (no longer listed in title.episode.tsv)")
             self.c.execute("DELETE FROM media WHERE imdb_id=?", (episodeMedium.imdb_id,)) # media_connections rows removed via ON DELETE CASCADE
             if episodeMedium.series_imdb_id is not None:
                 self._pruneIfOrphanedNoCommit(episodeMedium.series_imdb_id)
