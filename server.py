@@ -44,6 +44,7 @@ def queryMedia(search_query, sort_by, order,
                 rating_from, rating_to,
                 votes_from, votes_to,
                 selected_interest_ids,
+                excluded_interest_ids,
                 selected_language_code,
                 show_movies, show_series,
                 limit, offset, random_seed=0):
@@ -167,6 +168,14 @@ def queryMedia(search_query, sort_by, order,
         sql += f" AND mi_filter.imdb_interest_id IN ({placeholders})"
         params.extend(selected_interest_ids)
 
+    # NOT filter -- a title with ANY of the excluded genres/subgenres is dropped (a title with no
+    # interests at all passes). A separate EXISTS rather than part of the join above: that join
+    # only ever sees the selected interests' rows, which is exactly what's wrong for "has none of these"
+    if excluded_interest_ids:
+        placeholders = ",".join("?" for _ in excluded_interest_ids)
+        sql += f" AND NOT EXISTS (SELECT 1 FROM media_interests mi_excl WHERE mi_excl.imdb_id = m.imdb_id AND mi_excl.imdb_interest_id IN ({placeholders}))"
+        params.extend(excluded_interest_ids)
+
     sql += " GROUP BY m.imdb_id"
 
     if selected_interest_ids:
@@ -273,6 +282,7 @@ def index():
 def search():
     args = request.args
     selected_interest_ids = [int(x) for x in args.getlist('genres[]') + args.getlist('interests[]')]
+    excluded_interest_ids = [int(x) for x in args.getlist('notGenres[]') + args.getlist('notInterests[]')]
     selected_language_code = args.get('language') or None
     show_movies = args.get('movies', '1') == '1'
     show_series = args.get('series', '0') == '1'
@@ -301,6 +311,7 @@ def search():
             args.get('votes_from'),
             args.get('votes_to'),
             selected_interest_ids,
+            excluded_interest_ids,
             selected_language_code,
             show_movies,
             show_series,

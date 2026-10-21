@@ -547,6 +547,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		genreCheckboxes.forEach(cb => cb.checked = false);
 		interestCheckboxes.forEach(cb => cb.checked = false);
+		document.querySelectorAll('label.excluded').forEach(label => label.classList.remove('excluded'));
 		interestSearchInput.value = '';
 		filterInterests();
 
@@ -602,6 +603,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		interestCheckboxes.forEach(cb => {
 			if (cb.checked) {
 				params.append('interests[]', cb.value);
+			}
+		});
+
+		// excluded (NOT) options -- see the long-press/right-click setup near the checkbox listeners
+		genreCheckboxes.forEach(cb => {
+			if (cb.closest('label').classList.contains('excluded')) {
+				params.append('notGenres[]', cb.value);
+			}
+		});
+
+		interestCheckboxes.forEach(cb => {
+			if (cb.closest('label').classList.contains('excluded')) {
+				params.append('notInterests[]', cb.value);
 			}
 		});
 
@@ -807,6 +821,81 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	interestSearchInput.addEventListener('input', filterInterests);
+
+	// NOT filter for genres/subgenres: right-click (mouse) or long-press (touch) toggles an option
+	// into/out of "excluded" -- shown red, sent as notGenres[]/notInterests[], and mutually exclusive
+	// with being checked (included). Each button flips the other state directly: a left click takes an
+	// excluded option straight to included, and a right-click/long-press takes an included one
+	// straight to excluded (either also toggles its own state off again). Touch needs its own timer: iOS Safari never fires contextmenu on
+	// a long-press, and Android Chrome fires it AFTER the press, so the timer is the one source of
+	// truth for touch and contextmenu is only acted on for a mouse.
+	const LONG_PRESS_MS = 500;
+	const LONG_PRESS_MOVE_TOLERANCE = 10; // px of finger drift before it counts as a scroll, not a press
+	let suppressClickLabel = null; // the label whose long-press just fired: its releasing tap must not also toggle include
+
+	function toggleExcluded(cb) {
+		const label = cb.closest('label');
+		const nowExcluded = !label.classList.contains('excluded');
+		label.classList.toggle('excluded', nowExcluded);
+		if (nowExcluded) cb.checked = false;
+		resetAndSearch(input.value);
+	}
+
+	[...genreCheckboxes, ...interestCheckboxes].forEach(cb => {
+		const label = cb.closest('label');
+		let lastPointerType = 'mouse';
+		let pressTimer = null;
+		let pressStartX = 0;
+		let pressStartY = 0;
+
+		const cancelPress = () => {
+			clearTimeout(pressTimer);
+			pressTimer = null;
+		};
+
+		label.addEventListener('pointerdown', e => {
+			lastPointerType = e.pointerType;
+			if (e.pointerType !== 'touch') return;
+			pressStartX = e.clientX;
+			pressStartY = e.clientY;
+			cancelPress();
+			pressTimer = setTimeout(() => {
+				pressTimer = null;
+				suppressClickLabel = label;
+				setTimeout(() => { if (suppressClickLabel === label) suppressClickLabel = null; }, 1000);
+				toggleExcluded(cb);
+			}, LONG_PRESS_MS);
+		});
+
+		label.addEventListener('pointermove', e => {
+			if (pressTimer !== null && Math.hypot(e.clientX - pressStartX, e.clientY - pressStartY) > LONG_PRESS_MOVE_TOLERANCE) {
+				cancelPress();
+			}
+		});
+
+		['pointerup', 'pointercancel', 'pointerleave'].forEach(type => label.addEventListener(type, cancelPress));
+
+		label.addEventListener('contextmenu', e => {
+			e.preventDefault();
+			if (lastPointerType === 'touch') return; // the long-press timer above already handled it
+			toggleExcluded(cb);
+		});
+
+		// capture phase, so a click aimed straight at the checkbox itself is caught too
+		label.addEventListener('click', e => {
+			if (suppressClickLabel === label) {
+				// preventing the click stops the label/checkbox from toggling, so no change event follows
+				e.preventDefault();
+				e.stopPropagation();
+				suppressClickLabel = null;
+			} else if (label.classList.contains('excluded')) {
+				// excluded -> included in one click, the mirror of right-clicking an included option:
+				// dropping the class is all that's needed, since the click itself then checks the
+				// (unchecked) box and its change listener runs the search
+				label.classList.remove('excluded');
+			}
+		}, true);
+	});
 
 	// Infinite scroll: the next chunk is fetched while the user is still PREFETCH_SCREENS screen heights
 	// away from the end of the list, so it's already in place by the time they get there. (It used to

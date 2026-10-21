@@ -190,6 +190,34 @@
 			display: none;
 		}
 
+		/* genre/subgenre options can be excluded (NOT) via right-click or long-press -- see
+		   static/search.js. No text selection or iOS press-callout, which would otherwise pop up
+		   mid long-press and swallow it */
+		.excludable {
+			-webkit-user-select: none;
+			user-select: none;
+			-webkit-touch-callout: none;
+			border-radius: 3px;
+		}
+
+		.excludable.excluded {
+			background: #fde4e4;
+			color: #b71c1c;
+			font-weight: 600;
+		}
+
+		/* the unchecked box is redrawn as a red-bordered box holding a red X (an inline SVG background,
+		   so it looks the same in every browser, unlike a native checkbox's pseudo-elements) */
+		label.excludable.excluded input[type="checkbox"] {
+			-webkit-appearance: none;
+			appearance: none;
+			width: 13px;
+			height: 13px;
+			border: 1px solid #c62828;
+			border-radius: 2px;
+			background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 2L8 8M8 2L2 8' stroke='%23c62828' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+		}
+
 		#resetButton {
 			margin-top: 10px;
 			background-color: #ddd;
@@ -872,7 +900,7 @@
 		<h3>Genres</h3>
 		<div class="genre-list">
 		{% for genre_id, genre_name, genre_description in genres %}
-			<label title="{{ genre_description }}">
+			<label class="excludable" title="{{ genre_description }}">
 				<input type="checkbox" class="genreCheckbox" value="{{ genre_id }}">
 				<span>{{ genre_name }}</span>
 			</label>
@@ -887,7 +915,7 @@
 				<div class="interest-group-header">{{ genre_name }}</div>
 				<div class="interest-list">
 				{% for interest_id, interest_name, interest_description in subinterests %}
-					<label class="interestLabel" data-search="{{ interest_name|lower }}" title="{{ interest_description }}">
+					<label class="interestLabel excludable" data-search="{{ interest_name|lower }}" title="{{ interest_description }}">
 						<input type="checkbox" class="interestCheckbox" value="{{ interest_id }}">
 						<span>{{ interest_name }}</span>
 					</label>
