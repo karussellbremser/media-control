@@ -812,6 +812,19 @@ class DBControl:
             # the series as still-referenced if any episode remains afterward
             seriesHasNeededEpisodes = not self.__removeUnneededSeriesEpisodes(mediumToRemove.imdb_id)
 
+            # an episode of a series that's still locally owned stays behind as a referenced-only
+            # stub even if nothing references it -- an owned series' DB catalog is meant to list
+            # every episode IMDb knows (see main.py step 14), and only the next sync that touches
+            # the series or the next --refresh would otherwise bring this one back. Checked against
+            # the parent's CURRENT state, so if the series itself was already removed earlier in the
+            # same batch this is false and the episode goes away entirely; and if the series is
+            # removed afterwards instead, __removeUnneededSeriesEpisodes deletes the leftover stub
+            parentSeriesStillOwned = False
+            if mediumToRemove.series_imdb_id is not None:
+                self.c.execute("SELECT subdir FROM media WHERE imdb_id=?", (mediumToRemove.series_imdb_id,))
+                parentRow = self.c.fetchone()
+                parentSeriesStillOwned = parentRow is not None and parentRow[0] is not None
+
             # capture mediumToRemove's current interests and credited people before they're removed,
             # so anything left with no remaining attachments afterward can be pruned -- languages/
             # countries aren't captured here anymore: iso_language_enum/iso_country_enum are fixed
@@ -821,7 +834,8 @@ class DBControl:
             self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (mediumToRemove.imdb_id,))
             affectedPersonIDs = [row[0] for row in self.c.fetchall()]
 
-            #2a. if yes: only "light-remove" mediumToRemove (remove subdir, media_versions,
+            #2a. if yes (referenced, has needed episodes, or is an episode of a still-owned series --
+            # see parentSeriesStillOwned above): only "light-remove" mediumToRemove (remove subdir, media_versions,
             # connections FROM it, interests, languages, countries, credits, intended episode order,
             # manually-entered release day/month, and plot summary -- every one of these either only
             # ever gets populated by local-file/online scraping of a locally-owned title (subdir/
@@ -833,8 +847,11 @@ class DBControl:
             # of ownership -- those are deliberately left untouched here. The media row itself
             # survives here, so none of this happens via cascade -- unlike #2b below, every removal
             # has to be explicit.
-            if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
-                printDetail("Removing " + mediumToRemove.original_title + " from DB as local medium (still being referenced)")
+            if len(remainingConnections) != 0 or seriesHasNeededEpisodes or parentSeriesStillOwned:
+                if len(remainingConnections) != 0 or seriesHasNeededEpisodes:
+                    printDetail("Removing " + mediumToRemove.original_title + " from DB as local medium (still being referenced)")
+                else:
+                    printDetail("Removing " + mediumToRemove.original_title + " from DB as local medium (kept as a stub of its still-owned series)")
                 self.c.execute("UPDATE media SET subdir = NULL, intended_order = NULL, release_month = NULL, release_day = NULL, plot_summary = NULL WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_versions WHERE imdb_id=?", (mediumToRemove.imdb_id,))
                 self.c.execute("DELETE FROM media_connections WHERE imdb_id=?", (mediumToRemove.imdb_id,))
