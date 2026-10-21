@@ -362,7 +362,7 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
     # interest still recognizes it as already known. isoLanguageLookup/isoCountryLookup (fetched up
     # front, see above) need none of this -- both are fixed reference data, not grown as new ones
     # are discovered.
-    newInterestRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, isoLanguageLookup, isoCountryLookup, knownIgnoredIDs)
+    newInterestRegistrations, newIgnoredRegistrations = scrapeimdbonline.scrapeMainPages(moviesAndSeriesDict, knownInterestIDs, isoLanguageLookup, isoCountryLookup, knownIgnoredIDs, db.getAllKnownGenres())
 
     # 8. parse media connections
     newlyAddedMediaDict = scrapeimdbonline.parseMediaConnections(newlyAddedMediaDict)
