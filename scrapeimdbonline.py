@@ -260,15 +260,15 @@ class ScrapeIMDbOnline:
             if count == self.maxCount:
                 return
 
-    def scrapeMainPages(self, mediaDict, knownInterestIDs, isoLanguageLookup, isoCountryLookup, knownIgnoredIDs, knownGenres):
+    def scrapeMainPages(self, mediaDict, knownInterestIDs, isoLanguageLookup, isoCountryLookup, knownIgnoredIDs):
         """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
         more /interest/<id>/ pages while classifying newly-discovered chips) and:
         - always scrapes its interests (standard genres and subgenres alike), its languages and
           countries of origin (from the page's Details section, in IMDb's order -- the first
           language is the primary language) and its plot summary. The interest chip row on the page
           holds at most 10 chips, subgenres first and genres last, so a title with many subgenres
-          loses some or all of its genre chips there; its complete genre list is therefore also read
-          from the page's embedded data and merged in (see __scrapePageGenres/__pageGenreChips)
+          loses its last subgenres and some or all of its genres there; the complete list is
+          therefore read from the page's embedded data instead (see __scrapeAllInterests)
         - downloads its cover if the file doesn't already exist, but ONLY if it's not a series and
           its primary language exists and is English (covers for series, for titles with any other
           primary language and for titles with no language listed at all are always added manually,
@@ -281,10 +281,7 @@ class ScrapeIMDbOnline:
         fixed, complete reference tables, so they're read-only here, never mutated (see
         __resolveLanguageCodes/__resolveCountryCodes). knownIgnoredIDs is a set of already-seen
         franchise- or language-type interest ids (ignored entirely, see __classifyChips), also
-        mutated in place. knownGenres is {imdb_interest_id: name} for every already-known top-level
-        interest (see DBControl.getAllKnownGenres), used to match the page's genre names to ids
-        without any extra page visit; a genre not in it is looked up in IMDb's interest directory
-        and registered like any other newly-discovered chip. Returns (newInterestRegistrations, newIgnoredRegistrations):
+        mutated in place. Returns (newInterestRegistrations, newIgnoredRegistrations):
         newInterestRegistrations is a list of (imdb_interest_id, name, description,
         parent_imdb_interest_id) tuples in dependency order (a subgenre's parent always appears
         before the subgenre itself); newIgnoredRegistrations is a list of (imdb_interest_id, name,
@@ -297,7 +294,6 @@ class ScrapeIMDbOnline:
 
         newInterestRegistrations = []
         newIgnoredRegistrations = []
-        genreIDsByName = {self.__normalizeInterestName(name): genre_id for genre_id, name in knownGenres.items()}
         first = True
 
         for i, currentMedia in enumerate(mediaDict.values(), 1):
@@ -312,15 +308,13 @@ class ScrapeIMDbOnline:
 
             # everything read straight off the loaded page comes first, before classifying chips
             # below possibly navigates away to separate /interest/... pages
-            chips = self.__scrapeInterestChips()
-            pageGenreNames = self.__scrapePageGenres(currentMedia.getIDString())
+            interests = self.__scrapeAllInterests(currentMedia.getIDString())
             currentMedia.plot_summary = self.__scrapePlotSummary()
             languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
             currentMedia.languages = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             currentMedia.countries = self.__resolveCountryCodes(countries, isoCountryLookup)
 
-            attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyPageInterests(
-                chips, pageGenreNames, knownInterestIDs, knownIgnoredIDs, genreIDsByName, currentMedia.getIDString())
+            attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(interests, knownInterestIDs, knownIgnoredIDs)
             currentMedia.interests = attachedInterestIDs
             newInterestRegistrations.extend(newInterestRegs)
             newIgnoredRegistrations.extend(newIgnoredRegs)
@@ -345,11 +339,10 @@ class ScrapeIMDbOnline:
 
         return newInterestRegistrations, newIgnoredRegistrations
 
-    def scrapeInterestsLanguagesAndCountries(self, mediaDict, knownInterestIDs, knownIgnoredIDs, knownGenres, isoLanguageLookup, isoCountryLookup):
+    def scrapeInterestsLanguagesAndCountries(self, mediaDict, knownInterestIDs, knownIgnoredIDs, isoLanguageLookup, isoCountryLookup):
         """Re-reads everything scrapeMainPages stores except the cover -- interests, languages,
         countries of origin and the plot summary -- of every medium in mediaDict from its IMDb main
-        page, exactly as scrapeMainPages would for a title it had never seen (the chips merged with
-        the page's complete genre list, classified the same way), for refreshing titles scraped
+        page, exactly as scrapeMainPages would for a title it had never seen, for refreshing titles scraped
         earlier (see tools/rescrape_interests_countries.py). Arguments are as for scrapeMainPages
         (knownInterestIDs/knownIgnoredIDs are mutated in place; isoLanguageLookup/isoCountryLookup
         are DBControl.getIsoLanguageLookup()/getIsoCountryLookup()). Returns ({imdb_id: (interest
@@ -360,7 +353,6 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return {}, [], []
 
-        genreIDsByName = {self.__normalizeInterestName(name): genre_id for genre_id, name in knownGenres.items()}
         results = {}
         newInterestRegistrations = []
         newIgnoredRegistrations = []
@@ -377,15 +369,13 @@ class ScrapeIMDbOnline:
 
             # same order as scrapeMainPages: everything read straight off the loaded page before
             # classifying chips can navigate away from it
-            chips = self.__scrapeInterestChips()
-            pageGenreNames = self.__scrapePageGenres(currentMedia.getIDString())
+            interests = self.__scrapeAllInterests(currentMedia.getIDString())
             plotSummary = self.__scrapePlotSummary()
             languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
             languageCodes = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             countryCodes = self.__resolveCountryCodes(countries, isoCountryLookup)
 
-            attachedInterestIDs, newInterestRegs, newIgnoredRegs, _ = self.__classifyPageInterests(
-                chips, pageGenreNames, knownInterestIDs, knownIgnoredIDs, genreIDsByName, currentMedia.getIDString())
+            attachedInterestIDs, newInterestRegs, newIgnoredRegs, _ = self.__classifyChips(interests, knownInterestIDs, knownIgnoredIDs)
             results[currentMedia.imdb_id] = (attachedInterestIDs, languageCodes, countryCodes, plotSummary)
             newInterestRegistrations.extend(newInterestRegs)
             newIgnoredRegistrations.extend(newIgnoredRegs)
@@ -609,10 +599,10 @@ class ScrapeIMDbOnline:
     def __scrapeInterestChips(self):
         """Scrapes the interests chip list from the currently-loaded title main page.
         Returns a list of (imdb_interest_id, name) tuples. Raises on any unexpected structure,
-        rather than silently skipping or guessing. NOT necessarily the title's complete interests:
+        rather than silently skipping or guessing. NOT the title's complete interests:
         IMDb shows at most 10 chips here -- subgenres first, then genres, then cut off -- so a title
-        with many subgenres can be missing some or all of its genres (see __scrapePageGenres, which
-        scrapeMainPages merges in to make up for it)."""
+        with many subgenres can be missing some of them and some or all of its genres. Only used as a
+        cross-check by __scrapeAllInterests, which reads the complete list."""
 
         box_count = self.browser.execute_script('return document.querySelectorAll(\'[data-testid="interests"]\').length;')
         if box_count != 1:
@@ -646,37 +636,79 @@ class ScrapeIMDbOnline:
 
         return result
 
-    def __scrapePageGenres(self, expectedIDString):
-        """Scrapes the title's complete genre list (plain names, e.g. ["Drama", "Sci-Fi"]) from the
-        currently-loaded main page's embedded __NEXT_DATA__ -- unlike the interest chip row (see
-        __scrapeInterestChips), which IMDb caps at 10 chips with genres sorted last, so a title with
-        many subgenres can lose some or all of its genre chips there, this list is complete. Names
-        only, no interest ids (a genre's "id" in this data is just its name again) -- see
-        __pageGenreChips for resolving them. Also checks the embedded data really belongs to
-        expectedIDString (a merged/redirected title). A title with no genres yields an empty list.
-        Raises on any other unexpected structure, rather than silently skipping or guessing."""
+    def __scrapeAllInterests(self, expectedIDString):
+        """Scrapes the title's COMPLETE interest list -- genres, subgenres and any franchise/language
+        interests, as [(imdb_interest_id, name)] -- from the currently-loaded main page's embedded
+        __NEXT_DATA__ (mainColumnData.relatedInterests). The visible chip row (see
+        __scrapeInterestChips), and the aboveTheFoldData.interests list behind it, are capped at 10
+        entries -- subgenres first, then genres -- so a title with many subgenres loses its last
+        subgenres and some or all of its genres there; relatedInterests isn't capped (seen with 19
+        entries) and carries the interest ids directly.
+
+        Cross-checked rather than trusted blindly: every visible chip must be in the list (else the
+        data's structure isn't what this assumes -> raises), and every genre in aboveTheFoldData.genres
+        (the page's separate, names-only genre list) should be too -- one that isn't is warned about
+        and left out (e.g. "Adult", which IMDb has no interest for). Also checks the embedded data
+        really belongs to expectedIDString (a merged/redirected title). Raises on any other
+        unexpected structure, rather than silently skipping or guessing."""
+        chips = self.__scrapeInterestChips()
+
         result = self.browser.execute_script("""
             const el = document.getElementById('__NEXT_DATA__');
             if (!el) return {error: 'no __NEXT_DATA__ element on title page'};
             let data;
             try { data = JSON.parse(el.textContent); } catch (e) { return {error: '__NEXT_DATA__ is not valid JSON'}; }
-            const atf = data && data.props && data.props.pageProps && data.props.pageProps.aboveTheFoldData;
-            if (!atf || !('genres' in atf)) return {error: 'no genres key at props.pageProps.aboveTheFoldData in __NEXT_DATA__'};
-            if (atf.genres === null) return {pageId: atf.id, names: []};
-            if (!Array.isArray(atf.genres.genres)) return {error: 'unexpected structure for aboveTheFoldData.genres in __NEXT_DATA__'};
-            return {pageId: atf.id, names: atf.genres.genres.map(g => g && g.text)};
+            const pp = data && data.props && data.props.pageProps;
+            const atf = pp && pp.aboveTheFoldData;
+            const main = pp && pp.mainColumnData;
+            if (!atf || !main) return {error: 'no aboveTheFoldData/mainColumnData at props.pageProps in __NEXT_DATA__'};
+            if (!main.relatedInterests || !Array.isArray(main.relatedInterests.edges)) return {error: 'no relatedInterests.edges at props.pageProps.mainColumnData in __NEXT_DATA__'};
+            if (!('genres' in atf)) return {error: 'no genres key at props.pageProps.aboveTheFoldData in __NEXT_DATA__'};
+            if (atf.genres !== null && !Array.isArray(atf.genres.genres)) return {error: 'unexpected structure for aboveTheFoldData.genres in __NEXT_DATA__'};
+            return {
+                pageId: atf.id,
+                mainId: main.id,
+                interests: main.relatedInterests.edges.map(e => ({
+                    id: e && e.node && e.node.id,
+                    name: e && e.node && e.node.primaryText && e.node.primaryText.text
+                })),
+                genres: atf.genres === null ? [] : atf.genres.genres.map(g => g && g.text)
+            };
         """)
         if not isinstance(result, dict):
-            raise ScrapingError("reading the page's genre list returned no data")
+            raise ScrapingError("reading the page's interest list returned no data")
         if "error" in result:
             raise ScrapingError(result["error"])
-        if result.get("pageId") != expectedIDString:
-            raise ScrapingError("page's embedded data is for " + repr(result.get("pageId")) + ", not " + expectedIDString + " (redirected/merged title?)")
-        names = result["names"]
-        for name in names:
-            if not isinstance(name, str) or name.strip() == "":
-                raise ScrapingError("unexpected genre entry on " + expectedIDString + ": " + repr(name))
-        return [name.strip() for name in names]
+        if result.get("pageId") != expectedIDString or result.get("mainId") != expectedIDString:
+            raise ScrapingError("page's embedded data is for " + repr(result.get("pageId")) + "/" + repr(result.get("mainId")) +
+                                ", not " + expectedIDString + " (redirected/merged title?)")
+
+        interests = []
+        seenIDs = set()
+        for entry in result["interests"]:
+            match = re.search(r"^(in\d+)$", entry.get("id") or "")
+            name = entry.get("name")
+            if not match or not isinstance(name, str) or name.strip() == "":
+                raise ScrapingError("unexpected interest entry on " + expectedIDString + ": " + repr(entry))
+            interest_id = parseInterestID(match.group(1))
+            if interest_id in seenIDs:
+                raise ScrapingError("duplicate interest in the page's interest list on " + expectedIDString + ": " + str(interest_id))
+            seenIDs.add(interest_id)
+            interests.append((interest_id, name.strip()))
+
+        for chip_id, chip_name in chips:
+            if chip_id not in seenIDs:
+                raise ScrapingError("interest chip '" + chip_name + "' (" + str(chip_id) + ") on " + expectedIDString +
+                                    " is missing from the page's complete interest list")
+
+        listedNames = {self.__normalizeInterestName(name) for _, name in interests}
+        for genreName in result["genres"]:
+            if not isinstance(genreName, str) or genreName.strip() == "":
+                raise ScrapingError("unexpected genre entry on " + expectedIDString + ": " + repr(genreName))
+            if self.__normalizeInterestName(genreName) not in listedNames:
+                printAlways("WARNING: " + expectedIDString + " lists genre '" + genreName.strip() + "', which has no matching interest in its interest list -- not attached")
+
+        return interests
 
     def __scrapePlotSummary(self):
         """Scrapes the plot summary from the currently-loaded title main page. The page's visible
@@ -1003,74 +1035,9 @@ class ScrapeIMDbOnline:
 
     @staticmethod
     def __normalizeInterestName(name):
-        """Case- and punctuation-insensitive key for matching a genre name from the page's embedded
-        genre list ("Reality-TV", "Film-Noir") to the same genre's interest name elsewhere ("Reality
-        TV", "Film Noir")."""
+        """Case- and punctuation-insensitive key for matching a genre name from the page's names-only
+        genre list ("Reality-TV", "Film-Noir") to the same genre's interest name ("Reality TV", "Film Noir")."""
         return re.sub(r"[^a-z0-9]", "", name.lower())
-
-    def __pageGenreChips(self, pageGenreNames, existingChipIDs, genreIDsByName, imdbIDString):
-        """Turns the page's genre names (see __scrapePageGenres) into (imdb_interest_id, name) chips
-        for __classifyChips, skipping any whose id is already in existingChipIDs (the title's real
-        chips already cover it). A name is matched against genreIDsByName first (the already-known
-        top-level interests, no extra page visit), then against IMDb's full interest directory --
-        which also catches a genre never seen before, to be classified and registered like any other
-        newly-discovered chip. A name matching no interest (e.g. "Adult", which IMDb has no interest
-        for) or more than one is warned about and left out, rather than guessed at or aborting the
-        whole run over what is only a supplement to the chips. Returns (chips, visitedDirectory) --
-        visitedDirectory is True if looking a name up navigated the browser to the directory page."""
-        chips = []
-        seenIDs = set(existingChipIDs)
-        visitedDirectory = False
-
-        for name in pageGenreNames:
-            key = self.__normalizeInterestName(name)
-            if key in genreIDsByName:
-                genre_id, displayName = genreIDsByName[key], name
-            else:
-                if self.__interestNameMap is None:
-                    visitedDirectory = True
-                candidates = {}
-                for text, ids in self.__getGlobalInterestNameMap().items():
-                    if self.__normalizeInterestName(text) == key:
-                        for candidate_id in ids:
-                            candidates[candidate_id] = text
-                if len(candidates) != 1:
-                    printAlways("WARNING: " + imdbIDString + " lists genre '" + name + "', which matches " +
-                                ("no" if len(candidates) == 0 else str(len(candidates))) +
-                                " IMDb interest(s) (expected exactly one) -- not attached")
-                    continue
-                genre_id, displayName = next(iter(candidates.items()))
-
-            if genre_id in seenIDs:
-                continue
-            seenIDs.add(genre_id)
-            chips.append((genre_id, displayName))
-
-        return chips, visitedDirectory
-
-    def __classifyPageInterests(self, chips, pageGenreNames, knownInterestIDs, knownIgnoredIDs, genreIDsByName, imdbIDString):
-        """The interest half of a main-page scrape: the title's chips plus every page genre they don't
-        already show (see __pageGenreChips), classified together by __classifyChips. genreIDsByName
-        is kept up to date in place, so a genre first registered by this title is recognized without
-        a directory lookup by the next. Returns __classifyChips' own tuple (attachedInterestIDs,
-        newInterestRegistrations, newIgnoredRegistrations, navigatedAway) -- navigatedAway also
-        counts a visit to the interest directory made along the way."""
-        genreChips, visitedDirectory = self.__pageGenreChips(pageGenreNames, {chip_id for chip_id, _ in chips}, genreIDsByName, imdbIDString)
-        attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(chips + genreChips, knownInterestIDs, knownIgnoredIDs)
-        self.__checkGenreRegistrations(genreChips, newInterestRegs)
-        for registered_id, registered_name, _, registered_parent in newInterestRegs:
-            if registered_parent is None:
-                genreIDsByName[self.__normalizeInterestName(registered_name)] = registered_id
-        return attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway or visitedDirectory
-
-    def __checkGenreRegistrations(self, genreChips, newInterestRegistrations):
-        """A page genre that __classifyChips newly registered must have come out as a top-level
-        interest -- one that turned out to be a subgenre means the name matched the wrong interest."""
-        genreChipIDs = {chip_id for chip_id, _ in genreChips}
-        for registered_id, registered_name, _, registered_parent in newInterestRegistrations:
-            if registered_id in genreChipIDs and registered_parent is not None:
-                raise ScrapingError("page genre '" + registered_name + "' (" + str(registered_id) +
-                                     ") turned out to be a subgenre of " + str(registered_parent) + ", not a top-level genre")
 
     def __getGlobalInterestNameMap(self):
         """Lazily fetches and caches IMDb's full interest directory (/interest/all/) as a

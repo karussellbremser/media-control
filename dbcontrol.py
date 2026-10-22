@@ -998,15 +998,6 @@ class DBControl:
             self.c.execute("SELECT imdb_interest_id FROM interest_enum")
             return set(row[0] for row in self.c.fetchall())
 
-    def getAllKnownGenres(self):
-        """{imdb_interest_id: name} for every already-known top-level interest (a genre -- or, by
-        IMDb's other labels for the same parentless role, a "Form" like Short or a "Style" like
-        Anime; see ScrapeIMDbOnline.__classifyChips). Used to match the page's own genre names to
-        interest ids without any extra page visit -- see ScrapeIMDbOnline.__pageGenreChips."""
-        with self.conn:
-            self.c.execute("SELECT imdb_interest_id, name FROM interest_enum WHERE parent_imdb_interest_id IS NULL")
-            return {row[0]: row[1] for row in self.c.fetchall()}
-
     def getMediaIDsWithInterests(self):
         """Set of imdb_ids that already have at least one media_interests row."""
         with self.conn:
