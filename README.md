@@ -110,10 +110,10 @@ python server.py
 
 Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which reads `docker/config.docker.ini` as its `config.ini`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on host port 6767 for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker.
 
-**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever the environment variable `MEDIA_CONTROL_AUTH_FILE` names a credentials file -- `compose.yaml` always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Running `python server.py` locally sets no such variable and needs no login. Create the file (one line, `username:password-hash`) with:
+**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever the environment variable `MEDIA_CONTROL_AUTH_FILE` names a credentials file -- `compose.yaml` always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Running `python server.py` locally sets no such variable and needs no login. Create the file (one line, `username:password-hash`) with the command below, which writes the file from Python itself -- not with a shell redirect (`> auth.txt`), which in Windows PowerShell produces a UTF-16 file:
 
 ```bash
-python -c "import getpass; from werkzeug.security import generate_password_hash as g; print('yourname:' + g(getpass.getpass('password: ')))" > auth.txt
+python -c "import getpass; from werkzeug.security import generate_password_hash as g; open('auth.txt','w',encoding='utf-8').write('yourname:' + g(getpass.getpass('password: ')) + '\n')"
 ```
 
 **First deployment** (on the server, then from the machine that owns the library; `user@server` is your login):

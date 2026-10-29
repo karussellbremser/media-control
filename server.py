@@ -1,6 +1,6 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory
 from werkzeug.security import check_password_hash
-import sqlite3, os, sys, hashlib, hmac
+import sqlite3, os, sys, hashlib, hmac, codecs
 import config
 from imdbinterestid import parseInterestID
 from media import Media
@@ -12,10 +12,17 @@ def _readAuthFile(path):
     README.md ("Hosting the web UI with Docker") for how to create it. Fails closed: a missing or
     malformed file stops the server from starting at all, rather than leaving it open."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            line = f.read().strip()
+        with open(path, "rb") as f:
+            raw = f.read()
     except OSError as e:
         sys.exit("MEDIA_CONTROL_AUTH_FILE is set, but " + path + " can't be read: " + str(e))
+    # Windows tools easily produce a file with a byte order mark or in UTF-16 (PowerShell's ">" does
+    # exactly that), so those are accepted too rather than failing on a file that looks fine in an editor
+    encoding = "utf-16" if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
+    try:
+        line = raw.decode(encoding).strip()
+    except UnicodeDecodeError:
+        sys.exit(path + " isn't a readable text file (expected UTF-8) -- recreate it as described in README.md")
     username, separator, passwordHash = line.partition(":")  # the hash itself contains colons
     if not separator or not username or not passwordHash:
         sys.exit(path + " must contain one line: username:password-hash")
