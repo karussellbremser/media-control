@@ -39,15 +39,18 @@ def _randomKey(imdb_id, seed):
     digest = hashlib.blake2b((str(seed) + ":" + str(imdb_id)).encode(), digest_size=8).digest()
     return int.from_bytes(digest, "big") >> 1 # keep it within SQLite's signed 64-bit integers
 
-def queryMedia(search_query, sort_by, order,
-                year_from, year_to,
-                rating_from, rating_to,
-                votes_from, votes_to,
-                selected_interest_ids,
-                excluded_interest_ids,
-                selected_language_code,
-                show_movies, show_series,
-                limit, offset, random_seed=0):
+def _buildFilter(search_query, year_from, year_to,
+                 rating_from, rating_to,
+                 votes_from, votes_to,
+                 selected_interest_ids,
+                 excluded_interest_ids,
+                 selected_language_code,
+                 show_movies, show_series):
+    """The part of the media query that decides WHICH titles match the current filter selection,
+    shared by queryMedia (the list) and countMedia (the total shown above it) so the two can never
+    disagree. Returns (joinSql, whereSql, havingSql, params) to be appended after "FROM media m JOIN
+    title_type_enum tt ON ..." and before the caller's GROUP BY m.imdb_id / ORDER BY -- or None when
+    no media type is selected at all (nothing can match)."""
     # media types to include -- episodes never appear here (episodeTitleTypes is never added),
     # since they were never meant to have their own top-level browsing entry
     allowedTypeNames = []
@@ -56,46 +59,16 @@ def queryMedia(search_query, sort_by, order,
     if show_series:
         allowedTypeNames += Media.seriesTitleTypes
     if not allowedTypeNames:
-        return []
+        return None
 
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-
-    # the list view's genre line must not show hidden interests either (its params come first: this
-    # subquery's placeholders precede the CASE ... IN (...) ones further down the statement)
-    hiddenSql, hiddenParams = _excludeHiddenInterests("mi_show.imdb_interest_id")
-    # only a series can have episodes, so the two episode counts are only evaluated for series rows
-    # (CASE branches are lazy): media has no index on series_imdb_id, so each count is a full table
-    # scan, and running them for every movie too made the default query ~100x slower (~800ms vs ~10ms
-    # at ~650 owned titles) for counts that are always 0 there. Each CASE below carries its own copy
-    # of the series-type placeholders, in statement order, hence the repeated params further down.
-    seriesTypePlaceholders = ",".join("?" for _ in Media.seriesTitleTypes)
-    sql = """
-    SELECT m.imdb_id, m.original_title, m.start_year, m.end_year, m.rating_mul10, m.num_votes,
-    (
-        SELECT GROUP_CONCAT(ie.name, ', ')
-        FROM media_interests mi_show
-        JOIN interest_enum ie ON mi_show.imdb_interest_id = ie.imdb_interest_id
-        WHERE mi_show.imdb_id = m.imdb_id""" + hiddenSql + """
-        ORDER BY ie.name
-    ) as tags,
-    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
-        SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id
-    ) ELSE 0 END as total_episodes,
-    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
-        SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NOT NULL
-    ) ELSE 0 END as owned_episodes,
-    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN 1 ELSE 0 END as is_series
-    FROM media m
-    JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
-    """
-    params = hiddenParams + list(Media.seriesTitleTypes) * 3
+    joinSql = ""
+    params = []
 
     # filter genres/interests (selected_interest_ids may mix genre and subgenre ids)
     if selected_interest_ids:
-        sql += " JOIN media_interests mi_filter ON m.imdb_id = mi_filter.imdb_id"
+        joinSql = " JOIN media_interests mi_filter ON m.imdb_id = mi_filter.imdb_id"
 
-    sql += " WHERE m.subdir IS NOT NULL"
+    sql = " WHERE m.subdir IS NOT NULL"
 
     sql += " AND tt.title_type_name IN (" + ",".join("?" for _ in allowedTypeNames) + ")"
     params.extend(allowedTypeNames)
@@ -176,11 +149,73 @@ def queryMedia(search_query, sort_by, order,
         sql += f" AND NOT EXISTS (SELECT 1 FROM media_interests mi_excl WHERE mi_excl.imdb_id = m.imdb_id AND mi_excl.imdb_interest_id IN ({placeholders}))"
         params.extend(excluded_interest_ids)
 
-    sql += " GROUP BY m.imdb_id"
-
+    havingSql = ""
     if selected_interest_ids:
-        sql += f" HAVING COUNT(DISTINCT mi_filter.imdb_interest_id) = {len(selected_interest_ids)}"
-    
+        havingSql = f" HAVING COUNT(DISTINCT mi_filter.imdb_interest_id) = {len(selected_interest_ids)}"
+
+    return joinSql, sql, havingSql, params
+
+def countMedia(filters):
+    """How many titles match filters (the same tuple queryMedia takes) -- the number the list would
+    reach if scrolled to its end, regardless of sort order and paging."""
+    built = _buildFilter(*filters)
+    if built is None:
+        return 0
+    joinSql, whereSql, havingSql, params = built
+
+    conn = sqlite3.connect(config.DB_PATH)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM (SELECT m.imdb_id FROM media m JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id"
+                            + joinSql + whereSql + " GROUP BY m.imdb_id" + havingSql + ")", params).fetchone()[0]
+    finally:
+        conn.close()
+
+def queryMedia(filters, sort_by, order, limit, offset, random_seed=0):
+    """One page of the titles matching filters, a tuple of the arguments of _buildFilter (search
+    string, year/rating/votes ranges, selected and excluded interests, language, movies/series)."""
+    built = _buildFilter(*filters)
+    if built is None:
+        return []
+    joinSql, whereSql, havingSql, filterParams = built
+
+    conn = sqlite3.connect(config.DB_PATH)
+    cursor = conn.cursor()
+
+    # the list view's genre line must not show hidden interests either (its params come first: this
+    # subquery's placeholders precede the CASE ... IN (...) ones further down the statement)
+    hiddenSql, hiddenParams = _excludeHiddenInterests("mi_show.imdb_interest_id")
+    # only a series can have episodes, so the two episode counts are only evaluated for series rows
+    # (CASE branches are lazy): media has no index on series_imdb_id, so each count is a full table
+    # scan, and running them for every movie too made the default query ~100x slower (~800ms vs ~10ms
+    # at ~650 owned titles) for counts that are always 0 there. Each CASE below carries its own copy
+    # of the series-type placeholders, in statement order, hence the repeated params further down.
+    seriesTypePlaceholders = ",".join("?" for _ in Media.seriesTitleTypes)
+    sql = """
+    SELECT m.imdb_id, m.original_title, m.start_year, m.end_year, m.rating_mul10, m.num_votes,
+    (
+        SELECT GROUP_CONCAT(ie.name, ', ')
+        FROM media_interests mi_show
+        JOIN interest_enum ie ON mi_show.imdb_interest_id = ie.imdb_interest_id
+        WHERE mi_show.imdb_id = m.imdb_id""" + hiddenSql + """
+        ORDER BY ie.name
+    ) as tags,
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
+        SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id
+    ) ELSE 0 END as total_episodes,
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
+        SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NOT NULL
+    ) ELSE 0 END as owned_episodes,
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN 1 ELSE 0 END as is_series
+    FROM media m
+    JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
+    """
+    params = hiddenParams + list(Media.seriesTitleTypes) * 3
+
+    sql += joinSql + whereSql
+    params.extend(filterParams)
+
+    sql += " GROUP BY m.imdb_id" + havingSql
+
     # sorting
     if sort_by == "random":
         column = None # ordered by _randomKey below instead of by a column
@@ -300,10 +335,8 @@ def search():
     # the client as a clean JSON error instead of Flask's default HTML 500 page, which search.js
     # can't parse as JSON and would otherwise fail on invisibly (see fetchResults's error handling)
     try:
-        media = queryMedia(
+        filters = (
             args.get('q', ''),
-            args.get('sort', 'year'),
-            args.get('order', 'desc'),
             args.get('year_from'),
             args.get('year_to'),
             args.get('rating_from'),
@@ -314,14 +347,17 @@ def search():
             excluded_interest_ids,
             selected_language_code,
             show_movies,
-            show_series,
-            limit,
-            offset,
-            random_seed
+            show_series
         )
+        media = queryMedia(filters, args.get('sort', 'year'), args.get('order', 'desc'), limit, offset, random_seed)
+        # the total only changes with the filters, not with the page, so only the first page asks for it
+        total = countMedia(filters) if page == 1 else None
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 503
-    return jsonify(media)
+    response = jsonify(media)
+    if total is not None:
+        response.headers['X-Total-Count'] = str(total)
+    return response
 
 @server.route('/cover_small/<filename>')
 def coverSmall(filename):

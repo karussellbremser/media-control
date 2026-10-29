@@ -240,6 +240,22 @@
 		#errorBanner.hidden {
 			display: none;
 		}
+
+		/* on the sidebar's toggle button's row (32px high, 15px sidebar padding); absolutely positioned
+		   rather than wrapped together with the button, since a wrapper would be hidden along with
+		   everything else when the sidebar is collapsed -- see .sidebar.collapsed below */
+		#resultCount {
+			position: absolute;
+			top: 15px;
+			left: 0;
+			right: 0; /* centered across the whole sidebar width, not just the space beside the button */
+			text-align: center;
+			pointer-events: none; /* spans the toggle button's area too -- must never swallow its clicks */
+			line-height: 32px;
+			font-size: 16px;
+			color: #555;
+			white-space: nowrap;
+		}
 		
 		.titleLink {
 			color: inherit;
@@ -858,6 +874,7 @@
 				<polyline points="19 6 13 12 19 18"></polyline>
 			</svg>
 		</button>
+		<div id="resultCount"></div>
 		
 		<button id="resetButton">RESET FILTERS</button>
 		

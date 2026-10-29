@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const input = document.getElementById('searchInput');
     const searchClearBtn = document.getElementById('searchClearBtn');
     const results = document.getElementById('results');
+    const resultCount = document.getElementById('resultCount');
 	const errorBanner = document.getElementById('errorBanner');
 	const sortSelect = document.getElementById('sortSelect');
 	const orderButton = document.getElementById('orderButton');
@@ -619,15 +620,21 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		});
 
+		let totalCount = null; // only sent with the first page (see server.py's search)
         fetch(`/search?${params.toString()}`, { signal: thisSearchController.signal })
             .then(response => {
                 if (!response.ok) {
                     throw new Error('search request failed with status ' + response.status);
                 }
+                totalCount = response.headers.get('X-Total-Count');
                 return response.json();
             })
             .then(data => {
 				errorBanner.classList.add('hidden');
+				if (totalCount !== null) {
+					const total = Number(totalCount);
+					resultCount.textContent = total.toLocaleString() + (total === 1 ? ' title' : ' titles');
+				}
 
                 if (!append) {
 					results.innerHTML = '';
