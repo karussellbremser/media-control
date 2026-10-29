@@ -105,3 +105,44 @@ To browse the collection in a browser:
 ```bash
 python server.py
 ```
+
+## Hosting the web UI with Docker
+
+Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which reads `docker/config.docker.ini` as its `config.ini`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on host port 6767 for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker.
+
+**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever the environment variable `MEDIA_CONTROL_AUTH_FILE` names a credentials file -- `compose.yaml` always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Running `python server.py` locally sets no such variable and needs no login. Create the file (one line, `username:password-hash`) with:
+
+```bash
+python -c "import getpass; from werkzeug.security import generate_password_hash as g; print('yourname:' + g(getpass.getpass('password: ')))" > auth.txt
+```
+
+**First deployment** (on the server, then from the machine that owns the library; `user@server` is your login):
+
+```bash
+git clone https://github.com/karussellbremser/media-control.git && cd media-control && mkdir data   # on the server
+
+scp auth.txt user@server:media-control/auth.txt
+scp myMovieDB.db hidden_interests.txt user@server:media-control/data/
+scp -r covers covers_small user@server:media-control/data/
+
+docker compose up -d --build                                                                         # on the server
+```
+
+Files must stay world-readable (the default for `scp`), since rootless Docker maps the container's user to a different host user than yours.
+
+**Updating content.** No rebuild or restart needed -- the server opens the database for every request and serves covers straight from `data/`. Upload the database under another name and rename it over the old one, so no request can ever see a half-written file:
+
+```bash
+scp myMovieDB.db user@server:media-control/data/myMovieDB.db.new
+ssh user@server "mv media-control/data/myMovieDB.db.new media-control/data/myMovieDB.db"
+```
+
+New or changed cover files are copied into `data/covers` / `data/covers_small` the same way. `hidden_interests.txt` and `auth.txt` are only read at server start: after changing either, run `docker compose restart` on the server.
+
+**Updating the code:**
+
+```bash
+ssh user@server "cd media-control && git pull && docker compose up -d --build"
+```
+
+`docker/config.docker.ini` is the image's own config and is not synced with your local `config.ini` -- a new `config.ini` option that `config.py` requires needs adding there as well, or the container won't start.

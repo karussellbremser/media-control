@@ -1,10 +1,54 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
-import sqlite3, os, hashlib
+from flask import Flask, Response, render_template, request, jsonify, send_from_directory
+from werkzeug.security import check_password_hash
+import sqlite3, os, sys, hashlib, hmac
 import config
 from imdbinterestid import parseInterestID
 from media import Media
 
 server = Flask(__name__)
+
+def _readAuthFile(path):
+    """(username, werkzeug password hash) from the one-line "username:hash" file at path -- see
+    README.md ("Hosting the web UI with Docker") for how to create it. Fails closed: a missing or
+    malformed file stops the server from starting at all, rather than leaving it open."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            line = f.read().strip()
+    except OSError as e:
+        sys.exit("MEDIA_CONTROL_AUTH_FILE is set, but " + path + " can't be read: " + str(e))
+    username, separator, passwordHash = line.partition(":")  # the hash itself contains colons
+    if not separator or not username or not passwordHash:
+        sys.exit(path + " must contain one line: username:password-hash")
+    return username, passwordHash
+
+# optional HTTP basic auth for the whole site (pages, API and covers alike) -- only active when the
+# MEDIA_CONTROL_AUTH_FILE environment variable names a credentials file, so running the server
+# locally needs no login. Meant for hosting it behind a reverse proxy that provides the HTTPS
+AUTH_CREDENTIALS = _readAuthFile(os.environ["MEDIA_CONTROL_AUTH_FILE"]) if os.environ.get("MEDIA_CONTROL_AUTH_FILE") else None
+_verifiedCredentialsDigest = None  # see requireLogin
+
+@server.before_request
+def requireLogin():
+    global _verifiedCredentialsDigest
+    if AUTH_CREDENTIALS is None:
+        return None
+    username, passwordHash = AUTH_CREDENTIALS
+
+    auth = request.authorization
+    if auth is not None and auth.type == "basic":
+        presented = (auth.username or "") + "\0" + (auth.password or "")
+        presentedDigest = hashlib.sha256(presented.encode("utf-8")).digest()
+        # the browser repeats its credentials on every request, a coverwall page easily making dozens
+        # in a burst, and checking a scrypt hash costs ~100ms each -- so once a full check has
+        # succeeded, the SHA-256 of those exact credentials is remembered (in memory only) and
+        # later requests are compared against it instead
+        if _verifiedCredentialsDigest is not None and hmac.compare_digest(presentedDigest, _verifiedCredentialsDigest):
+            return None
+        if hmac.compare_digest((auth.username or "").encode("utf-8"), username.encode("utf-8")) and check_password_hash(passwordHash, auth.password or ""):
+            _verifiedCredentialsDigest = presentedDigest
+            return None
+
+    return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="media-control", charset="UTF-8"'})
 
 def _readHiddenInterestIDs(path):
     """Reads config.HIDDEN_INTEREST_IDS_PATH: subgenres never shown/selectable in the UI, though

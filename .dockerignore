@@ -1,0 +1,12 @@
+# allow-list: everything is excluded except what the Dockerfile copies, so the database, covers,
+# scraping profile, backups etc. can never end up in the image even by accident
+**
+!requirements-server.txt
+!server.py
+!config.py
+!media.py
+!imdbinterestid.py
+!exceptions.py
+!templates/**
+!static/**
+!docker/config.docker.ini

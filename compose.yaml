@@ -1,0 +1,30 @@
+# Web UI for the library, for a server running (rootless) Docker behind a reverse proxy that
+# forwards https://<your hostname> to host port 6767 and handles HTTPS. See README.md ("Hosting the
+# web UI with Docker") for the deployment steps.
+#
+# Next to this file on the server:
+#   data/      the database (myMovieDB.db), covers/, covers_small/ and hidden_interests.txt
+#   auth.txt   the web UI's login, one line "username:password-hash" (see README) -- required here:
+#              the UI refuses to start without it, so it can never be exposed unprotected by accident
+services:
+  media-control:
+    build: .
+    image: media-control
+    container_name: media-control
+    restart: unless-stopped
+    ports:
+      - "6767:5000"
+    volumes:
+      # the whole directory, not single files: replacing the database by renaming a new file over it
+      # (see README) would otherwise leave the container looking at the old file
+      - ./data:/data:ro
+      - ./auth.txt:/run/auth.txt:ro
+    environment:
+      MEDIA_CONTROL_AUTH_FILE: /run/auth.txt
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
