@@ -1,32 +1,16 @@
-import configparser
-import os
-import sys
-
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_CONFIG_PATH = os.path.join(_BASE_DIR, "config.ini")
-
-_config = configparser.ConfigParser()
-_config.optionxform = str  # preserve option name case (e.g. web_providers abbreviations like "iT"/"IMDb")
-if not _config.read(_CONFIG_PATH):
-    sys.exit(
-        "config.ini not found. Copy config.example.ini to config.ini "
-        "and fill in your local paths."
-    )
-
-def _resolve(path):
-    return path if os.path.isabs(path) else os.path.join(_BASE_DIR, path)
+# the web UI's own part of config.ini lives in serverconfig.py (so the docker image can do without the
+# rest); re-exported here so everything else keeps reading it as config.DB_PATH etc.
+from serverconfig import (parser as _config, resolve as _resolve,
+                          DB_PATH, COVERS_DIR, COVERS_SMALL_DIR, HIDDEN_INTEREST_IDS_PATH,
+                          SERVER_HOST, SERVER_PORT, CURTAIN_ANIMATION_ENABLED, CURTAIN_STYLE, SERVER_AUTH_FILE)
 
 MEDIA_DIR = _resolve(_config["paths"]["media_dir"])
-DB_PATH = _resolve(_config["paths"]["db_path"])
-COVERS_DIR = _resolve(_config["paths"]["covers_dir"])
-COVERS_SMALL_DIR = _resolve(_config["paths"]["covers_small_dir"])
 MEDIAINFO_PATH = _resolve(_config["paths"]["mediainfo_path"])
 FFMPEG_PATH = _resolve(_config["paths"]["ffmpeg_path"])
 CHROME_PROFILE_DIR = _resolve(_config["paths"]["chrome_profile_dir"])
 IMDB_HELPER_DB_PATH = _resolve(_config["paths"]["imdb_helper_db_path"])
 IGNORED_IDS_PATH = _resolve(_config["paths"]["ignored_ids_path"])
 WONTADD_IDS_PATH = _resolve(_config["paths"]["wontadd_ids_path"])
-HIDDEN_INTEREST_IDS_PATH = _resolve(_config["paths"]["hidden_interest_ids_path"])
 # fallback=, not required: newer than config.example.ini's other [paths] keys, so an existing
 # config.ini from before this was added still works unchanged, at this same default value
 CUSTOM_CONNECTIONS_PATH = _resolve(_config.get("paths", "custom_connections_path", fallback="custom_connections.txt"))
@@ -67,12 +51,5 @@ CROPPING_CACHE_ENABLED = _config.getboolean("cropping", "cropping_cache_enabled"
 CROPPING_CACHE_PATH = _resolve(_config.get("cropping", "cropping_cache_path", fallback="cropping_cache.json"))
 
 VERBOSITY = _config.getint("output", "verbosity")
-
-SERVER_HOST = _config["server"]["host"]
-SERVER_PORT = _config.getint("server", "port")
-CURTAIN_ANIMATION_ENABLED = _config.getboolean("server", "curtain_animation")
-CURTAIN_STYLE = _config["server"]["curtain_style"]
-if CURTAIN_STYLE not in ("classic", "reserved"):
-    sys.exit("config.ini: [server] curtain_style must be 'classic' or 'reserved', got '" + CURTAIN_STYLE + "'")
 
 WEB_PROVIDERS = dict(_config.items("web_providers"))

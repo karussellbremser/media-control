@@ -82,6 +82,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 - `host` / `port` — for the Flask web server
 - `curtain_animation` — whether a theater-curtain-opening animation plays on page load (real loads only, never on an in-place filter/search/sort update)
 - `curtain_style` — `classic` (red velvet, gold scalloped valance) or `reserved` (warm greige, echoing the page's own light-gray palette)
+- `auth_file` — optional: a one-line `username:password-hash` file; when set, the whole web UI asks for that login (see "Hosting the web UI with Docker")
 
 **`[web_providers]`**
 - abbreviation-to-full-name mappings for streaming/purchase sources you track
@@ -108,9 +109,9 @@ python server.py
 
 ## Hosting the web UI with Docker
 
-Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which reads `docker/config.docker.ini` as its `config.ini`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on host port 6767 for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker.
+Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which takes host and port from the `[server]` section of `docker/config.docker.ini`, the image's `config.ini` -- only a dozen lines, since the web UI reads just the data paths and `[server]`, see `serverconfig.py`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on host port 6767 (change it with `HOST_PORT` in a `.env` file, see `.env.example`) for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker. If you ever change the `[server]` port in `docker/config.docker.ini`, change the container side of the port mapping in `compose.yaml` to match.
 
-**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever the environment variable `MEDIA_CONTROL_AUTH_FILE` names a credentials file -- `compose.yaml` always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Running `python server.py` locally sets no such variable and needs no login. Create the file (one line, `username:password-hash`) with the command below, which writes the file from Python itself -- not with a shell redirect (`> auth.txt`), which in Windows PowerShell produces a UTF-16 file:
+**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever `config.ini`'s `[server]` `auth_file` names a credentials file -- the image's config always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Your local `config.ini` has no such key, so `python server.py` needs no login. Create the file (one line, `username:password-hash`) with the command below, which writes the file from Python itself -- not with a shell redirect (`> auth.txt`), which in Windows PowerShell produces a UTF-16 file:
 
 ```bash
 python -c "import getpass; from werkzeug.security import generate_password_hash as g; open('auth.txt','w',encoding='utf-8').write('yourname:' + g(getpass.getpass('password: ')) + '\n')"
@@ -145,4 +146,4 @@ New or changed cover files are copied into `data/covers` / `data/covers_small` t
 ssh user@server "cd media-control && git pull && docker compose up -d --build"
 ```
 
-`docker/config.docker.ini` is the image's own config and is not synced with your local `config.ini` -- a new `config.ini` option that `config.py` requires needs adding there as well, or the container won't start.
+`docker/config.docker.ini` is the image's own config and is separate from your local `config.ini`; it only has to carry what `serverconfig.py` reads, so options for scanning, scraping and the like never need adding there.

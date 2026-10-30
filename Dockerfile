@@ -13,14 +13,14 @@ COPY requirements-server.txt .
 RUN pip install --no-cache-dir -r requirements-server.txt
 
 # exactly what server.py (transitively) imports, plus its templates and static files
-COPY server.py config.py media.py imdbinterestid.py exceptions.py ./
+COPY server.py serverconfig.py media.py imdbinterestid.py exceptions.py gunicorn.conf.py ./
 COPY templates/ templates/
 COPY static/ static/
-# config.py refuses to start without a complete config.ini; this one points the data paths at /data
+# serverconfig.py refuses to start without a config.ini; this one points the data paths at /data
 COPY docker/config.docker.ini config.ini
 
 RUN useradd --system --no-create-home app
 USER app
 
-EXPOSE 5000
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--access-logfile", "-", "server:server"]
+# host, port and worker count: gunicorn.conf.py, reading config.ini's [server] section
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "server:server"]

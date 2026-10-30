@@ -3,10 +3,11 @@
 **
 !requirements-server.txt
 !server.py
-!config.py
+!serverconfig.py
 !media.py
 !imdbinterestid.py
 !exceptions.py
+!gunicorn.conf.py
 !templates/**
 !static/**
 !docker/config.docker.ini

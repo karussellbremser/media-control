@@ -1,7 +1,7 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory
 from werkzeug.security import check_password_hash
 import sqlite3, os, sys, hashlib, hmac, codecs
-import config
+import serverconfig
 from imdbinterestid import parseInterestID
 from media import Media
 
@@ -15,7 +15,7 @@ def _readAuthFile(path):
         with open(path, "rb") as f:
             raw = f.read()
     except OSError as e:
-        sys.exit("MEDIA_CONTROL_AUTH_FILE is set, but " + path + " can't be read: " + str(e))
+        sys.exit("config.ini's [server] auth_file is set, but " + path + " can't be read: " + str(e))
     # Windows tools easily produce a file with a byte order mark or in UTF-16 (PowerShell's ">" does
     # exactly that), so those are accepted too rather than failing on a file that looks fine in an editor
     encoding = "utf-16" if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
@@ -28,10 +28,10 @@ def _readAuthFile(path):
         sys.exit(path + " must contain one line: username:password-hash")
     return username, passwordHash
 
-# optional HTTP basic auth for the whole site (pages, API and covers alike) -- only active when the
-# MEDIA_CONTROL_AUTH_FILE environment variable names a credentials file, so running the server
-# locally needs no login. Meant for hosting it behind a reverse proxy that provides the HTTPS
-AUTH_CREDENTIALS = _readAuthFile(os.environ["MEDIA_CONTROL_AUTH_FILE"]) if os.environ.get("MEDIA_CONTROL_AUTH_FILE") else None
+# optional HTTP basic auth for the whole site (pages, API and covers alike) -- only active when
+# config.ini's [server] auth_file names a credentials file, so running the server locally needs no
+# login. Meant for hosting it behind a reverse proxy that provides the HTTPS
+AUTH_CREDENTIALS = _readAuthFile(serverconfig.SERVER_AUTH_FILE) if serverconfig.SERVER_AUTH_FILE else None
 _verifiedCredentialsDigest = None  # see requireLogin
 
 @server.before_request
@@ -58,7 +58,7 @@ def requireLogin():
     return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="media-control", charset="UTF-8"'})
 
 def _readHiddenInterestIDs(path):
-    """Reads config.HIDDEN_INTEREST_IDS_PATH: subgenres never shown/selectable in the UI, though
+    """Reads serverconfig.HIDDEN_INTEREST_IDS_PATH: subgenres never shown/selectable in the UI, though
     still scraped and stored normally (e.g. "Tragedy" spoilers a movie's ending). One imdb interest
     id (e.g. in0000090) per line, blank lines ignored. Read once at server start -- restart the
     server to pick up changes. A missing file is treated as an empty list."""
@@ -67,7 +67,7 @@ def _readHiddenInterestIDs(path):
     with open(path, "r") as f:
         return {parseInterestID(line.strip()) for line in f if line.strip()}
 
-HIDDEN_INTEREST_IDS = _readHiddenInterestIDs(config.HIDDEN_INTEREST_IDS_PATH)
+HIDDEN_INTEREST_IDS = _readHiddenInterestIDs(serverconfig.HIDDEN_INTEREST_IDS_PATH)
 
 def _excludeHiddenInterests(column):
     """(sql, params) appending "AND <column> NOT IN (...)" for every hidden interest id -- empty when
@@ -214,7 +214,7 @@ def countMedia(filters):
         return 0
     joinSql, whereSql, havingSql, params = built
 
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(serverconfig.DB_PATH)
     try:
         return conn.execute("SELECT COUNT(*) FROM (SELECT m.imdb_id FROM media m JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id"
                             + joinSql + whereSql + " GROUP BY m.imdb_id" + havingSql + ")", params).fetchone()[0]
@@ -229,7 +229,7 @@ def queryMedia(filters, sort_by, order, limit, offset, random_seed=0):
         return []
     joinSql, whereSql, havingSql, filterParams = built
 
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(serverconfig.DB_PATH)
     cursor = conn.cursor()
 
     # the list view's genre line must not show hidden interests either (its params come first: this
@@ -316,7 +316,7 @@ def queryMedia(filters, sort_by, order, limit, offset, random_seed=0):
 
 @server.route('/')
 def index():
-    conn = sqlite3.connect(config.DB_PATH)
+    conn = sqlite3.connect(serverconfig.DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -362,7 +362,7 @@ def index():
 
     conn.close()
     return render_template('index.html', genres=genres, interestGroups=interestGroups, languages=languages,
-                            curtain_enabled=config.CURTAIN_ANIMATION_ENABLED, curtain_style=config.CURTAIN_STYLE)
+                            curtain_enabled=serverconfig.CURTAIN_ANIMATION_ENABLED, curtain_style=serverconfig.CURTAIN_STYLE)
 
 @server.route('/search')
 def search():
@@ -412,11 +412,11 @@ def search():
 
 @server.route('/cover_small/<filename>')
 def coverSmall(filename):
-    return send_from_directory(config.COVERS_SMALL_DIR, filename)
+    return send_from_directory(serverconfig.COVERS_SMALL_DIR, filename)
 
 @server.route('/cover/<filename>')
 def coverFull(filename):
-    return send_from_directory(config.COVERS_DIR, filename)
+    return send_from_directory(serverconfig.COVERS_DIR, filename)
 
 @server.route('/detail/<int:imdb_id>')
 def detail(imdb_id):
@@ -425,7 +425,7 @@ def detail(imdb_id):
     none), and connections to other titles, each flagged with whether the target is itself locally
     owned (=> the overlay can open it in place) or only referenced (=> links out to IMDb)."""
     try:
-        conn = sqlite3.connect(config.DB_PATH)
+        conn = sqlite3.connect(serverconfig.DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -496,4 +496,4 @@ def detail(imdb_id):
     })
 
 if __name__ == '__main__':
-    server.run(host=config.SERVER_HOST, port=config.SERVER_PORT)
+    server.run(host=serverconfig.SERVER_HOST, port=serverconfig.SERVER_PORT)

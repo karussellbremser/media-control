@@ -1,4 +1,6 @@
 # server deployment (see compose.yaml / README): the data directory next to compose.yaml holds the
-# database and covers, auth.txt the web UI's login -- neither belongs in the repository
+# database and covers, auth.txt the web UI's login, .env the deployment's own settings -- none of
+# them belongs in the repository
 /data/
 /auth.txt
+/.env
