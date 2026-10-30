@@ -37,6 +37,7 @@ import io
 import os
 import pathlib
 import queue
+import re
 import shlex
 import shutil
 import sqlite3
@@ -55,7 +56,8 @@ DATA_DIR = "data"
 DB_NAME = "myMovieDB.db"
 COVER_DIRS = ("covers_small", "covers")
 HIDDEN_NAME = "hidden_interests.txt"
-IMAGE = "media-control"  # compose.yaml's image name
+IMAGE = "media-control"  # compose.yaml's image and service name
+CONTAINER_PORT = 5000  # the [server] port of docker/config.docker.ini, i.e. what compose.yaml publishes
 
 
 class DeployError(Exception):
@@ -285,7 +287,6 @@ class Remote:
     def __init__(self, section, dryRun):
         self.dry = dryRun
         self.dir = section["remote_dir"]
-        self.hostPort = int(section["host_port"])
         self.prefix = section.get("remote_prefix", "").strip()
         host, user = section["host"], section["user"]
         port = int(section.get("port", "").strip() or 22)
@@ -336,6 +337,13 @@ class Remote:
         if result.returncode != 0:
             raise DeployError("sending files to " + remoteDir + " failed (exit " + str(result.returncode) + ")")
 
+    def publishedPort(self):
+        """The host port the running container is published on, asked of docker compose -- so the server's
+        .env stays the only place that port is set -- or None if the container isn't running."""
+        out = self.run("docker compose port " + IMAGE + " " + str(CONTAINER_PORT), readonly=True, capture=True, check=False).stdout.strip()
+        match = re.search(r":(\d+)\s*$", out.splitlines()[0]) if out else None   # "0.0.0.0:6767" or "[::]:6767"
+        return int(match.group(1)) if match else None
+
     def listFiles(self, remoteDir):
         """{name: (size, mtime)} of the regular files directly in remoteDir ({} if it doesn't exist yet)."""
         out = self.run("[ -d " + shlex.quote(remoteDir) + " ] && find " + shlex.quote(remoteDir) +
@@ -349,13 +357,30 @@ class Remote:
 
 def checkRemote(remote):
     step("checking the connection to the server")
-    result = remote.run("docker compose version > /dev/null && git --version > /dev/null && command -v curl > /dev/null && echo ready",
-                        readonly=True, capture=True, check=False)
+    result = remote.run("docker compose version > /dev/null && docker compose config -q && git --version > /dev/null && "
+                        "command -v curl > /dev/null && echo ready", readonly=True, capture=True, check=False)
     if result.returncode != 0 or "ready" not in result.stdout:
-        raise DeployError("can't use the server: ssh failed, or docker compose / git / curl isn't available in a non-interactive\n"
-                          "shell there. If docker only works after some setup (e.g. exporting DOCKER_HOST for rootless docker),\n"
-                          "put it in deploy.ini as remote_prefix.\n" + (result.stderr or "").strip())
+        raise DeployError("can't use the server: docker compose / git / curl isn't available in a non-interactive shell there, or\n"
+                          "compose.yaml can't be read (a missing HOST_PORT in .env says so below). If docker only works after\n"
+                          "some setup (e.g. exporting DOCKER_HOST for rootless docker), put it in deploy.ini as remote_prefix.\n" +
+                          (result.stderr or "").strip())
     print("   ok")
+
+
+def planHostPortSetup(remote):
+    """compose.yaml has no default for HOST_PORT -- it must be set in the server's .env. Returns None if it is,
+    else the port to write there: the one the running container is published on today (raises if unknown)."""
+    if remote.run("grep -qs '^HOST_PORT=' .env", readonly=True, check=False).returncode == 0:
+        return None
+    port = remote.publishedPort()
+    if port is None:
+        raise DeployError("HOST_PORT isn't set in .env on the server, and no running container shows which port to use -- create\n"
+                          + remote.dir + "/.env there containing HOST_PORT=<the port your reverse proxy forwards to>")
+    return port
+
+
+def applyHostPortSetup(remote, port):
+    remote.run("printf '\\nHOST_PORT=%s\\n' " + str(port) + " >> .env")
 
 
 # ----------------------------------------------------------------------------------------------- local
@@ -566,11 +591,15 @@ def restoreDatabase(remote):
 # --------------------------------------------------------------------------------- verifying & rolling back
 
 def healthCheck(remote):
-    """Waits (up to ~40 s) for the container to answer on its host port: 401 (login required) or 200."""
-    command = ("for i in $(seq 1 20); do code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:" + str(remote.hostPort) + "/); "
+    """Waits (up to ~40 s) for the container to answer on the host port it is published on (asked of docker
+    compose): 401 (login required) or 200. Returns (ok, description)."""
+    port = remote.publishedPort()
+    if port is None:
+        return False, "the container publishes no port (is it running?)"
+    command = ("for i in $(seq 1 20); do code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:" + str(port) + "/); "
                "if [ \"$code\" = 401 ] || [ \"$code\" = 200 ]; then echo OK $code; exit 0; fi; sleep 2; done; echo FAIL $code; exit 1")
     result = remote.run(command, capture=True, check=False)
-    return result.returncode == 0, result.stdout.strip()
+    return result.returncode == 0, result.stdout.strip() + " (port " + str(port) + ")"
 
 
 def verifyRemote(remote, expectedRows, sampleCovers):
@@ -578,9 +607,9 @@ def verifyRemote(remote, expectedRows, sampleCovers):
     the expected number of rows, and some covers are readable. Returns a list of problems (empty = fine)."""
     problems = []
     ok, message = healthCheck(remote)
-    print("   answers on port %d: %s" % (remote.hostPort, message))
+    print("   health check: " + message)
     if not ok:
-        problems.append("the container doesn't answer on port " + str(remote.hostPort))
+        problems.append("the container doesn't answer: " + message)
     code = ("import sqlite3; c = sqlite3.connect('file:/data/" + DB_NAME + "?mode=ro', uri=True); "
             "print(c.execute('SELECT COUNT(*) FROM media').fetchone()[0])")
     result = remote.run("docker compose exec -T " + IMAGE + " python -c " + shlex.quote(code), capture=True, check=False)
@@ -736,10 +765,16 @@ def cmdCode(args, remote, paths, branch, workDir):
     snapshotPath = os.path.join(workDir, DB_NAME)
     snapshotDatabase(paths["db"], snapshotPath)
     smokeTest(snapshotPath)
-    confirm(args, ["server: git pull" + (" (" + commit[:7] + " " + subject + ")" if commit else ""),
-                   "rebuild the image and restart the container (a few seconds of downtime)",
-                   "verify; restore the previous version automatically if that fails"])
+    hostPort = planHostPortSetup(remote)
+    lines = ["server: git pull" + (" (" + commit[:7] + " " + subject + ")" if commit else ""),
+             "rebuild the image and restart the container (a few seconds of downtime)",
+             "verify; restore the previous version automatically if that fails"]
+    if hostPort is not None:
+        lines.insert(0, "server: .env has no HOST_PORT, which compose.yaml now requires -- set HOST_PORT=%d (what the running container publishes)" % hostPort)
+    confirm(args, lines)
     step("updating the server code")
+    if hostPort is not None:
+        applyHostPortSetup(remote, hostPort)
     pullAndTag(remote, commit)
     result = remote.run("docker compose up -d --build", check=False)
     if result.returncode != 0:
@@ -766,7 +801,10 @@ def cmdFull(args, remote, paths, branch, workDir):
     smokeTest(snapshotPath)
     plans = {} if args.skip_covers else planCovers(remote, paths)
     restart = hiddenInterestsChanged(remote, paths)
+    hostPort = planHostPortSetup(remote)
     lines = [] if args.skip_covers else describeCovers(plans, args.prune)
+    if hostPort is not None:
+        lines.append("server: .env has no HOST_PORT, which compose.yaml now requires -- set HOST_PORT=%d (what the running container publishes)" % hostPort)
     lines += ["database: upload the snapshot (%s); it is switched in together with the new code" % formatSize(os.path.getsize(snapshotPath)),
               "server: git pull" + (" (" + commit[:7] + " " + subject + ")" if commit else "") + ", build the new image while the old one keeps serving",
               "then switch database and container over (a few seconds of downtime)",
@@ -782,6 +820,8 @@ def cmdFull(args, remote, paths, branch, workDir):
         remote.uploadFile(paths["hidden"], DATA_DIR + "/" + HIDDEN_NAME)
     uploadDatabase(remote, snapshotPath)
     step("building the new version (the old one keeps running)")
+    if hostPort is not None:
+        applyHostPortSetup(remote, hostPort)
     pullAndTag(remote, commit)
     result = remote.run("docker compose build", check=False)
     if result.returncode != 0:

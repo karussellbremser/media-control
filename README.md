@@ -109,7 +109,7 @@ python server.py
 
 ## Hosting the web UI with Docker
 
-Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which takes host and port from the `[server]` section of `docker/config.docker.ini`, the image's `config.ini` -- only a dozen lines, since the web UI reads just the data paths and `[server]`, see `serverconfig.py`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on host port 6767 (change it with `HOST_PORT` in a `.env` file, see `.env.example`) for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker. If you ever change the `[server]` port in `docker/config.docker.ini`, change the container side of the port mapping in `compose.yaml` to match.
+Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which takes host and port from the `[server]` section of `docker/config.docker.ini`, the image's `config.ini` -- only a dozen lines, since the web UI reads just the data paths and `[server]`, see `serverconfig.py`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on the host port set as `HOST_PORT` in a `.env` file next to it (required, there is no default -- see `.env.example`) for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker. If you ever change the `[server]` port in `docker/config.docker.ini`, change the container side of the port mapping in `compose.yaml` to match.
 
 **Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever `config.ini`'s `[server]` `auth_file` names a credentials file -- the image's config always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Your local `config.ini` has no such key, so `python server.py` needs no login. Create the file (one line, `username:password-hash`) with the command below, which writes the file from Python itself -- not with a shell redirect (`> auth.txt`), which in Windows PowerShell produces a UTF-16 file:
 
@@ -121,6 +121,7 @@ python -c "import getpass; from werkzeug.security import generate_password_hash 
 
 ```bash
 git clone https://github.com/karussellbremser/media-control.git && cd media-control && mkdir data   # on the server
+cp .env.example .env                                                                                  # on the server, then set HOST_PORT in it
 
 scp auth.txt user@server:media-control/auth.txt
 scp myMovieDB.db hidden_interests.txt user@server:media-control/data/
@@ -131,7 +132,7 @@ docker compose up -d --build                                                    
 
 Files must stay world-readable (the default for `scp`), since rootless Docker maps the container's user to a different host user than yours.
 
-**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy.py`, which needs a `deploy.ini` (copy `deploy.example.ini`: server, user, project directory, host port; not tracked by git) and the `paramiko` library (`pip install paramiko`). The whole run -- every command and transfer -- goes through **one** ssh connection, so a server that limits new logins sees a single one. It logs in with your ssh key and only trusts hosts already in your `~/.ssh/known_hosts`, so connect to the server once with the `ssh` command first.
+**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy.py`, which needs a `deploy.ini` (copy `deploy.example.ini`: server, user, project directory; not tracked by git) and the `paramiko` library (`pip install paramiko`). The whole run -- every command and transfer -- goes through **one** ssh connection, so a server that limits new logins sees a single one. It logs in with your ssh key and only trusts hosts already in your `~/.ssh/known_hosts`, so connect to the server once with the `ssh` command first.
 
 ```bash
 python deploy.py status                 # what runs on the server vs. what you have locally
@@ -149,6 +150,7 @@ Every command takes `--dry-run` (prints what it would change on the server, chan
 - Covers: the server's own file list is compared with yours; only new or changed files are sent, in one tar stream (made on the fly, no tar program needed).
 - `full` builds the new image while the old container keeps serving, and only then switches database and container over, so the downtime is just the restart (a few seconds). `code` does the same without the database.
 - After a restart or a database swap, the result is verified from inside the container: it answers on its port, its own user can read the database (the row count must match what was uploaded) and the covers. If not, the previous code and database are restored automatically.
+- The port the app answers on is asked of docker compose, so `.env` on the server stays the only place `HOST_PORT` is set. A `code` or `full` deploy to a server whose `.env` doesn't have it yet (from before `compose.yaml` required it) shows that in its plan and writes the port the running container publishes.
 - Permissions on `data/` are fixed after every upload (rootless Docker needs the files and folders world-readable), and `hidden_interests.txt` is uploaded and the container restarted when it changed. `auth.txt` is only read at server start: after changing it, run `docker compose restart` on the server.
 
 `docker/config.docker.ini` is the image's own config and is separate from your local `config.ini`; it only has to carry what `serverconfig.py` reads, so options for scanning, scraping and the like never need adding there.

@@ -7,7 +7,7 @@
 #   auth.txt   the web UI's login, one line "username:password-hash" (see README) -- the image's
 #              config makes it mandatory: the UI refuses to start without it, so it can never be
 #              exposed unprotected by accident
-#   .env       optional, see .env.example
+#   .env       required: sets HOST_PORT, the host port your reverse proxy forwards to (see .env.example)
 services:
   media-control:
     build: .
@@ -15,8 +15,9 @@ services:
     container_name: media-control
     restart: unless-stopped
     ports:
-      # <host port the proxy forwards to>:<the [server] port of docker/config.docker.ini>
-      - "${HOST_PORT:-6767}:5000"
+      # <host port the proxy forwards to, from .env -- required, no default>:<the [server] port of
+      # docker/config.docker.ini>
+      - "${HOST_PORT:?set HOST_PORT in a .env file next to compose.yaml (see .env.example)}:5000"
     volumes:
       # the whole directory, not single files: replacing the database by renaming a new file over it
       # (see README) would otherwise leave the container looking at the old file
