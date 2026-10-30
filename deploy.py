@@ -8,7 +8,9 @@
     python deploy.py rollback [--db]            back to the previous version (and, with --db, database)
 
 Every command takes --dry-run (prints what it would change on the server, changes nothing) and -y/--yes
-(no confirmation prompt). Connection details live in deploy.ini (copy deploy.example.ini).
+(no confirmation prompt). Connection details live in deploy.ini (copy deploy.example.ini). Needs the
+paramiko library (pip install paramiko): a whole run -- every command and transfer -- goes through ONE ssh
+connection, so a server that limits new logins sees a single one.
 
 What it does and checks:
   * The database is never copied live: a consistent snapshot is taken with SQLite's backup function and
@@ -19,7 +21,7 @@ What it does and checks:
   * code/full deploy what is on GitHub: the server pulls it. Uncommitted changes to tracked files, or
     commits that aren't pushed yet, are refused (--skip-git-check overrides that).
   * Covers: the server's own file list is compared with yours (name, size, time); only new or changed
-    files are sent, in one tar stream. Covers that exist on the server only are reported, and removed with
+    files are sent, in one tar stream (made in-process, no tar program needed). Covers that exist on the server only are reported, and removed with
     --prune.
   * Database swap: uploaded as myMovieDB.db.new, checked by SHA-256, then renamed over the live file (atomic);
     the previous one is kept as myMovieDB.db.prev.
@@ -31,14 +33,19 @@ import argparse
 import configparser
 import datetime
 import hashlib
+import io
 import os
 import pathlib
+import queue
 import shlex
 import shutil
 import sqlite3
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -76,22 +83,220 @@ def sha256(path):
 
 # ---------------------------------------------------------------------------------------------- server
 
+def _emit(data, stream):
+    """Writes raw output bytes of a remote command to this process's stdout/stderr as they arrive."""
+    target = sys.stdout if stream == "out" else sys.stderr
+    buffer = getattr(target, "buffer", None)
+    if buffer is not None:
+        buffer.write(data)
+    else:
+        target.write(data.decode("utf-8", "replace"))
+    target.flush()
+
+
+def _pump(source, write, close):
+    """Copies everything source.read() yields to write(), then close(); stops quietly if the other end went away."""
+    try:
+        while True:
+            block = source.read(1 << 16)
+            if not block:
+                break
+            write(block)
+    except (OSError, EOFError, ValueError):
+        pass
+    finally:
+        try:
+            close()
+        except (OSError, EOFError, ValueError):
+            pass
+
+
+class TarStream:
+    """File-like (read only) source of a tar archive of the given files, made on the fly in a thread so
+    nothing is staged on disk -- tarfile instead of a tar program, so it works the same on every machine."""
+
+    def __init__(self, baseDir, names):
+        self._queue = queue.Queue(maxsize=16)
+        self._rest = b""
+        self._done = False
+        self.error = None
+        self._thread = threading.Thread(target=self._produce, args=(baseDir, names), daemon=True)
+        self._thread.start()
+
+    class _Writer:
+        def __init__(self, q):
+            self._queue = q
+
+        def write(self, data):
+            self._queue.put(bytes(data))
+            return len(data)
+
+    def _produce(self, baseDir, names):
+        def normalize(info):
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            info.mode = 0o644
+            return info
+        try:
+            with tarfile.open(fileobj=TarStream._Writer(self._queue), mode="w|", format=tarfile.GNU_FORMAT) as archive:
+                for name in names:
+                    archive.add(os.path.join(baseDir, name), arcname=name, filter=normalize)
+        except Exception as e:  # reported by the caller, after the transfer has been cut short
+            self.error = e
+        finally:
+            self._queue.put(None)
+
+    def read(self, size):
+        while len(self._rest) < size and not self._done:
+            block = self._queue.get()
+            if block is None:
+                self._done = True
+            else:
+                self._rest += block
+        block, self._rest = self._rest[:size], self._rest[size:]
+        return block
+
+
+class ParamikoConnection:
+    """One ssh connection (paramiko), opened on first use, over which every command and transfer of a run is
+    a channel -- the server sees a single login however many steps there are."""
+
+    def __init__(self, host, port, user, identityFile, knownHosts):
+        self.host, self.port, self.user = host, port, user
+        self.identityFile, self.knownHosts = identityFile, knownHosts
+        self._client = None
+
+    def _connect(self):
+        try:
+            import paramiko
+        except ImportError:
+            raise DeployError("deploy.py needs the paramiko library: pip install paramiko")
+        client = paramiko.SSHClient()
+        if self.knownHosts:
+            client.load_host_keys(self.knownHosts)
+        else:
+            client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        passphrase = None
+        lastError = None
+        for attempt in range(1, 5):
+            try:
+                client.connect(self.host, port=self.port, username=self.user,
+                               key_filename=self.identityFile, look_for_keys=self.identityFile is None, allow_agent=True,
+                               passphrase=passphrase, timeout=20, banner_timeout=30, auth_timeout=30)
+                client.get_transport().set_keepalive(15)
+                self._client = client
+                return
+            except paramiko.PasswordRequiredException:
+                import getpass
+                passphrase = getpass.getpass("passphrase for your ssh key: ")
+            except paramiko.SSHException as e:
+                message = str(e)
+                if "known_hosts" in message or "host key" in message.lower():
+                    raise DeployError(message + "\nconnect to the server once with the ssh command to trust its host key, then try again")
+                if not any(word in message.lower() for word in ("banner", "reset", "timed out", "eof", "connection")):
+                    # a refused key, an unreadable key file, ...: retrying won't change that
+                    raise DeployError("ssh login to " + self.user + "@" + self.host + " failed (" + message + ") -- is the key in "
+                                      "deploy.ini's identity_file / ~/.ssh the one the server has?")
+                lastError = e
+            except OSError as e:
+                lastError = e
+            if attempt < 4:
+                time.sleep(3)
+        raise DeployError("can't connect to " + self.host + ":" + str(self.port) + ": " + str(lastError))
+
+    def execute(self, command, stdin=None, capture=False):
+        """Runs command in a new channel. Returns (exit code, stdout bytes, stderr bytes); output is passed on
+        live unless capture. stdin is a file-like object with read() or None."""
+        if self._client is None:
+            self._connect()
+        channel = self._client.get_transport().open_session()
+        channel.exec_command(command)
+        if stdin is not None:
+            writer = threading.Thread(target=_pump, args=(stdin, channel.sendall, channel.shutdown_write), daemon=True)
+            writer.start()
+        else:
+            channel.shutdown_write()
+        out, err = bytearray(), bytearray()
+        while True:
+            moved = False
+            if channel.recv_ready():
+                data = channel.recv(1 << 16)
+                moved = True
+                out += data if capture else b""
+                if not capture:
+                    _emit(data, "out")
+            if channel.recv_stderr_ready():
+                data = channel.recv_stderr(1 << 16)
+                moved = True
+                err += data if capture else b""
+                if not capture:
+                    _emit(data, "err")
+            if not moved:
+                if channel.exit_status_ready() and channel.eof_received and not channel.recv_ready() and not channel.recv_stderr_ready():
+                    break
+                time.sleep(0.02)
+        code = channel.recv_exit_status()
+        channel.close()
+        return code, bytes(out), bytes(err)
+
+    def close(self):
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+
+class SshProcessConnection:
+    """The alternative to paramiko: the system's ssh program, one process (= one connection) per command.
+    Chosen by setting ssh_command in deploy.ini."""
+
+    def __init__(self, sshCommand, host, port, user, identityFile):
+        base = shlex.split(sshCommand) + ["-o", "ConnectTimeout=15", "-o", "ConnectionAttempts=4", "-o", "ServerAliveInterval=15"]
+        if port != 22:
+            base += ["-p", str(port)]
+        if identityFile:
+            base += ["-i", identityFile]
+        self.base = base + [user + "@" + host]
+
+    def execute(self, command, stdin=None, capture=False):
+        piped = subprocess.PIPE if capture else None
+        proc = subprocess.Popen(self.base + [command], stdin=subprocess.PIPE if stdin is not None else None, stdout=piped, stderr=piped)
+        threads = []
+        if stdin is not None:
+            threads.append(threading.Thread(target=_pump, args=(stdin, proc.stdin.write, proc.stdin.close), daemon=True))
+        results = {}
+        if capture:
+            for name, pipe in (("out", proc.stdout), ("err", proc.stderr)):
+                threads.append(threading.Thread(target=lambda n=name, p=pipe: results.__setitem__(n, p.read()), daemon=True))
+        for thread in threads:
+            thread.start()
+        code = proc.wait()
+        for thread in threads:
+            thread.join()
+        return code, results.get("out", b""), results.get("err", b"")
+
+    def close(self):
+        pass
+
+
 class Remote:
-    """Runs commands on the server over ssh, always inside its project directory."""
+    """Runs commands on the server, always inside its project directory."""
 
     def __init__(self, section, dryRun):
         self.dry = dryRun
-        self.target = section["user"] + "@" + section["host"]
         self.dir = section["remote_dir"]
         self.hostPort = int(section["host_port"])
         self.prefix = section.get("remote_prefix", "").strip()
-        base = shlex.split(section.get("ssh_command", "ssh"))
-        base += ["-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15"]
-        if section.get("port", "").strip():
-            base += ["-p", section["port"].strip()]
-        if section.get("identity_file", "").strip():
-            base += ["-i", os.path.expanduser(section["identity_file"].strip())]
-        self.sshBase = base
+        host, user = section["host"], section["user"]
+        port = int(section.get("port", "").strip() or 22)
+        identityFile = os.path.expanduser(section.get("identity_file", "").strip()) or None
+        knownHosts = os.path.expanduser(section.get("known_hosts_file", "").strip()) or None
+        sshCommand = section.get("ssh_command", "").strip()
+        self.connection = SshProcessConnection(sshCommand, host, port, user, identityFile) if sshCommand \
+            else ParamikoConnection(host, port, user, identityFile, knownHosts)
+
+    def close(self):
+        self.connection.close()
 
     def _wrap(self, command):
         full = "cd " + shlex.quote(self.dir) + " && " + command
@@ -99,19 +304,17 @@ class Remote:
             full = self.prefix + " && " + full
         return "bash -lc " + shlex.quote(full)
 
-    def sshArgs(self, command):
-        return self.sshBase + [self.target, self._wrap(command)]
-
     def run(self, command, readonly=False, capture=False, check=True, stdin=None):
         """Runs command on the server. In a dry run, only readonly ones (listing, checking) really run;
-        the rest is just printed. Returns a CompletedProcess (stdout as text if capture)."""
+        the rest is just printed. Returns a CompletedProcess (stdout/stderr as text if capture)."""
         if self.dry and not readonly:
             print("   [dry-run] on the server: " + command)
             return subprocess.CompletedProcess([], 0, "", "")
-        result = subprocess.run(self.sshArgs(command), stdin=stdin, capture_output=capture, text=capture)
-        if check and result.returncode != 0:
-            raise DeployError("command failed on the server (exit " + str(result.returncode) + "): " + command +
-                              ("\n" + result.stderr.strip() if capture and result.stderr else ""))
+        code, out, err = self.connection.execute(self._wrap(command), stdin=stdin, capture=capture)
+        result = subprocess.CompletedProcess([], code, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+        if check and code != 0:
+            raise DeployError("command failed on the server (exit " + str(code) + "): " + command +
+                              ("\n" + result.stderr.strip() if capture and result.stderr.strip() else ""))
         return result
 
     def uploadFile(self, localPath, remotePath):
@@ -122,27 +325,16 @@ class Remote:
             self.run("cat > " + shlex.quote(remotePath), stdin=f)
 
     def uploadTar(self, localDir, names, remoteDir):
-        """Sends the files `names` of localDir to remoteDir as one tar stream through a single ssh connection."""
+        """Sends the files `names` of localDir to remoteDir as one tar stream."""
         if self.dry:
             print("   [dry-run] send %d files from %s to %s as one tar stream" % (len(names), localDir, remoteDir))
             return
-        tar = shutil.which("tar")
-        if tar is None:
-            raise DeployError("tar not found on this machine's PATH")
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, newline="\n") as f:
-            f.write("\n".join(names) + "\n")
-            listFile = f.name
-        try:
-            sender = subprocess.Popen([tar, "-cf", "-", "-C", localDir, "-T", listFile], stdout=subprocess.PIPE)
-            receiver = subprocess.Popen(self.sshArgs("mkdir -p " + shlex.quote(remoteDir) + " && tar -xf - -C " + shlex.quote(remoteDir)),
-                                        stdin=sender.stdout)
-            sender.stdout.close()
-            receiverCode = receiver.wait()
-            senderCode = sender.wait()
-        finally:
-            os.remove(listFile)
-        if senderCode != 0 or receiverCode != 0:
-            raise DeployError("sending files to " + remoteDir + " failed (tar exit " + str(senderCode) + ", ssh/tar exit " + str(receiverCode) + ")")
+        stream = TarStream(localDir, names)
+        result = self.run("mkdir -p " + shlex.quote(remoteDir) + " && tar -xf - -C " + shlex.quote(remoteDir), stdin=stream, check=False)
+        if stream.error is not None:
+            raise DeployError("reading the files to send failed: " + str(stream.error))
+        if result.returncode != 0:
+            raise DeployError("sending files to " + remoteDir + " failed (exit " + str(result.returncode) + ")")
 
     def listFiles(self, remoteDir):
         """{name: (size, mtime)} of the regular files directly in remoteDir ({} if it doesn't exist yet)."""
@@ -334,10 +526,8 @@ def sendCovers(remote, paths, plans, prune):
         if prune and serverOnly:
             print("   %s: removing %d files that only exist on the server" % (sub, len(serverOnly)))
             if not remote.dry:
-                result = subprocess.run(remote.sshArgs("cd " + shlex.quote(DATA_DIR + "/" + sub) + " && xargs -d '\\n' rm -f --"),
-                                        input=("\n".join(serverOnly) + "\n").encode("utf-8"))  # bytes: text mode would turn "\n" into CRLF on Windows
-                if result.returncode != 0:
-                    raise DeployError("removing server-only covers failed")
+                remote.run("cd " + shlex.quote(DATA_DIR + "/" + sub) + " && xargs -d '\\n' rm -f --",
+                           stdin=io.BytesIO(("\n".join(serverOnly) + "\n").encode("utf-8")))
             else:
                 print("   [dry-run] remove " + ", ".join(serverOnly[:5]) + (" ..." if len(serverOnly) > 5 else ""))
 
@@ -682,6 +872,7 @@ def main():
         print("\nERROR: " + str(e))
         return 1
     finally:
+        remote.close()
         shutil.rmtree(workDir, ignore_errors=True)
     return 0
 

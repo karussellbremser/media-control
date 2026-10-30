@@ -131,7 +131,7 @@ docker compose up -d --build                                                    
 
 Files must stay world-readable (the default for `scp`), since rootless Docker maps the container's user to a different host user than yours.
 
-**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy.py`, which needs a `deploy.ini` (copy `deploy.example.ini`: server, user, project directory, host port; not tracked by git) and the `ssh` and `tar` that Windows already ships.
+**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy.py`, which needs a `deploy.ini` (copy `deploy.example.ini`: server, user, project directory, host port; not tracked by git) and the `paramiko` library (`pip install paramiko`). The whole run -- every command and transfer -- goes through **one** ssh connection, so a server that limits new logins sees a single one. It logs in with your ssh key and only trusts hosts already in your `~/.ssh/known_hosts`, so connect to the server once with the `ssh` command first.
 
 ```bash
 python deploy.py status                 # what runs on the server vs. what you have locally
@@ -146,7 +146,7 @@ Every command takes `--dry-run` (prints what it would change on the server, chan
 - The database is never copied live: a consistent snapshot is taken with SQLite's backup function, checked with `integrity_check`, and that snapshot is uploaded -- as `myMovieDB.db.new`, verified by SHA-256, then renamed over the live file (atomic). The previous database stays as `myMovieDB.db.prev`.
 - Before anything reaches the server, the server code of your working tree is run against that snapshot (pages, search with filters and every sort order, detail views), so code and database that don't fit together are caught on your machine.
 - `code` and `full` deploy what is on GitHub (the server pulls it): uncommitted changes to tracked files, or commits that aren't pushed, are refused (`--skip-git-check` overrides that).
-- Covers: the server's own file list is compared with yours; only new or changed files are sent, in one tar stream through a single ssh connection.
+- Covers: the server's own file list is compared with yours; only new or changed files are sent, in one tar stream (made on the fly, no tar program needed).
 - `full` builds the new image while the old container keeps serving, and only then switches database and container over, so the downtime is just the restart (a few seconds). `code` does the same without the database.
 - After a restart or a database swap, the result is verified from inside the container: it answers on its port, its own user can read the database (the row count must match what was uploaded) and the covers. If not, the previous code and database are restored automatically.
 - Permissions on `data/` are fixed after every upload (rootless Docker needs the files and folders world-readable), and `hidden_interests.txt` is uploaded and the container restarted when it changed. `auth.txt` is only read at server start: after changing it, run `docker compose restart` on the server.
