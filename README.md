@@ -131,19 +131,24 @@ docker compose up -d --build                                                    
 
 Files must stay world-readable (the default for `scp`), since rootless Docker maps the container's user to a different host user than yours.
 
-**Updating content.** No rebuild or restart needed -- the server opens the database for every request and serves covers straight from `data/`. Upload the database under another name and rename it over the old one, so no request can ever see a half-written file:
+**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy.py`, which needs a `deploy.ini` (copy `deploy.example.ini`: server, user, project directory, host port; not tracked by git) and the `ssh` and `tar` that Windows already ships.
 
 ```bash
-scp myMovieDB.db user@server:media-control/data/myMovieDB.db.new
-ssh user@server "mv media-control/data/myMovieDB.db.new media-control/data/myMovieDB.db"
+python deploy.py status                 # what runs on the server vs. what you have locally
+python deploy.py content                # new/changed covers and the current database
+python deploy.py code                   # the server code, as pushed to GitHub
+python deploy.py full                   # both, switched over together (code that needs a changed database format, e.g. a new column)
+python deploy.py rollback [--db]        # back to the previous version (and, with --db, the previous database)
 ```
 
-New or changed cover files are copied into `data/covers` / `data/covers_small` the same way. `hidden_interests.txt` and `auth.txt` are only read at server start: after changing either, run `docker compose restart` on the server.
+Every command takes `--dry-run` (prints what it would change on the server, changes nothing) and `-y` (no confirmation prompt); `content` and `full` take `--prune` (also delete covers that exist on the server only, which are otherwise just reported) and `--skip-covers`, `content` also `--skip-db`. What it does and checks:
 
-**Updating the code:**
-
-```bash
-ssh user@server "cd media-control && git pull && docker compose up -d --build"
-```
+- The database is never copied live: a consistent snapshot is taken with SQLite's backup function, checked with `integrity_check`, and that snapshot is uploaded -- as `myMovieDB.db.new`, verified by SHA-256, then renamed over the live file (atomic). The previous database stays as `myMovieDB.db.prev`.
+- Before anything reaches the server, the server code of your working tree is run against that snapshot (pages, search with filters and every sort order, detail views), so code and database that don't fit together are caught on your machine.
+- `code` and `full` deploy what is on GitHub (the server pulls it): uncommitted changes to tracked files, or commits that aren't pushed, are refused (`--skip-git-check` overrides that).
+- Covers: the server's own file list is compared with yours; only new or changed files are sent, in one tar stream through a single ssh connection.
+- `full` builds the new image while the old container keeps serving, and only then switches database and container over, so the downtime is just the restart (a few seconds). `code` does the same without the database.
+- After a restart or a database swap, the result is verified from inside the container: it answers on its port, its own user can read the database (the row count must match what was uploaded) and the covers. If not, the previous code and database are restored automatically.
+- Permissions on `data/` are fixed after every upload (rootless Docker needs the files and folders world-readable), and `hidden_interests.txt` is uploaded and the container restarted when it changed. `auth.txt` is only read at server start: after changing it, run `docker compose restart` on the server.
 
 `docker/config.docker.ini` is the image's own config and is separate from your local `config.ini`; it only has to carry what `serverconfig.py` reads, so options for scanning, scraping and the like never need adding there.

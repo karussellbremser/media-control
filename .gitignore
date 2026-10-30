@@ -4,3 +4,5 @@
 /data/
 /auth.txt
 /.env
+# deploy.py's connection settings (see deploy.example.ini)
+/deploy.ini
