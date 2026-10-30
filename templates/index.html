@@ -57,6 +57,7 @@
             box-sizing: border-box;
         }
 
+		/* an input with an "x" button inside it that clears it (see static/search.js's setupClearButton) */
 		.search-field {
 			position: relative;
 			margin-bottom: 10px; /* moved here from the input itself, so the wrapper's own height
@@ -87,6 +88,20 @@
 			line-height: 1;
 			cursor: pointer;
 			padding: 0;
+			margin: 0;
+		}
+
+		/* no native spin buttons on the number fields: browsers put them in different places (over the
+		   padding in Chrome, inside it in Firefox), where they would collide with the clear button at the
+		   field's right edge. Typing, the arrow keys and the mouse wheel still step the value. */
+		.search-field input[type="number"] {
+			-moz-appearance: textfield;
+			appearance: textfield;
+		}
+
+		.search-field input[type="number"]::-webkit-inner-spin-button,
+		.search-field input[type="number"]::-webkit-outer-spin-button {
+			-webkit-appearance: none;
 			margin: 0;
 		}
 
@@ -910,7 +925,7 @@
 		
 		<div class="search-field">
 			<input type="text" id="searchInput" placeholder="Search titles">
-			<button type="button" id="searchClearBtn" class="search-field-clear" aria-label="Clear search">✕</button>
+			<button type="button" class="search-field-clear" aria-label="Clear search">✕</button>
 		</div>
 
 		<h3>Type</h3>
@@ -949,7 +964,10 @@
 		</div>
 
 		<h3>Subgenres</h3>
-		<input type="text" id="interestSearchInput" placeholder="Filter subgenres">
+		<div class="search-field">
+			<input type="text" id="interestSearchInput" placeholder="Filter subgenres">
+			<button type="button" class="search-field-clear" aria-label="Clear subgenre filter">✕</button>
+		</div>
 		<div class="interest-groups">
 		{% for genre_id, genre_name, subinterests in interestGroups %}
 			<div class="interest-group">
@@ -981,16 +999,34 @@
 		</div>
 
 		<h3>Year</h3>
-		<input type="number" id="yearFrom" placeholder="from">
-		<input type="number" id="yearTo" placeholder="to">
+		<div class="search-field">
+			<input type="number" id="yearFrom" placeholder="from">
+			<button type="button" class="search-field-clear" aria-label="Clear year from">✕</button>
+		</div>
+		<div class="search-field">
+			<input type="number" id="yearTo" placeholder="to">
+			<button type="button" class="search-field-clear" aria-label="Clear year to">✕</button>
+		</div>
 
 		<h3>IMDb Rating</h3>
-		<input type="number" step="0.1" id="ratingFrom" placeholder="from">
-		<input type="number" step="0.1" id="ratingTo" placeholder="to">
+		<div class="search-field">
+			<input type="number" step="0.1" id="ratingFrom" placeholder="from">
+			<button type="button" class="search-field-clear" aria-label="Clear rating from">✕</button>
+		</div>
+		<div class="search-field">
+			<input type="number" step="0.1" id="ratingTo" placeholder="to">
+			<button type="button" class="search-field-clear" aria-label="Clear rating to">✕</button>
+		</div>
 
 		<h3># of IMDb Votes:</h3>
-		<input type="number" id="votesFrom" placeholder="from">
-		<input type="number" id="votesTo" placeholder="to">
+		<div class="search-field">
+			<input type="number" id="votesFrom" placeholder="from">
+			<button type="button" class="search-field-clear" aria-label="Clear votes from">✕</button>
+		</div>
+		<div class="search-field">
+			<input type="number" id="votesTo" placeholder="to">
+			<button type="button" class="search-field-clear" aria-label="Clear votes to">✕</button>
+		</div>
 	</div>
 
 	<!-- right side -->

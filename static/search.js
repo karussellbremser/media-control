@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	const resetButton = document.getElementById('resetButton');
 
     const input = document.getElementById('searchInput');
-    const searchClearBtn = document.getElementById('searchClearBtn');
     const results = document.getElementById('results');
     const resultCount = document.getElementById('resultCount');
 	const errorBanner = document.getElementById('errorBanner');
@@ -520,13 +519,28 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 
-	function updateSearchClearButton() {
-		searchClearBtn.classList.toggle('visible', input.value.length > 0);
+	// the "x" button inside a field (see .search-field in index.html): visible while the field has content
+	// (a half-typed number counts, though its value is still empty), clears it and then runs onCleared
+	const clearButtonUpdaters = [];
+	function setupClearButton(field, onCleared) {
+		const button = field.parentElement.querySelector('.search-field-clear');
+		const update = () => button.classList.toggle('visible', field.value.length > 0 || field.validity.badInput);
+		field.addEventListener('input', update);
+		button.addEventListener('click', () => {
+			field.value = '';
+			update();
+			field.focus();
+			onCleared();
+		});
+		clearButtonUpdaters.push(update);
+	}
+
+	function refreshClearButtons() {
+		clearButtonUpdaters.forEach(update => update());
 	}
 
 	function resetFilters() {
 		input.value = '';
-		updateSearchClearButton();
 
 		sortSelect.value = 'year';
 		orderButton.disabled = false;
@@ -551,6 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelectorAll('label.excluded').forEach(label => label.classList.remove('excluded'));
 		interestSearchInput.value = '';
 		filterInterests();
+		refreshClearButtons();
 
 		currentPage = 1;
 		allLoaded = false;
@@ -786,17 +801,11 @@ document.addEventListener('DOMContentLoaded', () => {
         resetAndSearch(input.value);
     });
 
-    input.addEventListener('input', () => {
-        updateSearchClearButton();
-        debounceSearch(input.value);
-    });
+    input.addEventListener('input', () => debounceSearch(input.value));
 
-	searchClearBtn.addEventListener('click', () => {
-		input.value = '';
-		updateSearchClearButton();
-		input.focus();
-		resetAndSearch(input.value);
-	});
+	setupClearButton(input, () => resetAndSearch(input.value));
+	[yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => setupClearButton(el, () => resetAndSearch(input.value)));
+	setupClearButton(interestSearchInput, filterInterests);
 
 	sortSelect.addEventListener('change', () => {
 		if (sortSelect.value === 'random') {
