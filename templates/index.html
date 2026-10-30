@@ -36,6 +36,7 @@
             overflow-y: auto;
             background-color: #dcdcdc;
             padding: 15px;
+            padding-top: 0; /* the sticky header below supplies the top padding itself */
             box-sizing: border-box;
             position: fixed;
             left: 0;
@@ -241,9 +242,24 @@
 			display: none;
 		}
 
-		/* on the sidebar's toggle button's row (32px high, 15px sidebar padding); absolutely positioned
-		   rather than wrapped together with the button, since a wrapper would be hidden along with
-		   everything else when the sidebar is collapsed -- see .sidebar.collapsed below */
+		/* the toggle button, the title count and the reset button stay at the top of the sidebar while its
+		   filters scroll underneath: the negative side margins reach over the sidebar's 15px padding, so
+		   nothing shows beside the header */
+		.sidebarHeader {
+			position: sticky;
+			top: 0;
+			z-index: 2;
+			margin: 0 -15px;
+			padding: 15px 15px 6px;
+			background-color: #dcdcdc;
+			box-shadow: 0 4px 4px -4px rgba(0, 0, 0, 0.25);
+		}
+
+		.sidebarHeader #resetButton {
+			margin-bottom: 0; /* the header's own bottom padding is the gap, so it isn't a margin sticking out under the background */
+		}
+
+		/* the count sits on the toggle button's row (32px high), centered across the header's width */
 		#resultCount {
 			position: absolute;
 			top: 15px;
@@ -413,8 +429,14 @@
 			padding-right: 6px;
 		}
 		
-		.sidebar.collapsed *:not(#toggleSidebarBtn):not(#toggleSidebarBtn *) {
+		.sidebar.collapsed *:not(#toggleSidebarBtn):not(#toggleSidebarBtn *):not(.sidebarHeader) {
 			display: none;
+		}
+
+		.sidebar.collapsed .sidebarHeader {
+			margin: 0;
+			padding: 0;
+			box-shadow: none;
 		}
 
 		#toggleSidebarBtn {
@@ -868,15 +890,17 @@
 
     <!-- left side -->
     <div class="sidebar">
-		<button id="toggleSidebarBtn" aria-label="Toggle sidebar">
-			<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="11 6 5 12 11 18"></polyline>
-				<polyline points="19 6 13 12 19 18"></polyline>
-			</svg>
-		</button>
-		<div id="resultCount"></div>
+		<div class="sidebarHeader">
+			<button id="toggleSidebarBtn" aria-label="Toggle sidebar">
+				<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<polyline points="11 6 5 12 11 18"></polyline>
+					<polyline points="19 6 13 12 19 18"></polyline>
+				</svg>
+			</button>
+			<div id="resultCount"></div>
 		
-		<button id="resetButton">RESET FILTERS</button>
+			<button id="resetButton">RESET FILTERS</button>
+		</div>
 		
 		<h3>View</h3>
 		<button id="listViewBtn">List</button>
