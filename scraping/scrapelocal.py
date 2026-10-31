@@ -1,8 +1,8 @@
 import sys, os, re, fnmatch
-from media import Media
-from mediaversion import MediaVersion
-from episode import Episode
-from exceptions import LocalLibraryError
+from model.media import Media
+from model.mediaversion import MediaVersion
+from model.episode import Episode
+from model.exceptions import LocalLibraryError
 import config
 
 class ScrapeLocal:

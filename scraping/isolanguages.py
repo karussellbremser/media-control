@@ -3,8 +3,8 @@ DBControl.createMediaDB (a fresh DB) and tools/migrate_language_codes_to_iso639_
 one), so both stay based on the exact same data and logic.
 
 The two tab-delimited source files (see _ensureLocalDataFiles) are downloaded on demand from
-iso639-3.sil.org, the standard's maintenance agency, into a local iso639-3/ cache -- deliberately
-NOT checked into version control (see .git/info/exclude). Per SIL's published Terms of Use,
+iso639-3.sil.org, the standard's maintenance agency, into a local cache/iso639-3/ folder (config.ini's
+[paths] cache_dir) -- deliberately NOT checked into version control (see .gitignore). Per SIL's published Terms of Use,
 attribution to iso639-3.sil.org is given here, the codes are used unmodified, and "the product,
 system, or device does not provide a means to redistribute the code set" -- since this repo is
 public, committing the raw files would itself be exactly that redistribution channel, so they're
@@ -15,7 +15,9 @@ import csv
 import os
 import requests
 
-_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "iso639-3")
+import config
+
+_BASE_DIR = os.path.join(config.CACHE_DIR, "iso639-3")
 _CODE_SET_FILENAME = "iso-639-3.tab"
 _MACROLANGUAGES_FILENAME = "iso-639-3-macrolanguages.tab"
 _DOWNLOAD_BASE_URL = "https://iso639-3.sil.org/sites/iso639-3/files/downloads/"

@@ -1,8 +1,11 @@
-# server deployment (see compose.yaml / README): the data directory next to compose.yaml holds the
-# database and covers, auth.txt the web UI's login, .env the deployment's own settings -- none of
-# them belongs in the repository
+# the user's own data: the database, covers, backups, the lists of ids (config.ini's [paths]) -- and, on a
+# server, the same folder holds what compose.yaml mounts at /data. Never part of the repository.
 /data/
+# files that are only downloaded or derived and can be rebuilt: the ISO code tables, the IMDb helper DB,
+# the cropping cache, the Chrome profile
+/cache/
+# server deployment (see compose.yaml / README): auth.txt is the web UI's login, .env the deployment's own settings
 /auth.txt
 /.env
-# deploy.py's connection settings (see deploy.example.ini)
-/deploy.ini
+# deploy.py's connection settings (see deploy/deploy.example.ini)
+/deploy/deploy.ini

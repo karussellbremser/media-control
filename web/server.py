@@ -2,8 +2,8 @@ from flask import Flask, Response, render_template, request, jsonify, send_from_
 from werkzeug.security import check_password_hash
 import sqlite3, os, sys, hashlib, hmac, codecs
 import serverconfig
-from imdbinterestid import parseInterestID
-from media import Media
+from model.imdbinterestid import parseInterestID
+from model.media import Media
 
 server = Flask(__name__)
 

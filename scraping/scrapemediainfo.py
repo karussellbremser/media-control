@@ -2,9 +2,9 @@ import json
 import os
 import subprocess
 
-from audiotrack import AudioTrack
-from subtitletrack import SubtitleTrack
-from exceptions import LocalLibraryError, MediaInfoError
+from model.audiotrack import AudioTrack
+from model.subtitletrack import SubtitleTrack
+from model.exceptions import LocalLibraryError, MediaInfoError
 
 class ScrapeMediaInfo:
     """Runs the MediaInfo CLI over locally-owned mkv files and populates a MediaVersion's technical

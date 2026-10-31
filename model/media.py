@@ -1,6 +1,6 @@
 import re
 
-from exceptions import LocalLibraryError
+from model.exceptions import LocalLibraryError
 
 class Media:
 

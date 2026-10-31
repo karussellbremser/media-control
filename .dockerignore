@@ -2,12 +2,11 @@
 # scraping profile, backups etc. can never end up in the image even by accident
 **
 !requirements-server.txt
-!server.py
 !serverconfig.py
-!media.py
-!imdbinterestid.py
-!exceptions.py
-!gunicorn.conf.py
-!templates/**
-!static/**
-!docker/config.docker.ini
+!model/__init__.py
+!model/media.py
+!model/imdbinterestid.py
+!model/exceptions.py
+!web/**
+!deploy/config.docker.ini
+**/__pycache__

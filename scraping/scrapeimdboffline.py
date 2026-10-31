@@ -1,8 +1,8 @@
 import csv, requests, gzip, shutil, os, sqlite3, tempfile
-from media import Media
-from scrapeimdbonline import ScrapeIMDbOnline
-from exceptions import OfflineDatasetError
-from verbosity import printAlways, printDetail
+from model.media import Media
+from scraping.scrapeimdbonline import ScrapeIMDbOnline
+from model.exceptions import OfflineDatasetError
+from model.verbosity import printAlways, printDetail
 
 class ScrapeIMDbOffline:
 

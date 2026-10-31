@@ -1,13 +1,13 @@
 import sqlite3
-from media import Media
-from mediaversion import MediaVersion
-from mediaconnection import MediaConnection
-from person import Person
-from credit import Credit
-from exceptions import LocalLibraryError, OfflineDatasetError
-from verbosity import printDetail
-from isolanguages import seedIsoLanguageEnum, buildLookup
-from isocountries import seedIsoCountryEnum, buildLookup as buildCountryLookup
+from model.media import Media
+from model.mediaversion import MediaVersion
+from model.mediaconnection import MediaConnection
+from model.person import Person
+from model.credit import Credit
+from model.exceptions import LocalLibraryError, OfflineDatasetError
+from model.verbosity import printDetail
+from scraping.isolanguages import seedIsoLanguageEnum, buildLookup
+from scraping.isocountries import seedIsoCountryEnum, buildLookup as buildCountryLookup
 
 class DBControl:
 

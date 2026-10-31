@@ -1,14 +1,14 @@
 """Deploys the web UI to the server it is hosted on (see README.md, "Hosting the web UI with Docker").
 
-    python deploy.py status                     what runs on the server vs. what you have locally
-    python deploy.py content [--prune]          new/changed covers and the current database
-    python deploy.py code                       the server code (what is pushed to GitHub)
-    python deploy.py full [--prune]             both, switched over together -- for code that needs a
+    python deploy/deploy.py status                     what runs on the server vs. what you have locally
+    python deploy/deploy.py content [--prune]          new/changed covers and the current database
+    python deploy/deploy.py code                       the server code (what is pushed to GitHub)
+    python deploy/deploy.py full [--prune]             both, switched over together -- for code that needs a
                                                 changed database format (e.g. a new column)
-    python deploy.py rollback [--db]            back to the previous version (and, with --db, database)
+    python deploy/deploy.py rollback [--db]            back to the previous version (and, with --db, database)
 
 Every command takes --dry-run (prints what it would change on the server, changes nothing) and -y/--yes
-(no confirmation prompt). Connection details live in deploy.ini (copy deploy.example.ini). Needs the
+(no confirmation prompt). Connection details live in deploy/deploy.ini (copy deploy/deploy.example.ini). Needs the
 paramiko library (pip install paramiko): a whole run -- every command and transfer -- goes through ONE ssh
 connection, so a server that limits new logins sees a single one.
 
@@ -48,16 +48,17 @@ import tempfile
 import threading
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+HERE = os.path.dirname(os.path.abspath(__file__))  # deploy/
+ROOT = os.path.dirname(HERE)  # the project root: git runs here, and serverconfig.py and the packages (web/, ...) live here
+sys.path.insert(0, ROOT)
 
-# names inside the server's data directory -- must match docker/config.docker.ini and compose.yaml
+# names inside the server's data directory -- must match deploy/config.docker.ini and compose.yaml
 DATA_DIR = "data"
 DB_NAME = "myMovieDB.db"
 COVER_DIRS = ("covers_small", "covers")
 HIDDEN_NAME = "hidden_interests.txt"
 IMAGE = "media-control"  # compose.yaml's image and service name
-CONTAINER_PORT = 5000  # the [server] port of docker/config.docker.ini, i.e. what compose.yaml publishes
+CONTAINER_PORT = 5000  # the [server] port of deploy/config.docker.ini, i.e. what compose.yaml publishes
 
 
 class DeployError(Exception):
@@ -435,9 +436,9 @@ def runSmoke(snapshotPath):
     """Child process of smokeTest: the real app, through Flask's test client, on the snapshot."""
     import serverconfig
     serverconfig.DB_PATH = snapshotPath
-    import server
-    server.AUTH_CREDENTIALS = None
-    client = server.server.test_client()
+    import web.server as webserver
+    webserver.AUTH_CREDENTIALS = None
+    client = webserver.server.test_client()
     requests = 0
 
     def get(path):
@@ -481,7 +482,7 @@ def gitCheck(branch):
     step("checking that what's on GitHub is what you have")
 
     def git(*args):
-        result = subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True)
+        result = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
         if result.returncode != 0:
             raise DeployError("git " + " ".join(args) + " failed: " + result.stderr.strip())
         return result.stdout.strip()
@@ -682,7 +683,7 @@ def cmdStatus(remote, paths):
         "echo \"container:   $(docker compose ps --format '{{.Name}} {{.Status}}' 2>/dev/null | head -1)\"", readonly=True, capture=True).stdout
     print(out.rstrip())
     step("this machine")
-    head = subprocess.run(["git", "log", "-1", "--format=%h %s (%cd)", "--date=short"], cwd=HERE, capture_output=True, text=True).stdout.strip()
+    head = subprocess.run(["git", "log", "-1", "--format=%h %s (%cd)", "--date=short"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     print("commit:      " + head)
     if os.path.isfile(paths["db"]):
         print("database:    %d bytes, %s" % (os.path.getsize(paths["db"]),
@@ -888,7 +889,7 @@ def main():
         return 0
 
     if not os.path.isfile(args.config):
-        print("no " + args.config + " -- copy deploy.example.ini to deploy.ini and fill it in")
+        print("no " + args.config + " -- copy deploy/deploy.example.ini to deploy/deploy.ini and fill it in")
         return 1
     config = configparser.ConfigParser()
     config.read(args.config, encoding="utf-8")

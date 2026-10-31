@@ -8,7 +8,7 @@ and no notion of what's currently valid or already stored.
 """
 import os
 
-from mediaconnection import MediaConnection
+from model.mediaconnection import MediaConnection
 
 # the reciprocal type for each of the 8 known connection types, or None if the type has no
 # reciprocal -- version_of/alternate_language_version_of: IMDb doesn't track a reverse category for

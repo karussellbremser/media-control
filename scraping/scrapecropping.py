@@ -2,8 +2,8 @@ import os
 import re
 import subprocess
 
-from exceptions import FFmpegError, LocalLibraryError, CroppingError
-from verbosity import printVerbose
+from model.exceptions import FFmpegError, LocalLibraryError, CroppingError
+from model.verbosity import printVerbose
 
 class ScrapeCropping:
     """Determines each locally-owned mediaVersion's actual (top, bottom, left, right) cropping --

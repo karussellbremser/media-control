@@ -19,6 +19,23 @@ Management functionality is similar to the ones of Plex or Kodi, but specificall
 - Custom connections: a `custom_connections.txt` file lets you declare relationships between titles that IMDb itself doesn't list (e.g. `tt_id follows tt_id`, `tt_id spin_off_from tt_id`, chains and groups for ordered/undirected relationships) -- reconciled against the database at the end of every sync, without ever overriding or conflicting with IMDb-sourced connections.
 - Three-tier console verbosity, configurable per run.
 
+## Project layout
+
+```
+main.py                 command-line entry point (sync, refresh, update, stats, backup)
+config.py, serverconfig.py, config.example.ini    configuration (serverconfig.py: just the part the web UI needs)
+model/                  the data types (media, versions, tracks, people, ...), exceptions, output verbosity
+db/                     the SQLite database layer (dbcontrol, backups) and the statistics
+scraping/               everything that reads data in: the local library, MediaInfo, ffmpeg cropping detection, IMDb (online and offline datasets), ISO code tables
+web/                    the web UI: Flask app (server.py), its templates/ and static/ files, gunicorn settings
+deploy/                 deploy.py, which updates the hosted web UI, and the docker image's own config
+Dockerfile, compose.yaml, .env.example    the docker setup of the web UI (these have to sit at the project root)
+data/                   YOUR data, not in git: the database, covers, backups, the id lists
+cache/                  rebuildable files, not in git: the ISO code tables, the IMDb helper DB, the cropping cache, the Chrome profile
+```
+
+`data/` and `cache/` are only the defaults of `config.example.ini`: every path is set in `config.ini`.
+
 ## Requirements
 
 - Python 3
@@ -40,7 +57,8 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 
 **`[paths]`**
 - `media_dir` — root directory of your local media library
-- `db_path`, `covers_dir`, `covers_small_dir` — where the database and cover images are stored (relative paths resolve against the project directory)
+- `db_path`, `covers_dir`, `covers_small_dir` — where the database and cover images are stored (relative paths resolve against the project directory; by default in `data/`)
+- `cache_dir` — optional, defaults to `cache`: where the downloaded ISO code tables are kept (the Chrome profile, the IMDb helper DB and the cropping cache are in `cache/` by default too, set by their own options)
 - `mediainfo_path` — path to the MediaInfo CLI executable
 - `ffmpeg_path` — path to the ffmpeg executable
 - `chrome_profile_dir` — persistent Chrome profile (cookies/session state), reused across runs
@@ -104,14 +122,14 @@ python main.py --sync --max-count 5  # override config.ini's [scraping] max_coun
 To browse the collection in a browser:
 
 ```bash
-python server.py
+python -m web.server
 ```
 
 ## Hosting the web UI with Docker
 
-Only the web UI (`server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which takes host and port from the `[server]` section of `docker/config.docker.ini`, the image's `config.ini` -- only a dozen lines, since the web UI reads just the data paths and `[server]`, see `serverconfig.py`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on the host port set as `HOST_PORT` in a `.env` file next to it (required, there is no default -- see `.env.example`) for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker. If you ever change the `[server]` port in `docker/config.docker.ini`, change the container side of the port mapping in `compose.yaml` to match.
+Only the web UI (`web/server.py`) is meant to be hosted; scanning, scraping, MediaInfo and ffmpeg stay on the machine that owns the media library. The `Dockerfile` builds an image holding the code only (served by gunicorn, which takes host and port from the `[server]` section of `deploy/config.docker.ini`, the image's `config.ini` -- only a dozen lines, since the web UI reads just the data paths and `[server]`, see `serverconfig.py`); the database, covers and `hidden_interests.txt` live in a `data/` directory next to `compose.yaml` that is mounted read-only at `/data`, so updating them never needs a rebuild. `compose.yaml` publishes the app on the host port set as `HOST_PORT` in a `.env` file next to it (required, there is no default -- see `.env.example`) for a reverse proxy to forward to (it does the HTTPS), and is written for rootless Docker. If you ever change the `[server]` port in `deploy/config.docker.ini`, change the container side of the port mapping in `compose.yaml` to match.
 
-**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever `config.ini`'s `[server]` `auth_file` names a credentials file -- the image's config always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Your local `config.ini` has no such key, so `python server.py` needs no login. Create the file (one line, `username:password-hash`) with the command below, which writes the file from Python itself -- not with a shell redirect (`> auth.txt`), which in Windows PowerShell produces a UTF-16 file:
+**Login.** The whole site (pages, API and covers) is protected by HTTP basic auth whenever `config.ini`'s `[server]` `auth_file` names a credentials file -- the image's config always sets it, and the server refuses to start if the file is missing or malformed, so it can't be exposed unprotected by accident. Your local `config.ini` has no such key, so `python -m web.server` needs no login. Create the file (one line, `username:password-hash`) with the command below, which writes the file from Python itself -- not with a shell redirect (`> auth.txt`), which in Windows PowerShell produces a UTF-16 file:
 
 ```bash
 python -c "import getpass; from werkzeug.security import generate_password_hash as g; open('auth.txt','w',encoding='utf-8').write('yourname:' + g(getpass.getpass('password: ')) + '\n')"
@@ -124,22 +142,22 @@ git clone https://github.com/karussellbremser/media-control.git && cd media-cont
 cp .env.example .env                                                                                  # on the server, then set HOST_PORT in it
 
 scp auth.txt user@server:media-control/auth.txt
-scp myMovieDB.db hidden_interests.txt user@server:media-control/data/
-scp -r covers covers_small user@server:media-control/data/
+scp data/myMovieDB.db data/hidden_interests.txt user@server:media-control/data/
+scp -r data/covers data/covers_small user@server:media-control/data/
 
 docker compose up -d --build                                                                         # on the server
 ```
 
 Files must stay world-readable (the default for `scp`), since rootless Docker maps the container's user to a different host user than yours.
 
-**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy.py`, which needs a `deploy.ini` (copy `deploy.example.ini`: server, user, project directory; not tracked by git) and the `paramiko` library (`pip install paramiko`). The whole run -- every command and transfer -- goes through **one** ssh connection, so a server that limits new logins sees a single one. It logs in with your ssh key and only trusts hosts already in your `~/.ssh/known_hosts`, so connect to the server once with the `ssh` command first.
+**Updating: `deploy.py`.** After the first deployment, updates are done from the machine that owns the library with `deploy/deploy.py`, which needs a `deploy/deploy.ini` (copy `deploy/deploy.example.ini`: server, user, project directory; not tracked by git) and the `paramiko` library (`pip install paramiko`). The whole run -- every command and transfer -- goes through **one** ssh connection, so a server that limits new logins sees a single one. It logs in with your ssh key and only trusts hosts already in your `~/.ssh/known_hosts`, so connect to the server once with the `ssh` command first.
 
 ```bash
-python deploy.py status                 # what runs on the server vs. what you have locally
-python deploy.py content                # new/changed covers and the current database
-python deploy.py code                   # the server code, as pushed to GitHub
-python deploy.py full                   # both, switched over together (code that needs a changed database format, e.g. a new column)
-python deploy.py rollback [--db]        # back to the previous version (and, with --db, the previous database)
+python deploy/deploy.py status                 # what runs on the server vs. what you have locally
+python deploy/deploy.py content                # new/changed covers and the current database
+python deploy/deploy.py code                   # the server code, as pushed to GitHub
+python deploy/deploy.py full                   # both, switched over together (code that needs a changed database format, e.g. a new column)
+python deploy/deploy.py rollback [--db]        # back to the previous version (and, with --db, the previous database)
 ```
 
 Every command takes `--dry-run` (prints what it would change on the server, changes nothing) and `-y` (no confirmation prompt); `content` and `full` take `--prune` (also delete covers that exist on the server only, which are otherwise just reported) and `--skip-covers`, `content` also `--skip-db`. What it does and checks:
@@ -153,4 +171,4 @@ Every command takes `--dry-run` (prints what it would change on the server, chan
 - The port the app answers on is asked of docker compose, so `.env` on the server stays the only place `HOST_PORT` is set. A `code` or `full` deploy to a server whose `.env` doesn't have it yet (from before `compose.yaml` required it) shows that in its plan and writes the port the running container publishes.
 - Permissions on `data/` are fixed after every upload (rootless Docker needs the files and folders world-readable), and `hidden_interests.txt` is uploaded and the container restarted when it changed. `auth.txt` is only read at server start: after changing it, run `docker compose restart` on the server.
 
-`docker/config.docker.ini` is the image's own config and is separate from your local `config.ini`; it only has to carry what `serverconfig.py` reads, so options for scanning, scraping and the like never need adding there.
+`deploy/config.docker.ini` is the image's own config and is separate from your local `config.ini`; it only has to carry what `serverconfig.py` reads, so options for scanning, scraping and the like never need adding there.

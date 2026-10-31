@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy
-from media import Media
+from model.media import Media
 
 class Statistics:
     

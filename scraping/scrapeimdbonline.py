@@ -3,13 +3,13 @@ from bs4 import BeautifulSoup
 import os.path
 from seleniumbase import Driver
 from selenium.common.exceptions import WebDriverException
-from media import Media
-from mediaconnection import MediaConnection
-from person import Person
-from credit import Credit
-from imdbinterestid import parseInterestID, formatInterestID
-from exceptions import ScrapingError
-from verbosity import printAlways, printDetail
+from model.media import Media
+from model.mediaconnection import MediaConnection
+from model.person import Person
+from model.credit import Credit
+from model.imdbinterestid import parseInterestID, formatInterestID
+from model.exceptions import ScrapingError
+from model.verbosity import printAlways, printDetail
 from PIL import Image
 
 # every ScrapeIMDbOnline instance registers itself here (see __init__) so _closeAllBrowsers can

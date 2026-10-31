@@ -15,7 +15,9 @@ import json
 import os
 import requests
 
-_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "iso3166")
+import config
+
+_BASE_DIR = os.path.join(config.CACHE_DIR, "iso3166")
 _CURRENT_FILENAME = "iso3166-1.json"
 _FORMER_FILENAME = "iso3166-3.json"
 _DOWNLOAD_BASE_URL = "https://raw.githubusercontent.com/pycountry/pycountry/main/src/pycountry/databases/"

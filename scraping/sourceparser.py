@@ -1,5 +1,5 @@
-from exceptions import LocalLibraryError
-from mediasource import MediaSource
+from model.exceptions import LocalLibraryError
+from model.mediasource import MediaSource
 
 # all keyword/structural tokens are matched case-insensitively; only a web provider abbreviation
 # (user-defined data, matched against config.WEB_PROVIDERS later) is kept verbatim

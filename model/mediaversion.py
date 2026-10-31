@@ -1,4 +1,4 @@
-from sourceparser import parseSourceString
+from scraping.sourceparser import parseSourceString
 
 class MediaVersion:
 

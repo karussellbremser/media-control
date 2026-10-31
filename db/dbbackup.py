@@ -2,14 +2,14 @@ import os
 import re
 import shutil
 from datetime import datetime, timedelta
-from verbosity import printAlways
+from model.verbosity import printAlways
 
 class DBBackup:
     """Creates and prunes timestamped copies of the main DB file in a dedicated backup directory.
     A plain shutil.copy2 is enough here (rather than e.g. SQLite's VACUUM INTO) -- this project
     never enables WAL mode, and every backup call happens before the sync/refresh pipeline that's
     about to run opens its own connection, so there's never a concurrent writer to race against
-    (the only other thing that ever touches the DB, server.py, is read-only)."""
+    (the only other thing that ever touches the DB, web/server.py, is read-only)."""
 
     # ties a backup's filename to the DB's own basename, so multiple DBs (or a renamed db_path)
     # never collide, and so pruning only ever considers files this exact code created -- never a

@@ -1,16 +1,16 @@
-from media import Media
-import customconnections
-from dbcontrol import DBControl
-from dbbackup import DBBackup
-from scrapelocal import ScrapeLocal
-from scrapeimdboffline import ScrapeIMDbOffline
-from scrapeimdbonline import ScrapeIMDbOnline
-from scrapemediainfo import ScrapeMediaInfo
-from scrapecropping import ScrapeCropping
-from croppingcache import CroppingCache
-from statistics import Statistics
-from exceptions import LocalLibraryError, OfflineDatasetError, MediaInfoError, FFmpegError, CroppingError
-from verbosity import printAlways, printDetail, printPerson, printVerbose
+from model.media import Media
+from scraping import customconnections
+from db.dbcontrol import DBControl
+from db.dbbackup import DBBackup
+from scraping.scrapelocal import ScrapeLocal
+from scraping.scrapeimdboffline import ScrapeIMDbOffline
+from scraping.scrapeimdbonline import ScrapeIMDbOnline
+from scraping.scrapemediainfo import ScrapeMediaInfo
+from scraping.scrapecropping import ScrapeCropping
+from scraping.croppingcache import CroppingCache
+from db.statistics import Statistics
+from model.exceptions import LocalLibraryError, OfflineDatasetError, MediaInfoError, FFmpegError, CroppingError
+from model.verbosity import printAlways, printDetail, printPerson, printVerbose
 import config
 import getopt, os, sys, time
 

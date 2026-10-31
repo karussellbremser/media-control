@@ -1,6 +1,6 @@
 import re
 
-from exceptions import ScrapingError
+from model.exceptions import ScrapingError
 
 def parseInterestID(idString):
     """Converts an IMDb interest id string (e.g. "in0000076") to its integer form (76)."""

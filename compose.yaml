@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
     ports:
       # <host port the proxy forwards to, from .env -- required, no default>:<the [server] port of
-      # docker/config.docker.ini>
+      # deploy/config.docker.ini>
       - "${HOST_PORT:?set HOST_PORT in a .env file next to compose.yaml (see .env.example)}:5000"
     volumes:
       # the whole directory, not single files: replacing the database by renaming a new file over it

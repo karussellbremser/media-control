@@ -5,6 +5,10 @@ from serverconfig import (parser as _config, resolve as _resolve,
                           SERVER_HOST, SERVER_PORT, CURTAIN_ANIMATION_ENABLED, CURTAIN_STYLE, SERVER_AUTH_FILE)
 
 MEDIA_DIR = _resolve(_config["paths"]["media_dir"])
+# fallback=, not required: newer than the other [paths] keys, so an existing config.ini still works unchanged
+# where files that are only downloaded or derived (and can be rebuilt) are kept -- currently the ISO code tables
+# (see scraping/isolanguages.py, scraping/isocountries.py)
+CACHE_DIR = _resolve(_config.get("paths", "cache_dir", fallback="cache"))
 MEDIAINFO_PATH = _resolve(_config["paths"]["mediainfo_path"])
 FFMPEG_PATH = _resolve(_config["paths"]["ffmpeg_path"])
 CHROME_PROFILE_DIR = _resolve(_config["paths"]["chrome_profile_dir"])
