@@ -318,6 +318,35 @@
 			border-radius: 6px;
 		}
 
+		/* while a cover loads, a shimmering placeholder takes its place (the <img> is transparent until its
+		   data arrives, so its own background shows through); static/search.js adds "loaded" when the image
+		   is there -- it then comes into focus -- or "failed" if it doesn't exist, which just ends the shimmer */
+		.coverImage:not(.loaded):not(.failed) {
+			background: linear-gradient(100deg, #d2d2d2 30%, #e9e9e9 50%, #d2d2d2 70%);
+			background-size: 200% 100%;
+			animation: coverShimmer 1.3s linear infinite;
+		}
+
+		.coverImage.loaded {
+			animation: coverReveal 0.3s ease-out;
+		}
+
+		@keyframes coverShimmer {
+			from { background-position: 150% 0; }
+			to { background-position: -50% 0; }
+		}
+
+		@keyframes coverReveal {
+			from { filter: blur(8px); }
+			to { filter: none; }
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			.coverImage:not(.loaded):not(.failed), .coverImage.loaded {
+				animation: none;
+			}
+		}
+
 		.resultItem div {
 			flex: 1;
 		}

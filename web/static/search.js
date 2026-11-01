@@ -666,6 +666,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     data.forEach(([imdb_id, originalTitle, startYear, endYear, rating_mul10, numVotes, genres, totalEpisodes, ownedEpisodes, isSeries]) => {
 						const img = document.createElement('img');
+						// the placeholder shimmer (see .coverImage in index.html) ends when the image arrives or fails; the
+						// listeners come before src is set, so even an instantly-cached cover can't slip past them
+						img.addEventListener('load', () => img.classList.add('loaded'));
+						img.addEventListener('error', () => img.classList.add('failed'));
 						const isPartialSeries = totalEpisodes > 0 && ownedEpisodes < totalEpisodes;
 						const isFullSeries = totalEpisodes > 0 && ownedEpisodes === totalEpisodes;
 
