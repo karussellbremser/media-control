@@ -410,13 +410,18 @@ def search():
         response.headers['X-Total-Count'] = str(total)
     return response
 
+# covers rarely change, so the browser may keep using its stored copy for a week without asking the server
+# (Flask's default is "no-cache", i.e. one revalidating request per cover on every page visit -- dozens per
+# screen). A cover replaced under the same file name shows up after at most a week, or at once on a hard refresh.
+COVER_MAX_AGE = 7 * 24 * 3600
+
 @server.route('/cover_small/<filename>')
 def coverSmall(filename):
-    return send_from_directory(serverconfig.COVERS_SMALL_DIR, filename)
+    return send_from_directory(serverconfig.COVERS_SMALL_DIR, filename, max_age=COVER_MAX_AGE)
 
 @server.route('/cover/<filename>')
 def coverFull(filename):
-    return send_from_directory(serverconfig.COVERS_DIR, filename)
+    return send_from_directory(serverconfig.COVERS_DIR, filename, max_age=COVER_MAX_AGE)
 
 @server.route('/detail/<int:imdb_id>')
 def detail(imdb_id):
