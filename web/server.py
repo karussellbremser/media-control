@@ -96,20 +96,14 @@ def _buildFilter(search_query, year_from, year_to,
                  selected_interest_ids,
                  excluded_interest_ids,
                  selected_language_code,
-                 show_movies, show_series):
+                 show_movies, show_series,
+                 series_ended=False, series_fully_owned=False):
     """The part of the media query that decides WHICH titles match the current filter selection,
     shared by queryMedia (the list) and countMedia (the total shown above it) so the two can never
     disagree. Returns (joinSql, whereSql, havingSql, params) to be appended after "FROM media m JOIN
     title_type_enum tt ON ..." and before the caller's GROUP BY m.imdb_id / ORDER BY -- or None when
     no media type is selected at all (nothing can match)."""
-    # media types to include -- episodes never appear here (episodeTitleTypes is never added),
-    # since they were never meant to have their own top-level browsing entry
-    allowedTypeNames = []
-    if show_movies:
-        allowedTypeNames += Media.movieTitleTypes
-    if show_series:
-        allowedTypeNames += Media.seriesTitleTypes
-    if not allowedTypeNames:
+    if not (show_movies or show_series):
         return None
 
     joinSql = ""
@@ -121,8 +115,24 @@ def _buildFilter(search_query, year_from, year_to,
 
     sql = " WHERE m.subdir IS NOT NULL"
 
-    sql += " AND tt.title_type_name IN (" + ",".join("?" for _ in allowedTypeNames) + ")"
-    params.extend(allowedTypeNames)
+    # media types to include -- episodes never appear here (episodeTitleTypes is never added), since they
+    # were never meant to have their own top-level browsing entry. The two series options narrow the SERIES
+    # only (movies are unaffected): "ended" = IMDb gives the series an end year; "all episodes available" = it has
+    # episodes and every one of them is locally owned -- the same test as the list's complete-episodes badge
+    typeBranches = []
+    if show_movies:
+        typeBranches.append("tt.title_type_name IN (" + ",".join("?" for _ in Media.movieTitleTypes) + ")")
+        params.extend(Media.movieTitleTypes)
+    if show_series:
+        seriesCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.seriesTitleTypes) + ")"
+        params.extend(Media.seriesTitleTypes)
+        if series_ended:
+            seriesCond += " AND m.end_year IS NOT NULL"
+        if series_fully_owned:
+            seriesCond += (" AND EXISTS (SELECT 1 FROM media me WHERE me.series_imdb_id = m.imdb_id)"
+                           " AND NOT EXISTS (SELECT 1 FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NULL)")
+        typeBranches.append("(" + seriesCond + ")")
+    sql += " AND (" + " OR ".join(typeBranches) + ")"
 
     # text search -- each word must match either the original or the primary (localized) title
     if search_query:
@@ -372,6 +382,8 @@ def search():
     selected_language_code = args.get('language') or None
     show_movies = args.get('movies', '1') == '1'
     show_series = args.get('series', '0') == '1'
+    series_ended = args.get('series_ended', '0') == '1'
+    series_fully_owned = args.get('series_full', '0') == '1'
 
     page = int(args.get('page', 1))
     limit = 50
@@ -398,7 +410,9 @@ def search():
             excluded_interest_ids,
             selected_language_code,
             show_movies,
-            show_series
+            show_series,
+            series_ended,
+            series_fully_owned
         )
         media = queryMedia(filters, args.get('sort', 'year'), args.get('order', 'desc'), limit, offset, random_seed)
         # the total only changes with the filters, not with the page, so only the first page asks for it

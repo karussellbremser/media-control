@@ -124,6 +124,25 @@
 			width: auto;
 		}
 
+		/* the two series options sit under the Series checkbox (the grid's right column), smaller and indented;
+		   they only mean something while Series is ticked, so they are greyed out otherwise */
+		.genre-list .seriesOption {
+			grid-column: 2;
+			align-items: flex-start; /* a label that wraps ("All episodes available") keeps its checkbox at the first line */
+			font-size: 12px;
+			line-height: 1.25;
+			margin: 2px 0 0 16px;
+			color: #444;
+		}
+
+		.genre-list .seriesOption input[type="checkbox"] {
+			margin: 1px 0 0;
+		}
+
+		.genre-list .seriesOption.disabled {
+			opacity: 0.45;
+		}
+
         .genre-list {
 			overflow-y: auto;
 			border: 1px solid #ccc;
@@ -1008,6 +1027,14 @@
 			<label>
 				<input type="checkbox" id="seriesCheckbox">
 				<span>Series</span>
+			</label>
+			<label class="seriesOption disabled">
+				<input type="checkbox" id="seriesEndedCheckbox" disabled>
+				<span title="series that have finished airing">Ended</span>
+			</label>
+			<label class="seriesOption disabled">
+				<input type="checkbox" id="seriesFullCheckbox" disabled>
+				<span title="series of which every episode is in the library">All episodes available</span>
 			</label>
 		</div>
 

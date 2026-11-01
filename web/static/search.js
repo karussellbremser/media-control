@@ -25,6 +25,18 @@ document.addEventListener('DOMContentLoaded', () => {
 	
 	const moviesCheckbox = document.getElementById('moviesCheckbox');
 	const seriesCheckbox = document.getElementById('seriesCheckbox');
+	// narrow the SERIES that are shown (movies are unaffected); only available while Series is ticked
+	const seriesEndedCheckbox = document.getElementById('seriesEndedCheckbox');
+	const seriesFullCheckbox = document.getElementById('seriesFullCheckbox');
+
+	function updateSeriesOptions() {
+		const enabled = seriesCheckbox.checked;
+		[seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
+			if (!enabled) cb.checked = false;
+			cb.disabled = !enabled;
+			cb.closest('label').classList.toggle('disabled', !enabled);
+		});
+	}
 
 	const languageRadios = document.querySelectorAll('.languageRadio');
 	const genreCheckboxes = document.querySelectorAll('.genreCheckbox');
@@ -245,11 +257,11 @@ document.addEventListener('DOMContentLoaded', () => {
 					const link = makeEl('a', '', t.title + (t.year ? ' (' + t.year + ')' : ''));
 					if (t.owned) {
 						link.href = '#' + idString(t.imdbId);
-						link.title = 'in your library -- open';
+						link.title = 'in the library -- open';
 						attachDetailOpen(link, t.imdbId, t.title);
 					} else {
 						link.href = 'https://www.imdb.com/title/' + idString(t.imdbId) + '/';
-						link.title = 'not in your library -- open on IMDb';
+						link.title = 'not in the library -- open on IMDb';
 						link.target = '_blank';
 						link.rel = 'noopener noreferrer';
 					}
@@ -506,7 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				detailMeta.textContent = '';
 				detailChips.replaceChildren();
 				detailBody.replaceChildren(makeEl('div', 'detailError', err.status === 404
-					? "This title isn't in your library."
+					? "This title isn't in the library."
 					: 'The database may be temporarily busy -- close this and try again in a moment.'));
 				detailCover.classList.add('noCover');
 				detailCoverPane.classList.remove('coverLoading');
@@ -585,6 +597,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		moviesCheckbox.checked = true;
 		seriesCheckbox.checked = false;
+		updateSeriesOptions();
 
 		document.querySelector('.languageRadio[value=""]').checked = true;
 
@@ -635,6 +648,8 @@ document.addEventListener('DOMContentLoaded', () => {
             language: document.querySelector('.languageRadio:checked').value,
 			movies: moviesCheckbox.checked ? '1' : '0',
 			series: seriesCheckbox.checked ? '1' : '0',
+			series_ended: seriesEndedCheckbox.checked ? '1' : '0',
+			series_full: seriesFullCheckbox.checked ? '1' : '0',
 			page: currentPage
         });
 
@@ -854,7 +869,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	moviesCheckbox.addEventListener('change', () => resetAndSearch(input.value));
-	seriesCheckbox.addEventListener('change', () => resetAndSearch(input.value));
+	seriesCheckbox.addEventListener('change', () => {
+		updateSeriesOptions();
+		resetAndSearch(input.value);
+	});
+	seriesEndedCheckbox.addEventListener('change', () => resetAndSearch(input.value));
+	seriesFullCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 
     [yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => {
         el.addEventListener('input', () => debounceSearch(input.value));
