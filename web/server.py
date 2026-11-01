@@ -97,7 +97,8 @@ def _buildFilter(search_query, year_from, year_to,
                  excluded_interest_ids,
                  selected_language_code,
                  show_movies, show_series,
-                 series_ended=False, series_fully_owned=False):
+                 series_ended=False, series_fully_owned=False,
+                 series_not_ended=False, series_not_fully_owned=False):
     """The part of the media query that decides WHICH titles match the current filter selection,
     shared by queryMedia (the list) and countMedia (the total shown above it) so the two can never
     disagree. Returns (joinSql, whereSql, havingSql, params) to be appended after "FROM media m JOIN
@@ -118,7 +119,8 @@ def _buildFilter(search_query, year_from, year_to,
     # media types to include -- episodes never appear here (episodeTitleTypes is never added), since they
     # were never meant to have their own top-level browsing entry. The two series options narrow the SERIES
     # only (movies are unaffected): "ended" = IMDb gives the series an end year; "all episodes available" = it has
-    # episodes and every one of them is locally owned -- the same test as the list's complete-episodes badge
+    # episodes and every one of them is locally owned -- the same test as the list's complete-episodes badge.
+    # Each also exists as its NOT (right-click in the UI): still running / not all episodes available
     typeBranches = []
     if show_movies:
         typeBranches.append("tt.title_type_name IN (" + ",".join("?" for _ in Media.movieTitleTypes) + ")")
@@ -128,9 +130,14 @@ def _buildFilter(search_query, year_from, year_to,
         params.extend(Media.seriesTitleTypes)
         if series_ended:
             seriesCond += " AND m.end_year IS NOT NULL"
+        if series_not_ended:
+            seriesCond += " AND m.end_year IS NULL"
         if series_fully_owned:
             seriesCond += (" AND EXISTS (SELECT 1 FROM media me WHERE me.series_imdb_id = m.imdb_id)"
                            " AND NOT EXISTS (SELECT 1 FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NULL)")
+        if series_not_fully_owned:
+            seriesCond += (" AND (NOT EXISTS (SELECT 1 FROM media me WHERE me.series_imdb_id = m.imdb_id)"
+                           " OR EXISTS (SELECT 1 FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NULL))")
         typeBranches.append("(" + seriesCond + ")")
     sql += " AND (" + " OR ".join(typeBranches) + ")"
 
@@ -384,6 +391,8 @@ def search():
     show_series = args.get('series', '0') == '1'
     series_ended = args.get('series_ended', '0') == '1'
     series_fully_owned = args.get('series_full', '0') == '1'
+    series_not_ended = args.get('series_not_ended', '0') == '1'
+    series_not_fully_owned = args.get('series_not_full', '0') == '1'
 
     page = int(args.get('page', 1))
     limit = 50
@@ -412,7 +421,9 @@ def search():
             show_movies,
             show_series,
             series_ended,
-            series_fully_owned
+            series_fully_owned,
+            series_not_ended,
+            series_not_fully_owned
         )
         media = queryMedia(filters, args.get('sort', 'year'), args.get('order', 'desc'), limit, offset, random_seed)
         # the total only changes with the filters, not with the page, so only the first page asks for it

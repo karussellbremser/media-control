@@ -32,9 +32,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	function updateSeriesOptions() {
 		const enabled = seriesCheckbox.checked;
 		[seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
-			if (!enabled) cb.checked = false;
+			const label = cb.closest('label');
+			if (!enabled) {
+				cb.checked = false;
+				label.classList.remove('excluded'); // see the NOT filter setup further down
+			}
 			cb.disabled = !enabled;
-			cb.closest('label').classList.toggle('disabled', !enabled);
+			label.classList.toggle('disabled', !enabled);
 		});
 	}
 
@@ -650,6 +654,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			series: seriesCheckbox.checked ? '1' : '0',
 			series_ended: seriesEndedCheckbox.checked ? '1' : '0',
 			series_full: seriesFullCheckbox.checked ? '1' : '0',
+			series_not_ended: seriesEndedCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
+			series_not_full: seriesFullCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
 			page: currentPage
         });
 
@@ -890,7 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	interestSearchInput.addEventListener('input', filterInterests);
 
-	// NOT filter for genres/subgenres: right-click (mouse) or long-press (touch) toggles an option
+	// NOT filter for genres/subgenres (and the two series options): right-click (mouse) or long-press (touch) toggles an option
 	// into/out of "excluded" -- shown red, sent as notGenres[]/notInterests[], and mutually exclusive
 	// with being checked (included). Each button flips the other state directly: a left click takes an
 	// excluded option straight to included, and a right-click/long-press takes an included one
@@ -902,6 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	let suppressClickLabel = null; // the label whose long-press just fired: its releasing tap must not also toggle include
 
 	function toggleExcluded(cb) {
+		if (cb.disabled) return; // the series options while Series is unticked
 		const label = cb.closest('label');
 		const nowExcluded = !label.classList.contains('excluded');
 		label.classList.toggle('excluded', nowExcluded);
@@ -909,7 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		resetAndSearch(input.value);
 	}
 
-	[...genreCheckboxes, ...interestCheckboxes].forEach(cb => {
+	[...genreCheckboxes, ...interestCheckboxes, seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
 		const label = cb.closest('label');
 		let lastPointerType = 'mouse';
 		let pressTimer = null;
