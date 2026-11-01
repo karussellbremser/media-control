@@ -715,6 +715,48 @@
 			opacity: 0;
 		}
 
+		/* the same load animation as the result covers: a shimmer (on the pane, which is dark) while the cover is on
+		   its way, then the cover comes into focus */
+		#detailCoverPane.coverLoading::before {
+			content: '';
+			position: absolute;
+			inset: 0;
+			background: linear-gradient(100deg, rgba(255, 255, 255, 0.04) 30%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.04) 70%);
+			background-size: 200% 100%;
+			animation: coverShimmer 1.3s linear infinite;
+		}
+
+		#detailCoverPane.coverLoading #detailCoverPlaceholder {
+			visibility: hidden; /* "No cover" is for titles without one, not for one that is still loading */
+		}
+
+		#detailCover.revealed {
+			animation: coverReveal 0.3s ease-out;
+		}
+
+		/* shown while the details load; fades in only after 150 ms, so a quick response never flashes it */
+		.detailLoading {
+			color: #8b8b93;
+			font-size: 14px;
+			opacity: 0;
+			animation: detailLoadingIn 0.2s ease 0.15s forwards;
+		}
+
+		@keyframes detailLoadingIn {
+			to { opacity: 1; }
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			#detailCoverPane.coverLoading::before, #detailCover.revealed {
+				animation: none;
+			}
+
+			.detailLoading {
+				opacity: 1;
+				animation: none;
+			}
+		}
+
 		#detailCover {
 			transition: opacity 0.15s ease;
 		}

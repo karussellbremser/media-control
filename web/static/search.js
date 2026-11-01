@@ -123,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// ---- title detail overlay ----
 	const detailBackdrop = document.getElementById('detailBackdrop');
 	const detailCover = document.getElementById('detailCover');
+	const detailCoverPane = document.getElementById('detailCoverPane');
 	const detailTitle = document.getElementById('detailTitle');
 	const detailMeta = document.getElementById('detailMeta');
 	const detailChips = document.getElementById('detailChips');
@@ -156,11 +157,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	// plain left-click opens the overlay; ctrl/cmd/middle-click still follow the link's own IMDb href
-	function attachDetailOpen(element, imdb_id) {
+	function attachDetailOpen(element, imdb_id, titleHint = '') {
 		element.addEventListener('click', e => {
 			if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
 			e.preventDefault();
-			openDetail(imdb_id);
+			openDetail(imdb_id, true, titleHint);
 		});
 	}
 
@@ -245,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					if (t.owned) {
 						link.href = '#' + idString(t.imdbId);
 						link.title = 'in your library -- open';
-						attachDetailOpen(link, t.imdbId);
+						attachDetailOpen(link, t.imdbId, t.title);
 					} else {
 						link.href = 'https://www.imdb.com/title/' + idString(t.imdbId) + '/';
 						link.title = 'not in your library -- open on IMDb';
@@ -262,16 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		detailBody.scrollTop = 0;
 
-		detailCover.classList.remove('noCover');
-		detailCover.alt = d.title;
-		const coverUrl = '/cover/' + idString(d.imdbId) + '.jpg';
-		detailCoverId = d.imdbId;
-		if (detailCover.getAttribute('src') !== coverUrl || !detailCover.complete) {
-			detailCover.classList.add('loading'); // the previous title's poster must not linger meanwhile
-			detailCover.src = coverUrl; // the tint follows from its load event (the previous one fades over meanwhile)
-		} else {
-			applyCoverTint(d.imdbId); // same cover already loaded (title reopened) -- no load event will fire
-		}
+		detailCover.alt = d.title; // the cover itself was started by showDetailLoading, long before the details arrived
 	}
 
 	// ---- cover-tinted overlay: the details panel and the poster pane take a dark, muted version of
@@ -410,11 +402,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	detailCover.addEventListener('load', () => {
 		detailCover.classList.remove('loading');
+		detailCover.classList.add('revealed');
+		detailCoverPane.classList.remove('coverLoading');
 		applyCoverTint(detailCoverId);
 	});
 	detailCover.addEventListener('error', () => {
 		detailCover.classList.remove('loading');
 		detailCover.classList.add('noCover');
+		detailCoverPane.classList.remove('coverLoading');
 		setCoverTint(null);
 	});
 
@@ -444,11 +439,54 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.body.style.overflow = '';
 	}
 
-	function openDetail(imdb_id, pushHistory = true) {
+	// What the overlay shows for a title whose details are still on their way: its title if the click knew it, a
+	// "Loading..." note (it only fades in after a moment, so a quick response never flashes it) and the cover, which
+	// starts loading right now instead of once the details are in -- until it arrives, a shimmer takes its place.
+	function showDetailLoading(imdb_id, titleHint) {
+		detailTitle.textContent = titleHint;
+		detailMeta.textContent = '';
+		detailChips.replaceChildren();
+		detailBody.replaceChildren(makeEl('div', 'detailLoading', 'Loading\u2026'));
+		detailBody.scrollTop = 0;
+
+		const coverUrl = '/cover/' + idString(imdb_id) + '.jpg';
+		const sameCover = detailCover.getAttribute('src') === coverUrl;
+		detailCoverId = imdb_id;
+		detailCover.alt = titleHint;
+		detailCover.classList.remove('noCover', 'revealed');
+		if (sameCover && detailCover.complete && detailCover.naturalWidth > 0) {
+			detailCoverPane.classList.remove('coverLoading');
+			applyCoverTint(imdb_id); // same cover already loaded (title reopened) -- no load event will fire
+		} else {
+			detailCover.classList.add('loading'); // the previous title's poster must not linger meanwhile
+			detailCoverPane.classList.add('coverLoading');
+			if (!sameCover || detailCover.complete) detailCover.src = coverUrl; // same cover still loading: leave it be
+		}
+	}
+
+	function openDetail(imdb_id, pushHistory = true, titleHint = '') {
 		const requestId = ++detailRequestId;
 		const wasOpen = !detailBackdrop.classList.contains('hidden');
 		new Image().src = '/cover/' + idString(imdb_id) + '.jpg'; // preload alongside the details request
 		const tintReady = tintFromThumbnail(imdb_id); // likewise, see tintFromThumbnail
+		showDetailLoading(imdb_id, titleHint);
+
+		// The overlay opens at once, not when the details are in: it only waits a moment (120 ms at most) for the
+		// thumbnail's tint, normally cached already, so that it opens in its final colour.
+		Promise.race([tintReady, new Promise(resolve => setTimeout(resolve, 120))]).then(tint => {
+			if (requestId !== detailRequestId) return; // superseded by a newer click, or closed meanwhile
+			// if the thumbnail couldn't be read (undefined), start neutral rather than on the previous title's colour
+			// -- the full cover's load event applies the real one (unless that has happened already)
+			if (tint !== undefined) setCoverTint(tint);
+			else if (detailCoverPane.classList.contains('coverLoading')) setCoverTint(null);
+			showDetailShell();
+			if (pushHistory) {
+				const url = '#' + idString(imdb_id);
+				if (wasOpen) history.replaceState({ detail: imdb_id }, '', url);
+				else history.pushState({ detail: imdb_id }, '', url);
+			}
+		});
+
 		fetch('/detail/' + imdb_id)
 			.then(response => {
 				if (!response.ok) {
@@ -458,20 +496,9 @@ document.addEventListener('DOMContentLoaded', () => {
 				}
 				return response.json();
 			})
-			.then(d => tintReady.then(tint => [d, tint]))
-			.then(([d, tint]) => {
+			.then(d => {
 				if (requestId !== detailRequestId) return; // superseded by a newer click, or closed meanwhile
-				// set before the shell is shown, so a freshly opened overlay is already in its final colour;
-				// if the thumbnail couldn't be read (undefined), start neutral rather than on the
-				// previous title's colour -- the full cover's load event applies the real one
-				setCoverTint(tint === undefined ? null : tint);
 				renderDetail(d);
-				showDetailShell();
-				if (pushHistory) {
-					const url = '#' + idString(imdb_id);
-					if (wasOpen) history.replaceState({ detail: imdb_id }, '', url);
-					else history.pushState({ detail: imdb_id }, '', url);
-				}
 			})
 			.catch(err => {
 				if (requestId !== detailRequestId) return;
@@ -482,6 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					? "This title isn't in your library."
 					: 'The database may be temporarily busy -- close this and try again in a moment.'));
 				detailCover.classList.add('noCover');
+				detailCoverPane.classList.remove('coverLoading');
 				setCoverTint(null);
 				showDetailShell();
 			});
@@ -691,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
 						linkElem.href = "https://www.imdb.com/title/tt" + String(imdb_id).padStart(7, "0") + "/";
 						linkElem.target = "_blank";
 						linkElem.rel = "noopener noreferrer";
-						attachDetailOpen(linkElem, imdb_id);
+						attachDetailOpen(linkElem, imdb_id, originalTitle);
 						
                         const ratingsElem = document.createElement('div');
 						const safeYear = formatYearRange(startYear, endYear, isSeries);
@@ -719,7 +747,7 @@ document.addEventListener('DOMContentLoaded', () => {
 							wrapper.classList.add("resultItem");
 
 							img.style.cursor = "pointer";
-							attachDetailOpen(img, imdb_id);
+							attachDetailOpen(img, imdb_id, originalTitle);
 							wrapper.appendChild(img);
 
 							const textBlock = document.createElement('div');
