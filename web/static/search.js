@@ -948,9 +948,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Infinite scroll: the next chunk is fetched while the user is still PREFETCH_SCREENS screen heights
 	// away from the end of the list, so it's already in place by the time they get there. (It used to
 	// be a fixed 300px, i.e. less than one row of covers: fast scrolling reached the end of the chunk
-	// before the next one had been fetched, appended and its covers loaded.) A chunk is ~50 covers,
-	// only a few screens tall in a wide window, so this stays well within one chunk of lookahead.
-	const PREFETCH_SCREENS = 2;
+	// before the next one had been fetched, appended and its covers loaded.) A chunk is ~50 covers (~2.5 MB
+	// of thumbnails), a few screens tall in a wide window; its covers start loading as soon as it is
+	// appended. Four screens of lookahead means the covers are normally there before they scroll into view
+	// even over a slow connection, at the price of loading at most about a chunk more than has been seen.
+	const PREFETCH_SCREENS = 4;
 
 	function loadMoreIfNearBottom() {
 		if (allLoaded || isLoading) return;
