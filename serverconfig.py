@@ -19,8 +19,8 @@ if not parser.read(_CONFIG_PATH):
     )
 
 def resolve(path):
-    """path as given if absolute, else relative to this project's directory."""
-    return path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    """path as given if absolute, else relative to this project's directory; separators normalised."""
+    return os.path.normpath(path if os.path.isabs(path) else os.path.join(BASE_DIR, path))
 
 DB_PATH = resolve(parser["paths"]["db_path"])
 COVERS_DIR = resolve(parser["paths"]["covers_dir"])
