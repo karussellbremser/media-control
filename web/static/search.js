@@ -170,6 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		tvMiniSeries: 'Mini series'
 	};
 	const VISIBLE_CAST_COUNT = 10;
+	const VISIBLE_SEASON_COUNT = 12;
 
 	let detailRequestId = 0;
 
@@ -225,6 +226,98 @@ document.addEventListener('DOMContentLoaded', () => {
 		return wrap;
 	}
 
+	// A series' seasons as tiles: "owned/total" episodes, all owned (green), some (progress bar) or none (dimmed).
+	// The first VISIBLE_SEASON_COUNT numbered seasons show at once, the rest sit behind a "+ N more" tile; the
+	// episodes without a season number get a last tile of their own.
+	function seasonsSection(seasons) {
+		const section = document.createDocumentFragment();
+		const owned = seasons.reduce((sum, s) => sum + s.owned, 0);
+		const total = seasons.reduce((sum, s) => sum + s.total, 0);
+		const heading = makeEl('h3', '', 'Seasons');
+		heading.appendChild(makeEl('span', 'seasonsSummary', owned + ' of ' + total + ' episodes available'));
+		section.appendChild(heading);
+
+		// a partly owned season's tile opens a list of the episodes that are owned, below the tiles
+		const episodes = makeEl('div', 'seasonEpisodes');
+		episodes.hidden = true;
+		let openTile = null;
+
+		function toggleEpisodes(el, s) {
+			const wasOpen = openTile === el;
+			if (openTile) {
+				openTile.classList.remove('open');
+				openTile.setAttribute('aria-expanded', 'false');
+				openTile.querySelector('.seasonChevron').textContent = '▾';
+				openTile = null;
+			}
+			episodes.hidden = true;
+			if (wasOpen) return;
+			episodes.replaceChildren();
+			s.ownedEpisodes.forEach(e => {
+				const row = makeEl('div', 'seasonEpisode');
+				row.appendChild(makeEl('span', 'seasonEpisodeNumber', e.number === null ? '' : 'E' + e.number));
+				row.appendChild(makeEl('span', '', e.title));
+				episodes.appendChild(row);
+			});
+			el.classList.add('open');
+			el.setAttribute('aria-expanded', 'true');
+			el.querySelector('.seasonChevron').textContent = '▴';
+			episodes.hidden = false;
+			openTile = el;
+		}
+
+		function tile(s) {
+			const state = s.owned === s.total ? 'full' : s.owned === 0 ? 'none' : 'part';
+			const el = makeEl(state === 'part' ? 'button' : 'div', 'seasonTile seasonTile--' + state);
+			el.title = s.owned + ' of ' + s.total + ' episodes available';
+			el.appendChild(makeEl('span', 'seasonLabel', s.season === null ? 'Unnumbered' : s.season === 0 ? 'Specials' : 'Season ' + s.season));
+			el.appendChild(makeEl('span', 'seasonCount', s.owned + '/' + s.total));
+			if (state === 'part') {
+				const bar = makeEl('span', 'seasonBar');
+				bar.appendChild(makeEl('span', 'seasonBarFill'));
+				bar.firstChild.style.width = Math.round(100 * s.owned / s.total) + '%';
+				el.appendChild(bar);
+				if (s.ownedEpisodes) {
+					el.type = 'button';
+					el.setAttribute('aria-expanded', 'false');
+					el.appendChild(makeEl('span', 'seasonChevron', '▾'));
+					el.addEventListener('click', () => toggleEpisodes(el, s));
+				}
+			}
+			return el;
+		}
+
+		const grid = makeEl('div', 'seasonGrid');
+		const numbered = seasons.filter(s => s.season !== null);
+		const unnumbered = seasons.filter(s => s.season === null);
+		const hiddenTiles = [];
+		numbered.forEach((s, i) => {
+			const el = tile(s);
+			if (i >= VISIBLE_SEASON_COUNT) {
+				el.style.display = 'none';
+				hiddenTiles.push(el);
+			}
+			grid.appendChild(el);
+		});
+		if (hiddenTiles.length) {
+			const more = makeEl('button', 'seasonTile seasonTile--none seasonMore', '');
+			more.type = 'button';
+			more.appendChild(makeEl('span', 'seasonLabel', '…'));
+			more.appendChild(makeEl('span', 'seasonCount', '+ ' + hiddenTiles.length + ' more'));
+			more.addEventListener('click', () => {
+				hiddenTiles.forEach(el => { el.style.display = ''; });
+				more.remove();
+			});
+			grid.appendChild(more);
+		}
+		unnumbered.forEach(s => grid.appendChild(tile(s)));
+		const block = makeEl('div', 'seasonsBlock');
+		block.appendChild(grid);
+		block.appendChild(episodes);
+		section.appendChild(block);
+		return section;
+	}
+
 	function renderDetail(d) {
 		detailTitle.textContent = d.title;
 
@@ -245,6 +338,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		detailBody.replaceChildren();
 		if (d.plotSummary) detailBody.appendChild(makeEl('p', 'plot', d.plotSummary));
+
+		if (d.isSeries && d.seasons.length) detailBody.appendChild(seasonsSection(d.seasons));
 
 		if (d.creators.length || d.directors.length || d.writers.length || d.sources.length || d.actors.length) {
 			detailBody.appendChild(makeEl('h3', '', 'Cast & crew'));

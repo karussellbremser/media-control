@@ -584,8 +584,32 @@ def detail(imdb_id):
         interests = [{"name": name, "isGenre": bool(isGenre)} for name, isGenre in cursor.fetchall()]
 
         allEpisodesOwned = False
+        seasons = []
         if title_type_name in Media.seriesTitleTypes:
             credits = _seriesCredits(cursor, imdb_id)
+            # episodes per season and how many of them are owned (season None = episodes IMDb gives no season number)
+            cursor.execute("""
+                SELECT season_number, COUNT(*), SUM(subdir IS NOT NULL)
+                FROM media
+                WHERE series_imdb_id = ?
+                GROUP BY season_number
+                ORDER BY season_number IS NULL, season_number
+            """, (imdb_id,))
+            seasons = [{"season": season, "total": total, "owned": owned} for season, total, owned in cursor.fetchall()]
+            # a season that is only partly owned also says which of its episodes are (only those: the others stay unnamed)
+            if any(0 < s["owned"] < s["total"] for s in seasons):
+                cursor.execute("""
+                    SELECT season_number, episode_number, original_title
+                    FROM media
+                    WHERE series_imdb_id = ? AND subdir IS NOT NULL
+                    ORDER BY episode_number IS NULL, episode_number, original_title
+                """, (imdb_id,))
+                ownedBySeason = collections.defaultdict(list)
+                for season, episode, title in cursor.fetchall():
+                    ownedBySeason[season].append({"number": episode, "title": title})
+                for s in seasons:
+                    if 0 < s["owned"] < s["total"]:
+                        s["ownedEpisodes"] = ownedBySeason[s["season"]]
             # the same test as the list's complete-episodes badge and the "All episodes available" filter; the overlay
             # only points out that the credits are compiled from the available episodes when some are missing
             cursor.execute("""
@@ -640,6 +664,7 @@ def detail(imdb_id):
         "plotSummary": plot_summary,
         "interests": interests,
         "allEpisodesOwned": allEpisodesOwned,
+        "seasons": seasons,
         "creators": credits["creators"],
         "sources": credits["source"],
         "directors": credits[1],
