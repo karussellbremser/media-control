@@ -98,7 +98,8 @@ def _buildFilter(search_query, year_from, year_to,
                  selected_language_code,
                  show_movies, show_series,
                  series_ended=False, series_fully_owned=False,
-                 series_not_ended=False, series_not_fully_owned=False):
+                 series_not_ended=False, series_not_fully_owned=False,
+                 series_mini=False, series_not_mini=False):
     """The part of the media query that decides WHICH titles match the current filter selection,
     shared by queryMedia (the list) and countMedia (the total shown above it) so the two can never
     disagree. Returns (joinSql, whereSql, havingSql, params) to be appended after "FROM media m JOIN
@@ -120,7 +121,8 @@ def _buildFilter(search_query, year_from, year_to,
     # were never meant to have their own top-level browsing entry. The two series options narrow the SERIES
     # only (movies are unaffected): "ended" = IMDb gives the series an end year; "all episodes available" = it has
     # episodes and every one of them is locally owned -- the same test as the list's complete-episodes badge.
-    # Each also exists as its NOT (right-click in the UI): still running / not all episodes available
+    # Each also exists as its NOT (right-click in the UI): still running / not all episodes available.
+    # A third option separates the two series types: "mini series" = tvMiniSeries, its NOT = regular tvSeries
     typeBranches = []
     if show_movies:
         typeBranches.append("tt.title_type_name IN (" + ",".join("?" for _ in Media.movieTitleTypes) + ")")
@@ -128,6 +130,10 @@ def _buildFilter(search_query, year_from, year_to,
     if show_series:
         seriesCond = "tt.title_type_name IN (" + ",".join("?" for _ in Media.seriesTitleTypes) + ")"
         params.extend(Media.seriesTitleTypes)
+        if series_mini:
+            seriesCond += " AND tt.title_type_name = 'tvMiniSeries'"
+        if series_not_mini:
+            seriesCond += " AND tt.title_type_name != 'tvMiniSeries'"
         if series_ended:
             seriesCond += " AND m.end_year IS NOT NULL"
         if series_not_ended:
@@ -393,6 +399,8 @@ def search():
     series_fully_owned = args.get('series_full', '0') == '1'
     series_not_ended = args.get('series_not_ended', '0') == '1'
     series_not_fully_owned = args.get('series_not_full', '0') == '1'
+    series_mini = args.get('series_mini', '0') == '1'
+    series_not_mini = args.get('series_not_mini', '0') == '1'
 
     page = int(args.get('page', 1))
     limit = 50
@@ -423,7 +431,9 @@ def search():
             series_ended,
             series_fully_owned,
             series_not_ended,
-            series_not_fully_owned
+            series_not_fully_owned,
+            series_mini,
+            series_not_mini
         )
         media = queryMedia(filters, args.get('sort', 'year'), args.get('order', 'desc'), limit, offset, random_seed)
         # the total only changes with the filters, not with the page, so only the first page asks for it

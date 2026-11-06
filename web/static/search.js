@@ -26,12 +26,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	const moviesCheckbox = document.getElementById('moviesCheckbox');
 	const seriesCheckbox = document.getElementById('seriesCheckbox');
 	// narrow the SERIES that are shown (movies are unaffected); only available while Series is ticked
+	const seriesMiniCheckbox = document.getElementById('seriesMiniCheckbox');
 	const seriesEndedCheckbox = document.getElementById('seriesEndedCheckbox');
 	const seriesFullCheckbox = document.getElementById('seriesFullCheckbox');
 
 	function updateSeriesOptions() {
 		const enabled = seriesCheckbox.checked;
-		[seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
+		[seriesMiniCheckbox, seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
 			const label = cb.closest('label');
 			if (!enabled) {
 				cb.checked = false;
@@ -652,6 +653,8 @@ document.addEventListener('DOMContentLoaded', () => {
             language: document.querySelector('.languageRadio:checked').value,
 			movies: moviesCheckbox.checked ? '1' : '0',
 			series: seriesCheckbox.checked ? '1' : '0',
+			series_mini: seriesMiniCheckbox.checked ? '1' : '0',
+			series_not_mini: seriesMiniCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
 			series_ended: seriesEndedCheckbox.checked ? '1' : '0',
 			series_full: seriesFullCheckbox.checked ? '1' : '0',
 			series_not_ended: seriesEndedCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
@@ -879,6 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		updateSeriesOptions();
 		resetAndSearch(input.value);
 	});
+	seriesMiniCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 	seriesEndedCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 	seriesFullCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 
@@ -916,7 +920,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		resetAndSearch(input.value);
 	}
 
-	[...genreCheckboxes, ...interestCheckboxes, seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
+	[...genreCheckboxes, ...interestCheckboxes, seriesMiniCheckbox, seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
 		const label = cb.closest('label');
 		let lastPointerType = 'mouse';
 		let pressTimer = null;
