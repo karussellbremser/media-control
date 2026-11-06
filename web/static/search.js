@@ -158,6 +158,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		version_of: 'Version of',
 		alternate_language_version_of: 'Alternate-language version of'
 	};
+	// the title types the overview can list (Media.movieTitleTypes + Media.seriesTitleTypes), as shown in the detail view
+	const TITLE_TYPE_LABELS = {
+		movie: 'Movie',
+		video: 'Video',
+		short: 'Short',
+		tvMovie: 'TV movie',
+		tvSpecial: 'TV special',
+		tvShort: 'TV short',
+		tvSeries: 'TV series',
+		tvMiniSeries: 'Mini series'
+	};
 	const VISIBLE_CAST_COUNT = 10;
 
 	let detailRequestId = 0;
@@ -219,7 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		const rating = d.rating ? d.rating.toFixed(1) : '—';
 		const votes = d.votes ? formatNumVotes(d.votes) : '—';
-		let meta = formatYearRange(d.startYear, d.endYear, d.isSeries) + ' · ★ ' + rating + ' (' + votes + ' votes)';
+		let meta = (TITLE_TYPE_LABELS[d.titleType] ? TITLE_TYPE_LABELS[d.titleType] + ' · ' : '') +
+			formatYearRange(d.startYear, d.endYear, d.isSeries) + ' · ★ ' + rating + ' (' + votes + ' votes)';
 		if (d.primaryTitle && d.primaryTitle !== d.title) meta += ' · also known as ' + d.primaryTitle;
 		detailMeta.textContent = meta;
 

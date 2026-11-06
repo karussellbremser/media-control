@@ -633,6 +633,7 @@ def detail(imdb_id):
         "primaryTitle": primary_title,
         "startYear": start_year,
         "endYear": end_year,
+        "titleType": title_type_name,
         "isSeries": title_type_name in Media.seriesTitleTypes,
         "rating": rating_mul10 / 10 if rating_mul10 else None,
         "votes": num_votes,
