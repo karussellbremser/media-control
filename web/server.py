@@ -463,6 +463,28 @@ def coverFull(filename):
 # "based on characters created by" and the like don't match -- they credit source material.
 _CREATOR_DETAILS = re.compile(r"(series |co-)?(created|developed)( for television)? by\b|(co-)?creator\b|developer\b", re.IGNORECASE)
 
+# A writer credit for the SOURCE MATERIAL rather than for writing: "based on the novel by", "inspired by",
+# "suggested by the motion picture written by", "book", "novel", "characters created by", "original
+# creator", ... (shown as "Based on"). "story by", "screenplay", "teleplay" and "adaptation" are writing.
+_SOURCE_DETAILS = re.compile(
+    r"(loosely |partly |partially )?(based|inspired|suggested)\b"
+    r"|(original )?(novels?|novellas?|books?|plays?|short stories|short story|comics?|graphic novels?|characters?)\b"
+    r"|original creator\b", re.IGNORECASE)
+
+def _creditRole(role_id, details, isSeries):
+    """The key a credit is listed under: its role id, except that a writer credit may really be a
+    series-wide creator credit ("creators", series only) or a source-material credit ("source")."""
+    if role_id == 2 and details:
+        if isSeries and _CREATOR_DETAILS.match(details):
+            return "creators"
+        if _SOURCE_DETAILS.match(details):
+            return "source"
+    return role_id
+
+def _sourceDetails(details):
+    """A source credit's wording without the trailing "&"/"and" IMDb adds when it is shared."""
+    return re.sub(r"\s+(&|and)$", "", details)
+
 # how strongly a prominent position outweighs a middle one when ranking a series' people -- a
 # credit's weight is (1 - relative position) ** exponent, see _seriesCredits
 _POSITION_EXPONENT = 3
@@ -470,7 +492,8 @@ _POSITION_EXPONENT = 3
 def _seriesCredits(cursor, series_imdb_id):
     """Cast & crew of a series, compiled from the credits of its episodes (a series has none of its
     own, see ScrapeIMDbOnline.scrapeFullCredits), as {1: directors, 2: writers, 3: actors,
-    "creators": creators}, each a ranked list of {name, birthYear, deathYear, details}.
+    "creators": creators, "source": source material}, each a ranked list of {name, birthYear,
+    deathYear, details}.
 
     Each appearance of a person in a role counts with the weight (1 - relative position) **
     _POSITION_EXPONENT, where the relative position is the credit's place within that episode's list
@@ -479,10 +502,11 @@ def _seriesCredits(cursor, series_imdb_id):
     frequent appearances and prominent slots; ties go to more episodes, then the better average
     position. No episode counts are exposed, they might give away more than wanted.
 
-    The series-wide creator credits (see _CREATOR_DETAILS) are pulled out of the writers into
-    "creators", ranked by the number of episodes carrying the credit; anyone with actual writing
-    credits too still appears under writers. An actor's details are the character name that
-    appears most often (a person may also be credited as other characters or "uncredited")."""
+    The series-wide creator credits (see _CREATOR_DETAILS) and the source-material credits (see
+    _SOURCE_DETAILS) are pulled out of the writers into "creators" and "source", ranked by the
+    number of episodes carrying the credit; anyone with actual writing credits too still appears
+    under writers. An actor's details are the character name that appears most often (a person
+    may also be credited as other characters or "uncredited"); a source credit's, its wording."""
     cursor.execute("""
         SELECT c.imdb_id, c.role_id, c.person_id, p.name, p.birth_year, p.death_year, c.ordering, c.details,
                COUNT(*) OVER (PARTITION BY c.imdb_id, c.role_id)
@@ -495,7 +519,9 @@ def _seriesCredits(cursor, series_imdb_id):
     # (role key, person) -> [score, episodes, sum of relative positions, details counter]
     people = {}
     for episode_id, role_id, person_id, name, birth_year, death_year, ordering, details, listLength in cursor.fetchall():
-        role = "creators" if role_id == 2 and details and _CREATOR_DETAILS.match(details) else role_id
+        role = _creditRole(role_id, details, True)
+        if role == "source":
+            details = _sourceDetails(details)
         relativePosition = (ordering - 1) / listLength
         entry = people.setdefault((role, person_id), {
             "person": {"name": name, "birthYear": birth_year, "deathYear": death_year},
@@ -506,9 +532,9 @@ def _seriesCredits(cursor, series_imdb_id):
         entry["credits"] += 1
         entry["details"][details] += 1
 
-    result = {1: [], 2: [], 3: [], "creators": []}
+    result = {1: [], 2: [], 3: [], "creators": [], "source": []}
     ranked = sorted(people.items(), key=lambda kv: (
-        -len(kv[1]["episodes"]) if kv[0][0] == "creators" else -kv[1]["score"],
+        -len(kv[1]["episodes"]) if kv[0][0] in ("creators", "source") else -kv[1]["score"],
         -len(kv[1]["episodes"]), kv[1]["positionSum"] / kv[1]["credits"], kv[1]["person"]["name"]))
     for (role, _), entry in ranked:
         result[role].append(dict(entry["person"], details=entry["details"].most_common(1)[0][0]))
@@ -569,9 +595,16 @@ def detail(imdb_id):
                 WHERE c.imdb_id = ?
                 ORDER BY c.role_id, c.ordering
             """, (imdb_id,))
-            credits = {1: [], 2: [], 3: [], "creators": []}
+            credits = {1: [], 2: [], 3: [], "creators": [], "source": []}
+            sourcePeople = set()
             for role_id, name, birth_year, death_year, details in cursor.fetchall():
-                credits[role_id].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
+                role = _creditRole(role_id, details, False)
+                if role == "source":
+                    if name in sourcePeople: # credited twice for the same work, e.g. "characters" and "novel"
+                        continue
+                    sourcePeople.add(name)
+                    details = _sourceDetails(details)
+                credits[role].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
 
         cursor.execute("""
             SELECT ct.connection_type_name, m2.imdb_id, m2.original_title, m2.start_year, m2.subdir IS NOT NULL
@@ -600,6 +633,7 @@ def detail(imdb_id):
         "interests": interests,
         "allEpisodesOwned": allEpisodesOwned,
         "creators": credits["creators"],
+        "sources": credits["source"],
         "directors": credits[1],
         "writers": credits[2],
         "actors": credits[3],
