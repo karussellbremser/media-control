@@ -186,15 +186,22 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	// plain left-click opens the overlay; ctrl/cmd/middle-click still follow the link's own IMDb href
-	function attachDetailOpen(element, imdb_id, titleHint = '') {
+	// focus ({season, episode}, optional): a series' overlay then opens on that episode, see seasonsSection
+	function attachDetailOpen(element, imdb_id, titleHint = '', focus = null) {
 		element.addEventListener('click', e => {
 			if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
 			e.preventDefault();
-			openDetail(imdb_id, true, titleHint);
+			openDetail(imdb_id, true, titleHint, focus);
 		});
 	}
 
 	// showDetails: the credit's details (a character name, a source credit's wording) behind each name
+	// "S01E05" (with the given text before/after it) -- nothing for an episode IMDb gives no number
+	function episodeCode(season, episode, before = '', after = '') {
+		if (season === null || episode === null) return '';
+		return before + 'S' + String(season).padStart(2, '0') + 'E' + String(episode).padStart(2, '0') + after;
+	}
+
 	function nameList(people, showDetails) {
 		const wrap = makeEl('span', 'detailNames');
 		people.forEach(p => {
@@ -229,7 +236,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	// A series' seasons as tiles: "owned/total" episodes, all owned (green), some (progress bar) or none (dimmed).
 	// The first VISIBLE_SEASON_COUNT numbered seasons show at once, the rest sit behind a "+ N more" tile; the
 	// episodes without a season number get a last tile of their own.
-	function seasonsSection(seasons) {
+	// focus ({season, episode}, optional): returns a reveal() to call once the section is on screen, which brings that
+	// episode's season into view -- the "+ N more" tile expanded if the season sits behind it, a partly owned season
+	// opened with the episode's row marked, a fully owned season's tile marked
+	function seasonsSection(seasons, focus) {
 		const section = document.createDocumentFragment();
 		const owned = seasons.reduce((sum, s) => sum + s.owned, 0);
 		const total = seasons.reduce((sum, s) => sum + s.total, 0);
@@ -255,6 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			episodes.replaceChildren();
 			s.ownedEpisodes.forEach(e => {
 				const row = makeEl('div', 'seasonEpisode');
+				row.dataset.episode = e.number === null ? '' : String(e.number);
 				row.appendChild(makeEl('span', 'seasonEpisodeNumber', e.number === null ? '' : 'E' + e.number));
 				row.appendChild(makeEl('span', '', e.title));
 				episodes.appendChild(row);
@@ -265,6 +276,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			episodes.hidden = false;
 			openTile = el;
 		}
+
+		const tileOf = new Map(); // season number (null: unnumbered) -> {el, s}
 
 		function tile(s) {
 			const state = s.owned === s.total ? 'full' : s.owned === 0 ? 'none' : 'part';
@@ -284,6 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					el.addEventListener('click', () => toggleEpisodes(el, s));
 				}
 			}
+			tileOf.set(s.season, { el, s });
 			return el;
 		}
 
@@ -299,26 +313,48 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 			grid.appendChild(el);
 		});
+		let moreTile = null;
+		function expandAll() {
+			hiddenTiles.forEach(el => { el.style.display = ''; });
+			if (moreTile) moreTile.remove();
+			moreTile = null;
+		}
 		if (hiddenTiles.length) {
-			const more = makeEl('button', 'seasonTile seasonTile--none seasonMore', '');
-			more.type = 'button';
-			more.appendChild(makeEl('span', 'seasonLabel', '…'));
-			more.appendChild(makeEl('span', 'seasonCount', '+ ' + hiddenTiles.length + ' more'));
-			more.addEventListener('click', () => {
-				hiddenTiles.forEach(el => { el.style.display = ''; });
-				more.remove();
-			});
-			grid.appendChild(more);
+			moreTile = makeEl('button', 'seasonTile seasonTile--none seasonMore', '');
+			moreTile.type = 'button';
+			moreTile.appendChild(makeEl('span', 'seasonLabel', '…'));
+			moreTile.appendChild(makeEl('span', 'seasonCount', '+ ' + hiddenTiles.length + ' more'));
+			moreTile.addEventListener('click', expandAll);
+			grid.appendChild(moreTile);
 		}
 		unnumbered.forEach(s => grid.appendChild(tile(s)));
 		const block = makeEl('div', 'seasonsBlock');
 		block.appendChild(grid);
 		block.appendChild(episodes);
 		section.appendChild(block);
-		return section;
+
+		function reveal() {
+			const found = focus && tileOf.get(focus.season);
+			if (!found) return;
+			expandAll();
+			found.el.classList.add('seasonTile--focus');
+			let target = found.el;
+			if (found.s.ownedEpisodes) {
+				if (openTile !== found.el) toggleEpisodes(found.el, found.s);
+				const row = [...episodes.children].find(r => r.dataset.episode === String(focus.episode));
+				if (row) {
+					row.classList.add('seasonEpisode--focus');
+					target = row;
+				}
+			}
+			target.scrollIntoView({ block: 'center' });
+		}
+
+		return { section, reveal };
 	}
 
-	function renderDetail(d) {
+	function renderDetail(d, focus = null) {
+		let reveal = null; // see seasonsSection
 		detailTitle.textContent = d.title;
 
 		const rating = d.rating ? d.rating.toFixed(1) : '—';
@@ -339,7 +375,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailBody.replaceChildren();
 		if (d.plotSummary) detailBody.appendChild(makeEl('p', 'plot', d.plotSummary));
 
-		if (d.isSeries && d.seasons.length) detailBody.appendChild(seasonsSection(d.seasons));
+		if (d.isSeries && d.seasons.length) {
+			const seasons = seasonsSection(d.seasons, focus);
+			detailBody.appendChild(seasons.section);
+			reveal = focus ? seasons.reveal : null;
+		}
 
 		if (d.creators.length || d.directors.length || d.writers.length || d.sources.length || d.actors.length) {
 			detailBody.appendChild(makeEl('h3', '', 'Cast & crew'));
@@ -375,8 +415,14 @@ document.addEventListener('DOMContentLoaded', () => {
 				targets.forEach(t => {
 					const row = makeEl('span', 'connTarget');
 					row.appendChild(makeEl('span', 'connDot' + (t.owned ? ' owned' : '')));
+					const text = makeEl('span');
 					const link = makeEl('a', '', t.title + (t.year ? ' (' + t.year + ')' : ''));
-					if (t.owned) {
+					if (t.owned && t.seriesId) {
+						// an episode has no overlay of its own: open its series, on that episode
+						link.href = '#' + idString(t.seriesId);
+						link.title = 'in the library -- open the series';
+						attachDetailOpen(link, t.seriesId, t.seriesTitle, { season: t.season, episode: t.episode });
+					} else if (t.owned) {
 						link.href = '#' + idString(t.imdbId);
 						link.title = 'in the library -- open';
 						attachDetailOpen(link, t.imdbId, t.title);
@@ -386,7 +432,19 @@ document.addEventListener('DOMContentLoaded', () => {
 						link.target = '_blank';
 						link.rel = 'noopener noreferrer';
 					}
-					row.appendChild(link);
+					text.appendChild(link);
+					// a target that is an episode: where it sits, e.g. " – Disneyland S28E19"
+					if (t.seriesTitle) {
+						text.appendChild(makeEl('span', 'connNote', ' – ' + t.seriesTitle + episodeCode(t.season, t.episode, ' ')));
+					}
+					// a series' connection that comes from its episodes: the first two of them, all in the hover text
+					if (t.origins.length) {
+						const label = o => episodeCode(o.season, o.episode, '', ' ') + o.title;
+						const note = makeEl('span', 'connNote', ' · ' + t.origins.slice(0, 2).map(label).join(', '));
+						note.title = t.origins.map(label).join('\n');
+						text.appendChild(note);
+					}
+					row.appendChild(text);
 					cell.appendChild(row);
 				});
 				grid.appendChild(cell);
@@ -395,6 +453,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 
 		detailBody.scrollTop = 0;
+
+		// a series opened on an episode: reveal it now if the overlay is on screen (scrolling needs that), else as it opens
+		if (reveal) {
+			if (detailBackdrop.classList.contains('hidden')) {
+				pendingReveal = reveal;
+			} else {
+				reveal();
+			}
+		}
 
 		detailCover.alt = d.title; // the cover itself was started by showDetailLoading, long before the details arrived
 	}
@@ -559,10 +626,19 @@ document.addEventListener('DOMContentLoaded', () => {
 	detailCover.addEventListener('click', openCoverLightbox);
 	coverLightbox.addEventListener('click', closeCoverLightbox);
 
+	// what to do once the overlay is on screen and its content is there (scrolling needs a visible overlay): a
+	// series opened on an episode reveals it, see seasonsSection -- set by renderDetail when it ran before the overlay opened
+	let pendingReveal = null;
+
 	function showDetailShell() {
 		detailBackdrop.classList.remove('hidden');
 		document.body.style.overflow = 'hidden';
 		document.getElementById('detailClose').focus();
+		if (pendingReveal) {
+			const reveal = pendingReveal;
+			pendingReveal = null;
+			reveal();
+		}
 	}
 
 	function hideDetail() {
@@ -597,8 +673,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	}
 
-	function openDetail(imdb_id, pushHistory = true, titleHint = '') {
+	function openDetail(imdb_id, pushHistory = true, titleHint = '', focus = null) {
 		const requestId = ++detailRequestId;
+		pendingReveal = null;
 		const wasOpen = !detailBackdrop.classList.contains('hidden');
 		new Image().src = '/cover/' + idString(imdb_id) + '.jpg'; // preload alongside the details request
 		const tintReady = tintFromThumbnail(imdb_id); // likewise, see tintFromThumbnail
@@ -631,7 +708,15 @@ document.addEventListener('DOMContentLoaded', () => {
 			})
 			.then(d => {
 				if (requestId !== detailRequestId) return; // superseded by a newer click, or closed meanwhile
-				renderDetail(d);
+				if (d.episodeOf) {
+					// an episode has no overlay of its own (a link or history entry from before): open its series on it
+					// instead, and make the address say so. Only a history entry that already is an overlay one stays one.
+					const e = d.episodeOf;
+					history.replaceState(history.state && history.state.detail ? { detail: e.seriesId } : null, '', '#' + idString(e.seriesId));
+					openDetail(e.seriesId, false, '', { season: e.season, episode: e.episode });
+					return;
+				}
+				renderDetail(d, focus);
 			})
 			.catch(err => {
 				if (requestId !== detailRequestId) return;

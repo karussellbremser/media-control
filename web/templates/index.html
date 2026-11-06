@@ -1000,6 +1000,19 @@
 			padding: 2px 0;
 		}
 
+		/* the season / episode a link from another title opened this series on */
+		.seasonTile--focus {
+			outline: 1px solid rgba(255, 255, 255, 0.55);
+			outline-offset: -1px;
+		}
+
+		.seasonEpisode--focus {
+			margin: 0 -6px;
+			padding: 2px 6px;
+			border-radius: 4px;
+			background: rgba(255, 255, 255, 0.14);
+		}
+
 		.seasonEpisodeNumber {
 			flex: none;
 			min-width: 34px;
@@ -1050,8 +1063,12 @@
 
 		.connTarget {
 			display: flex;
-			align-items: center;
+			align-items: baseline; /* the dot sits on the first line when an entry wraps */
 			gap: 8px;
+		}
+
+		.connTarget + .connTarget {
+			margin-top: 3px;
 		}
 
 		.connDot {
@@ -1069,6 +1086,11 @@
 
 		.connTarget a {
 			color: inherit;
+		}
+
+		/* where a target episode sits / which episodes a series' connection comes from */
+		.connNote {
+			color: #a2a2aa;
 		}
 
 		.detailError {

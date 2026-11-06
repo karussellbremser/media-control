@@ -547,6 +547,49 @@ def _seriesCredits(cursor, series_imdb_id):
         result[role].append(dict(entry["person"], details=entry["details"].most_common(1)[0][0]))
     return result
 
+def _connections(cursor, imdb_id, isSeries):
+    """The connections shown for a title, as a list of {type, imdbId, title, year, owned, seriesTitle,
+    seriesId, seriesTitle, season, episode, origins}. A series also takes over the connections of its owned episodes: a
+    target reached from several episodes is listed once, with those episodes as "origins" ({season,
+    episode, title}, in episode order) -- the series' own connections have none, and win when the
+    same target is reached both ways.
+    seriesId/seriesTitle/season/episode say where a target is when that target is itself an episode
+    (else None) -- an episode has no overlay of its own, the UI opens its series instead. Ordered by connection type, then the series' own connections (by year, title) before the
+    episode-derived ones (the more episodes reach a target, the earlier; then year, title)."""
+    cursor.execute("""
+        SELECT ct.connection_type_id, ct.connection_type_name, m2.imdb_id, m2.original_title, m2.start_year,
+               m2.subdir IS NOT NULL, s2.original_title, m2.season_number, m2.episode_number,
+               mc.imdb_id, e.season_number, e.episode_number, e.original_title, m2.series_imdb_id
+        FROM media_connections mc
+        JOIN connection_type_enum ct ON mc.connection_type_id = ct.connection_type_id
+        JOIN media m2 ON mc.foreign_imdb_id = m2.imdb_id
+        LEFT JOIN media s2 ON m2.series_imdb_id = s2.imdb_id
+        JOIN media e ON mc.imdb_id = e.imdb_id
+        WHERE mc.imdb_id = :id""" + (" OR (e.series_imdb_id = :id AND e.subdir IS NOT NULL)" if isSeries else ""),
+        {"id": imdb_id})
+
+    targets = {} # (connection type id, target id) -> connection
+    for (typeId, typeName, targetId, title, year, owned, seriesTitle, season, episode,
+         originId, originSeason, originEpisode, originTitle, seriesId) in cursor.fetchall():
+        target = targets.setdefault((typeId, targetId), {
+            "type": typeName, "imdbId": targetId, "title": title, "year": year, "owned": bool(owned),
+            "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode,
+            "own": False, "origins": [], "typeId": typeId})
+        if originId == imdb_id:
+            target["own"] = True
+        else:
+            target["origins"].append({"season": originSeason, "episode": originEpisode, "title": originTitle})
+
+    for target in targets.values():
+        if target["own"]:
+            target["origins"] = []
+        target["origins"].sort(key=lambda o: (o["season"] is None, o["season"], o["episode"] is None, o["episode"], o["title"]))
+    ordered = sorted(targets.values(), key=lambda t: (
+        t["typeId"], not t["own"], -len(t["origins"]), t["year"] is None, t["year"], t["title"]))
+    for target in ordered:
+        del target["own"], target["typeId"]
+    return ordered
+
 @server.route('/detail/<int:imdb_id>')
 def detail(imdb_id):
     """Everything the title detail overlay shows, for one locally-owned movie/series: basics, plot
@@ -570,6 +613,20 @@ def detail(imdb_id):
             conn.close()
             return jsonify({"error": "not found"}), 404
         original_title, primary_title, start_year, end_year, rating_mul10, num_votes, plot_summary, title_type_name = row
+
+        # an episode has no overlay of its own (no cover, no plot, nothing browsable): say where it sits in its
+        # series, which the UI opens instead, on that episode. (An episode whose series isn't owned -- not
+        # expected -- keeps the plain answer below.)
+        if title_type_name in Media.episodeTitleTypes:
+            cursor.execute("""
+                SELECT e.series_imdb_id, e.season_number, e.episode_number
+                FROM media e JOIN media s ON e.series_imdb_id = s.imdb_id
+                WHERE e.imdb_id = ? AND s.subdir IS NOT NULL
+            """, (imdb_id,))
+            episodeRow = cursor.fetchone()
+            if episodeRow is not None:
+                conn.close()
+                return jsonify({"episodeOf": {"seriesId": episodeRow[0], "season": episodeRow[1], "episode": episodeRow[2]}})
 
         # genres (no parent) first, then subgenres, each alphabetical; hidden interests left out, same
         # as everywhere else the UI lists interests
@@ -637,16 +694,7 @@ def detail(imdb_id):
                     details = _sourceDetails(details)
                 credits[role].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
 
-        cursor.execute("""
-            SELECT ct.connection_type_name, m2.imdb_id, m2.original_title, m2.start_year, m2.subdir IS NOT NULL
-            FROM media_connections mc
-            JOIN connection_type_enum ct ON mc.connection_type_id = ct.connection_type_id
-            JOIN media m2 ON mc.foreign_imdb_id = m2.imdb_id
-            WHERE mc.imdb_id = ?
-            ORDER BY ct.connection_type_id, m2.start_year, m2.original_title
-        """, (imdb_id,))
-        connections = [{"type": type_name, "imdbId": foreign_id, "title": title, "year": year, "owned": bool(owned)}
-                       for type_name, foreign_id, title, year, owned in cursor.fetchall()]
+        connections = _connections(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
         conn.close()
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 503
