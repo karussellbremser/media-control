@@ -482,8 +482,15 @@ def _creditRole(role_id, details, isSeries):
     return role_id
 
 def _sourceDetails(details):
-    """A source credit's wording without the trailing "&"/"and" IMDb adds when it is shared."""
-    return re.sub(r"\s+(&|and)$", "", details)
+    """A source credit's wording as shown behind the person's name: without "(as <alias>)", the
+    trailing "&"/"and" IMDb adds when a credit is shared and the dangling "by" ("based on the novel
+    by" -> "based on the novel"; also "written by", "created by"). None if nothing is left."""
+    details = re.sub(r"\s*\(as [^)]*\)", "", details)
+    while True:
+        cleaned = re.sub(r"\s+(&|and|(written |created )?by)$", "", details.strip())
+        if cleaned == details:
+            return details or None
+        details = cleaned
 
 # how strongly a prominent position outweighs a middle one when ranking a series' people -- a
 # credit's weight is (1 - relative position) ** exponent, see _seriesCredits

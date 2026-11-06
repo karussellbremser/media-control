@@ -182,15 +182,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	// showDetails: the credit's details (a character name) behind each name; tooltipDetails: in the hover text instead
-	function nameList(people, showDetails, tooltipDetails = false) {
+	// showDetails: the credit's details (a character name, a source credit's wording) behind each name
+	function nameList(people, showDetails) {
 		const wrap = makeEl('span', 'detailNames');
 		people.forEach(p => {
 			const span = makeEl('span', '', p.name);
-			const tooltip = [];
-			if (tooltipDetails && p.details) tooltip.push(p.details);
-			if (p.birthYear) tooltip.push('b. ' + p.birthYear + (p.deathYear ? ', d. ' + p.deathYear : ''));
-			if (tooltip.length) span.title = tooltip.join(' · ');
+			if (p.birthYear) span.title = 'b. ' + p.birthYear + (p.deathYear ? ', d. ' + p.deathYear : '');
 			if (showDetails && p.details) span.appendChild(makeEl('span', 'muted', ' (' + p.details + ')'));
 			wrap.appendChild(span);
 		});
@@ -198,12 +195,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	// the first VISIBLE_CAST_COUNT people, the rest behind a "+ N more" button
-	function collapsibleList(people, showDetails, tooltipDetails = false) {
+	function collapsibleList(people, showDetails) {
 		const wrap = makeEl('span', 'detailNames');
-		const first = nameList(people.slice(0, VISIBLE_CAST_COUNT), showDetails, tooltipDetails);
+		const first = nameList(people.slice(0, VISIBLE_CAST_COUNT), showDetails);
 		wrap.appendChild(first);
 		if (people.length > VISIBLE_CAST_COUNT) {
-			const rest = nameList(people.slice(VISIBLE_CAST_COUNT), showDetails, tooltipDetails);
+			const rest = nameList(people.slice(VISIBLE_CAST_COUNT), showDetails);
 			rest.style.display = 'none';
 			const more = makeEl('button', 'detailMore', '+ ' + (people.length - VISIBLE_CAST_COUNT) + ' more');
 			more.type = 'button';
@@ -247,8 +244,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			[['Created by', d.creators, crewList],
 			 ['Directed by', d.directors, crewList],
 			 ['Written by', d.writers, crewList],
-			 // the source material's authors; the hover text gives the credit ("based on the novel by")
-			 ['Based on', d.sources, people => d.isSeries ? collapsibleList(people, false, true) : nameList(people, false, true)],
+			 // the source material's authors, each with their credit ("based on the novel")
+			 ['Based on', d.sources, people => d.isSeries ? collapsibleList(people, true) : nameList(people, true)],
 			 ['Cast', d.actors, people => collapsibleList(people, true)]].forEach(([label, people, render]) => {
 				if (!people.length) return;
 				grid.appendChild(makeEl('span', 'label', label));
