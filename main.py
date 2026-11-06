@@ -761,14 +761,15 @@ def refreshTitleData():
 
     mediaDict = db.getAllMovieObjects()
 
-    offline = ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY), config.IMDB_HELPER_DB_PATH)
+    online = ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY)
+    offline = ScrapeIMDbOffline(online, config.IMDB_HELPER_DB_PATH)
     mediaDict = offline.refreshTitleFields(mediaDict)
 
     db.refreshRatings(mediaDict)
     db.refreshTitleBasics(mediaDict)
 
     peopleDict = db.getAllPersonObjects()
-    peopleDict = offline.refreshPeople(peopleDict)
+    peopleDict, missingPersonIDs = offline.refreshPeople(peopleDict)
     db.refreshPeople(peopleDict)
 
     # discover new episodes / detect vanished ones for every currently-owned series. New episodes
@@ -853,6 +854,37 @@ def refreshTitleData():
 
             if renumberedEpisodes:
                 db.refreshEpisodeNumbering(renumberedEpisodes)
+
+    # last on purpose: a scraping failure here must not keep any of the updates above from happening
+    if missingPersonIDs:
+        rescrapeCreditsOfMissingPeople(db, online, offline, peopleDict, missingPersonIDs, mediaDict)
+
+def rescrapeCreditsOfMissingPeople(db, scrapeimdbonline, scrapeimdboffline, peopleDict, missingPersonIDs, mediaDict):
+    """People the offline dataset no longer lists (IMDb merged or removed them) are only still in the DB
+    through credits that were scraped earlier. Re-scrapes the fullcredits page of every title crediting
+    one of them and replaces that title's credits with the fresh ones (see DBControl.replaceCredits) --
+    which purges such a person once nothing credits them any more (the page then lists their replacement,
+    if any). A person the page still credits stays, and gets looked at again by the next refresh."""
+    affectedIDs = db.getCreditedMediaIDs(missingPersonIDs)
+    if not affectedIDs:
+        return
+    affectedDict = {imdb_id: mediaDict[imdb_id] for imdb_id in sorted(affectedIDs)}
+    for medium in affectedDict.values():
+        medium.credits = []
+
+    printAlways("\nRe-scraping the credits of " + str(len(affectedDict)) + " title(s) crediting people missing from the offline dataset")
+    knownPersonIDs = db.getAllKnownPersonIDs()
+    newPersonRegistrations = scrapeimdbonline.scrapeFullCredits(affectedDict, knownPersonIDs, printHeader=False)
+    scrapeimdbonline.close() # the browser is only launched again if a later step needs it
+    newPeopleDict = scrapeimdboffline.parsePeople({p.imdb_id: p for p in newPersonRegistrations})
+
+    removedIDs = db.replaceCredits(affectedDict, newPeopleDict)
+    for person_id in sorted(missingPersonIDs):
+        person = peopleDict[person_id]
+        if person_id in removedIDs:
+            printAlways("  removed stale person " + person.getIDString() + " (" + str(person.name) + ")")
+        else:
+            printAlways("  " + person.getIDString() + " (" + str(person.name) + ") is still credited on IMDb's page -- kept")
 
 def ensureHelperDBFresh(runAutoRefresh):
     """If config.HELPER_DB_AUTO_UPDATE_ENABLED and the IMDb offline dataset helper DB is either

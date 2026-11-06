@@ -769,6 +769,43 @@ class DBControl:
         for credit in thisMedia.credits:
             self.c.execute("INSERT INTO credits VALUES (?, ?, ?, ?, ?)", (thisMedia.imdb_id, self.__getCreditRoleIDByCreditRoleName(credit.credit_role), credit.ordering, credit.person_id, credit.credit_details))
 
+    def getCreditedMediaIDs(self, person_ids):
+        """Set of the imdb_ids of every medium that has a credit for any of the given people."""
+        person_ids = list(person_ids)
+        result = set()
+        with self.conn:
+            for i in range(0, len(person_ids), 500):
+                batch = person_ids[i:i + 500]
+                self.c.execute("SELECT DISTINCT imdb_id FROM credits WHERE person_id IN (" + ",".join("?" for _ in batch) + ")", batch)
+                result.update(row[0] for row in self.c.fetchall())
+        return result
+
+    def replaceCredits(self, mediaDict, newPeopleDict):
+        """Replaces the credits of every medium in mediaDict with the ones on its Media object (see
+        ScrapeIMDbOnline.scrapeFullCredits), in ONE transaction: the old credits are removed, the
+        people the new scrape discovered (newPeopleDict, {imdb_id: Person}) and the new credits are
+        written, and only then are the people who were on the old credits pruned if nothing credits
+        them any more -- pruning last keeps everyone who is still credited (they would otherwise be
+        deleted and re-created, losing the resolved name/birth/death years). An interruption leaves
+        the old credits untouched. Returns the set of people that were removed from people."""
+        with self.conn:
+            oldPersonIDs = set()
+            for imdb_id in mediaDict:
+                self.c.execute("SELECT person_id FROM credits WHERE imdb_id=?", (imdb_id,))
+                oldPersonIDs.update(row[0] for row in self.c.fetchall())
+                self.c.execute("DELETE FROM credits WHERE imdb_id=?", (imdb_id,))
+            for person in newPeopleDict.values():
+                self._ensurePersonExistsNoCommit(person)
+            for media in mediaDict.values():
+                self.addSingleMediumCredits(media)
+            self.__pruneOrphanedPeople(oldPersonIDs)
+            removed = set()
+            for person_id in oldPersonIDs:
+                self.c.execute("SELECT 1 FROM people WHERE imdb_id=?", (person_id,))
+                if self.c.fetchone() is None:
+                    removed.add(person_id)
+            return removed
+
     def addMultipleMedia(self, mediaDict):
         """Public, self-committing entry point -- safe to call standalone (see refreshTitleData).
         For a caller that needs this batched atomically alongside other writes (see main.py's

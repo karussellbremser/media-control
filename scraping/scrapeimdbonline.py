@@ -1234,7 +1234,7 @@ class ScrapeIMDbOnline:
 
         return resultDict
 
-    def scrapeFullCredits(self, mediaDict, knownPersonIDs):
+    def scrapeFullCredits(self, mediaDict, knownPersonIDs, printHeader=True):
         """For every medium in mediaDict, visits its IMDb fullcredits page and records director/
         writer/actor credits directly onto that medium's own .credits list (see Credit), with
         `ordering` restarting at 1 for each of the three roles independently (the first director is
@@ -1265,7 +1265,8 @@ class ScrapeIMDbOnline:
         if len(mediaDict) == 0:
             return []
 
-        self.__printStepHeader(9, "scraping full credits (director/writer/actor)")
+        if printHeader: # not wanted when called from outside the sync pipeline, see main.py's rescrapeCreditsOfMissingPeople
+            self.__printStepHeader(9, "scraping full credits (director/writer/actor)")
 
         newPersonRegistrations = []
         first = True

@@ -285,18 +285,20 @@ class ScrapeIMDbOffline:
         record is supplementary to a credit, not structural the way a title's own basics are, so
         this just leaves the person's name as whatever was scraped from the credits page (see
         Person), with birth_year/death_year staying None."""
-        return self.__applyPeople(content_dict)
+        return self.__applyPeople(content_dict)[0]
 
     def refreshPeople(self, content_dict):
         """Like refreshTitleFields, but for people: name/birth_year/death_year are silently updated
         to whatever the dataset currently says (a living person's death_year becomes known, names
         get corrected). A person missing from the dataset keeps their current DB values unchanged,
-        same tolerance as parsePeople."""
+        same tolerance as parsePeople. Returns (content_dict, missingIDs): the ids of those missing
+        people too, since a person IMDb has merged away or removed is typically only still in the DB
+        through stale credits -- see main.py's rescrapeCreditsOfMissingPeople."""
         return self.__applyPeople(content_dict)
 
     def __applyPeople(self, content_dict):
         if len(content_dict) == 0:
-            return content_dict
+            return content_dict, set()
 
         c = self.__getCursor()
         foundIDs = set()
@@ -313,11 +315,12 @@ class ScrapeIMDbOffline:
         # flagged, not raised (see parsePeople/refreshPeople's docstrings) -- but still worth
         # surfacing, since it's the one case where a person's dataset data was actually expected
         # and didn't show up
-        for missing_id in content_dict.keys() - foundIDs:
+        missingIDs = content_dict.keys() - foundIDs
+        for missing_id in missingIDs:
             printAlways("WARNING: person " + content_dict[missing_id].getIDString() + " (" + str(content_dict[missing_id].name) +
                   ") not found in the offline dataset -- keeping existing data unchanged")
 
-        return content_dict
+        return content_dict, missingIDs
 
     def parseTitleEpisode(self, content_dict):
         """Resolves season_number/episode_number/series_imdb_id for every id in content_dict that
