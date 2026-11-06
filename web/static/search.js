@@ -193,14 +193,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		return wrap;
 	}
 
-	function castList(actors) {
+	// the first VISIBLE_CAST_COUNT people, the rest behind a "+ N more" button
+	function collapsibleList(people, showDetails) {
 		const wrap = makeEl('span', 'detailNames');
-		const first = nameList(actors.slice(0, VISIBLE_CAST_COUNT), true);
+		const first = nameList(people.slice(0, VISIBLE_CAST_COUNT), showDetails);
 		wrap.appendChild(first);
-		if (actors.length > VISIBLE_CAST_COUNT) {
-			const rest = nameList(actors.slice(VISIBLE_CAST_COUNT), true);
+		if (people.length > VISIBLE_CAST_COUNT) {
+			const rest = nameList(people.slice(VISIBLE_CAST_COUNT), showDetails);
 			rest.style.display = 'none';
-			const more = makeEl('button', 'detailMore', '+ ' + (actors.length - VISIBLE_CAST_COUNT) + ' more');
+			const more = makeEl('button', 'detailMore', '+ ' + (people.length - VISIBLE_CAST_COUNT) + ' more');
 			more.type = 'button';
 			more.addEventListener('click', () => {
 				rest.style.display = 'flex';
@@ -232,15 +233,20 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailBody.replaceChildren();
 		if (d.plotSummary) detailBody.appendChild(makeEl('p', 'plot', d.plotSummary));
 
-		if (d.directors.length || d.writers.length || d.actors.length) {
+		if (d.creators.length || d.directors.length || d.writers.length || d.actors.length) {
 			detailBody.appendChild(makeEl('h3', '', 'Cast & crew'));
+			// a series' lists are compiled from its episodes, ranked, and can get long: all of them collapse;
+			// the note is only there when episodes are missing, i.e. when the lists are based on part of the series
+			if (d.isSeries && !d.allEpisodesOwned) detailBody.appendChild(makeEl('div', 'detailNote', 'Compiled from the available episodes'));
+			const crewList = people => d.isSeries ? collapsibleList(people, false) : nameList(people, false);
 			const grid = makeEl('div', 'detailGrid');
-			[['Directed by', d.directors ? nameList(d.directors, false) : null, d.directors.length],
-			 ['Written by', nameList(d.writers, false), d.writers.length],
-			 ['Cast', castList(d.actors), d.actors.length]].forEach(([label, content, count]) => {
-				if (!count) return;
+			[['Created by', d.creators, crewList],
+			 ['Directed by', d.directors, crewList],
+			 ['Written by', d.writers, crewList],
+			 ['Cast', d.actors, people => collapsibleList(people, true)]].forEach(([label, people, render]) => {
+				if (!people.length) return;
 				grid.appendChild(makeEl('span', 'label', label));
-				grid.appendChild(content);
+				grid.appendChild(render(people));
 			});
 			detailBody.appendChild(grid);
 		}

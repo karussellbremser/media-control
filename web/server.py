@@ -1,6 +1,6 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory
 from werkzeug.security import check_password_hash
-import sqlite3, os, sys, hashlib, hmac, codecs
+import sqlite3, os, sys, hashlib, hmac, codecs, re, collections
 import serverconfig
 from model.imdbinterestid import parseInterestID
 from model.media import Media
@@ -458,12 +458,69 @@ def coverSmall(filename):
 def coverFull(filename):
     return send_from_directory(serverconfig.COVERS_DIR, filename, max_age=COVER_MAX_AGE)
 
+# A writer credit that belongs to the SERIES rather than to the episode: IMDb repeats it on every
+# episode's credits ("created by", "developed for television by", "co-created by", "creator", ...).
+# "based on characters created by" and the like don't match -- they credit source material.
+_CREATOR_DETAILS = re.compile(r"(series |co-)?(created|developed)( for television)? by\b|(co-)?creator\b|developer\b", re.IGNORECASE)
+
+# how strongly a prominent position outweighs a middle one when ranking a series' people -- a
+# credit's weight is (1 - relative position) ** exponent, see _seriesCredits
+_POSITION_EXPONENT = 3
+
+def _seriesCredits(cursor, series_imdb_id):
+    """Cast & crew of a series, compiled from the credits of its episodes (a series has none of its
+    own, see ScrapeIMDbOnline.scrapeFullCredits), as {1: directors, 2: writers, 3: actors,
+    "creators": creators}, each a ranked list of {name, birthYear, deathYear, details}.
+
+    Each appearance of a person in a role counts with the weight (1 - relative position) **
+    _POSITION_EXPONENT, where the relative position is the credit's place within that episode's list
+    of that role (0 for the first entry, towards 1 for the last, so cast lists of different
+    lengths are comparable). A person's score is the sum over their episodes, so it rewards both
+    frequent appearances and prominent slots; ties go to more episodes, then the better average
+    position. No episode counts are exposed, they might give away more than wanted.
+
+    The series-wide creator credits (see _CREATOR_DETAILS) are pulled out of the writers into
+    "creators", ranked by the number of episodes carrying the credit; anyone with actual writing
+    credits too still appears under writers. An actor's details are the character name that
+    appears most often (a person may also be credited as other characters or "uncredited")."""
+    cursor.execute("""
+        SELECT c.imdb_id, c.role_id, c.person_id, p.name, p.birth_year, p.death_year, c.ordering, c.details,
+               COUNT(*) OVER (PARTITION BY c.imdb_id, c.role_id)
+        FROM credits c
+        JOIN media e ON c.imdb_id = e.imdb_id
+        JOIN people p ON c.person_id = p.imdb_id
+        WHERE e.series_imdb_id = ?
+    """, (series_imdb_id,))
+
+    # (role key, person) -> [score, episodes, sum of relative positions, details counter]
+    people = {}
+    for episode_id, role_id, person_id, name, birth_year, death_year, ordering, details, listLength in cursor.fetchall():
+        role = "creators" if role_id == 2 and details and _CREATOR_DETAILS.match(details) else role_id
+        relativePosition = (ordering - 1) / listLength
+        entry = people.setdefault((role, person_id), {
+            "person": {"name": name, "birthYear": birth_year, "deathYear": death_year},
+            "score": 0.0, "episodes": set(), "positionSum": 0.0, "credits": 0, "details": collections.Counter()})
+        entry["score"] += (1 - relativePosition) ** _POSITION_EXPONENT
+        entry["episodes"].add(episode_id)
+        entry["positionSum"] += relativePosition
+        entry["credits"] += 1
+        entry["details"][details] += 1
+
+    result = {1: [], 2: [], 3: [], "creators": []}
+    ranked = sorted(people.items(), key=lambda kv: (
+        -len(kv[1]["episodes"]) if kv[0][0] == "creators" else -kv[1]["score"],
+        -len(kv[1]["episodes"]), kv[1]["positionSum"] / kv[1]["credits"], kv[1]["person"]["name"]))
+    for (role, _), entry in ranked:
+        result[role].append(dict(entry["person"], details=entry["details"].most_common(1)[0][0]))
+    return result
+
 @server.route('/detail/<int:imdb_id>')
 def detail(imdb_id):
     """Everything the title detail overlay shows, for one locally-owned movie/series: basics, plot
-    summary, genres/subgenres, credits (only ever stored for movies and episodes, so a series has
-    none), and connections to other titles, each flagged with whether the target is itself locally
-    owned (=> the overlay can open it in place) or only referenced (=> links out to IMDb)."""
+    summary, genres/subgenres, credits (only ever stored for movies and episodes, so a series' are
+    compiled from its episodes, see _seriesCredits), and connections to other titles, each flagged
+    with whether the target is itself locally owned (=> the overlay can open it in place) or only
+    referenced (=> links out to IMDb)."""
     try:
         conn = sqlite3.connect(serverconfig.DB_PATH)
         cursor = conn.cursor()
@@ -493,16 +550,28 @@ def detail(imdb_id):
         """, [imdb_id] + hiddenParams)
         interests = [{"name": name, "isGenre": bool(isGenre)} for name, isGenre in cursor.fetchall()]
 
-        cursor.execute("""
-            SELECT c.role_id, p.name, p.birth_year, p.death_year, c.details
-            FROM credits c
-            JOIN people p ON c.person_id = p.imdb_id
-            WHERE c.imdb_id = ?
-            ORDER BY c.role_id, c.ordering
-        """, (imdb_id,))
-        credits = {1: [], 2: [], 3: []}
-        for role_id, name, birth_year, death_year, details in cursor.fetchall():
-            credits[role_id].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
+        allEpisodesOwned = False
+        if title_type_name in Media.seriesTitleTypes:
+            credits = _seriesCredits(cursor, imdb_id)
+            # the same test as the list's complete-episodes badge and the "All episodes available" filter; the overlay
+            # only points out that the credits are compiled from the available episodes when some are missing
+            cursor.execute("""
+                SELECT EXISTS (SELECT 1 FROM media WHERE series_imdb_id = ?),
+                       NOT EXISTS (SELECT 1 FROM media WHERE series_imdb_id = ? AND subdir IS NULL)
+            """, (imdb_id, imdb_id))
+            hasEpisodes, noneMissing = cursor.fetchone()
+            allEpisodesOwned = bool(hasEpisodes and noneMissing)
+        else:
+            cursor.execute("""
+                SELECT c.role_id, p.name, p.birth_year, p.death_year, c.details
+                FROM credits c
+                JOIN people p ON c.person_id = p.imdb_id
+                WHERE c.imdb_id = ?
+                ORDER BY c.role_id, c.ordering
+            """, (imdb_id,))
+            credits = {1: [], 2: [], 3: [], "creators": []}
+            for role_id, name, birth_year, death_year, details in cursor.fetchall():
+                credits[role_id].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
 
         cursor.execute("""
             SELECT ct.connection_type_name, m2.imdb_id, m2.original_title, m2.start_year, m2.subdir IS NOT NULL
@@ -529,6 +598,8 @@ def detail(imdb_id):
         "votes": num_votes,
         "plotSummary": plot_summary,
         "interests": interests,
+        "allEpisodesOwned": allEpisodesOwned,
+        "creators": credits["creators"],
         "directors": credits[1],
         "writers": credits[2],
         "actors": credits[3],
