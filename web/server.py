@@ -498,7 +498,12 @@ _CREATOR_DETAILS = re.compile(r"(series |co-)?(created|developed)( for televisio
 _SOURCE_DETAILS = re.compile(
     r"(loosely |partly |partially )?(based|inspired|suggested)\b"
     r"|(original )?(novels?|novellas?|books?|plays?|short stories|short story|comics?|graphic novels?|characters?)\b"
-    r"|original creator\b", re.IGNORECASE)
+    r"|original creator\b"
+    r"|stories\b"
+    r"|(original )?(story|screenplay):? \"" # a quoted title right after: the earlier work (story "Children of the Corn", screenplay "Yojimbo")
+    r"|from the (novel|book|story|play|comic)\b|adapted from\b|this work contains material from\b"
+    r"|\(?(\d{4} )?(short )?(film|motion picture)\b" # film "Fright Night", motion picture "Rec", (1970 film "...")
+    r"|memoirs?\b|(epic )?poem\b|song \"|musical book\b", re.IGNORECASE)
 
 def _creditRole(role_id, details, isSeries):
     """The key a credit is listed under: its role id, except that a writer credit may really be a
