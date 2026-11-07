@@ -677,20 +677,22 @@ def detail(imdb_id):
             allEpisodesOwned = bool(hasEpisodes and noneMissing)
         else:
             cursor.execute("""
-                SELECT c.role_id, p.name, p.birth_year, p.death_year, c.details
+                SELECT c.role_id, c.person_id, p.name, p.birth_year, p.death_year, c.details
                 FROM credits c
                 JOIN people p ON c.person_id = p.imdb_id
                 WHERE c.imdb_id = ?
                 ORDER BY c.role_id, c.ordering
             """, (imdb_id,))
             credits = {1: [], 2: [], 3: [], "creators": [], "source": []}
-            sourcePeople = set()
-            for role_id, name, birth_year, death_year, details in cursor.fetchall():
+            listed = set()
+            for role_id, person_id, name, birth_year, death_year, details in cursor.fetchall():
                 role = _creditRole(role_id, details, False)
+                # a person is listed once per list, at their first credit: IMDb often credits one person twice in a
+                # role ("story" and "screenplay", "characters" and "novel") and the lists don't show the qualifier
+                if (role, person_id) in listed:
+                    continue
+                listed.add((role, person_id))
                 if role == "source":
-                    if name in sourcePeople: # credited twice for the same work, e.g. "characters" and "novel"
-                        continue
-                    sourcePeople.add(name)
                     details = _sourceDetails(details)
                 credits[role].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
 
