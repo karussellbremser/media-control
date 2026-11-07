@@ -967,7 +967,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		votesTo.value = '';
 
 		moviesCheckbox.checked = true;
-		seriesCheckbox.checked = false;
+		seriesCheckbox.checked = true;
 		updateSeriesOptions();
 
 		document.querySelector('.languageRadio[value=""]').checked = true;
