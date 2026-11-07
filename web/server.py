@@ -1,58 +1,53 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 import sqlite3, os, sys, hashlib, hmac, codecs, re, collections
 import serverconfig
 from model.imdbinterestid import parseInterestID
 from model.media import Media
+from web import authfile
 
 server = Flask(__name__)
 
 def _readAuthFile(path):
-    """(username, werkzeug password hash) from the one-line "username:hash" file at path -- see
-    README.md ("Hosting the web UI with Docker") for how to create it. Fails closed: a missing or
-    malformed file stops the server from starting at all, rather than leaving it open."""
+    """{username: werkzeug password hash} from the login file at path (one "username:hash" line per user, see
+    authfile.py and README.md, "Hosting the web UI with Docker"). Fails closed: a missing or malformed file
+    stops the server from starting at all, rather than leaving it open."""
     try:
-        with open(path, "rb") as f:
-            raw = f.read()
+        return authfile.read(path)
     except OSError as e:
         sys.exit("config.ini's [server] auth_file is set, but " + path + " can't be read: " + str(e))
-    # Windows tools easily produce a file with a byte order mark or in UTF-16 (PowerShell's ">" does
-    # exactly that), so those are accepted too rather than failing on a file that looks fine in an editor
-    encoding = "utf-16" if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else "utf-8-sig"
-    try:
-        line = raw.decode(encoding).strip()
-    except UnicodeDecodeError:
-        sys.exit(path + " isn't a readable text file (expected UTF-8) -- recreate it as described in README.md")
-    username, separator, passwordHash = line.partition(":")  # the hash itself contains colons
-    if not separator or not username or not passwordHash:
-        sys.exit(path + " must contain one line: username:password-hash")
-    return username, passwordHash
+    except authfile.AuthFileError as e:
+        sys.exit(str(e))
 
 # optional HTTP basic auth for the whole site (pages, API and covers alike) -- only active when
 # config.ini's [server] auth_file names a credentials file, so running the server locally needs no
 # login. Meant for hosting it behind a reverse proxy that provides the HTTPS
 AUTH_CREDENTIALS = _readAuthFile(serverconfig.SERVER_AUTH_FILE) if serverconfig.SERVER_AUTH_FILE else None
-_verifiedCredentialsDigest = None  # see requireLogin
+_verifiedCredentialsDigests = {}  # see requireLogin
+_UNKNOWN_USER_HASH = generate_password_hash("not a password anybody has")  # see requireLogin
 
 @server.before_request
 def requireLogin():
-    global _verifiedCredentialsDigest
     if AUTH_CREDENTIALS is None:
         return None
-    username, passwordHash = AUTH_CREDENTIALS
 
     auth = request.authorization
     if auth is not None and auth.type == "basic":
-        presented = (auth.username or "") + "\0" + (auth.password or "")
+        username = auth.username or ""
+        presented = username + "\0" + (auth.password or "")
         presentedDigest = hashlib.sha256(presented.encode("utf-8")).digest()
         # the browser repeats its credentials on every request, a coverwall page easily making dozens
         # in a burst, and checking a scrypt hash costs ~100ms each -- so once a full check has
-        # succeeded, the SHA-256 of those exact credentials is remembered (in memory only) and
-        # later requests are compared against it instead
-        if _verifiedCredentialsDigest is not None and hmac.compare_digest(presentedDigest, _verifiedCredentialsDigest):
+        # succeeded, the SHA-256 of those exact credentials is remembered (in memory only, one per
+        # user) and later requests are compared against it instead
+        verified = _verifiedCredentialsDigests.get(username)
+        if verified is not None and hmac.compare_digest(presentedDigest, verified):
             return None
-        if hmac.compare_digest((auth.username or "").encode("utf-8"), username.encode("utf-8")) and check_password_hash(passwordHash, auth.password or ""):
-            _verifiedCredentialsDigest = presentedDigest
+        # an unknown user costs one hash check too (against a hash nobody can match), so a response's timing
+        # doesn't tell which names exist
+        passwordHash = AUTH_CREDENTIALS.get(username)
+        if check_password_hash(passwordHash or _UNKNOWN_USER_HASH, auth.password or "") and passwordHash is not None:
+            _verifiedCredentialsDigests[username] = presentedDigest
             return None
 
     return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="media-control", charset="UTF-8"'})

@@ -4,7 +4,7 @@
 #
 # Next to this file on the server:
 #   data/      the database (myMovieDB.db), covers/, covers_small/ and hidden_interests.txt
-#   auth.txt   the web UI's login, one line "username:password-hash" (see README) -- the image's
+#   auth.txt   the web UI's login, one line "username:password-hash" per user (see README) -- the image's
 #              config makes it mandatory: the UI refuses to start without it, so it can never be
 #              exposed unprotected by accident
 #   .env       required: sets HOST_PORT, the host port your reverse proxy forwards to (see .env.example)
