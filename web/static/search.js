@@ -215,6 +215,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		const wrap = makeEl('span', 'detailNames');
 		people.forEach(p => {
 			const span = makeEl('span');
+			// with a person filter set, that person's credits on this title stand out (see collapsibleList for the rest)
+			if (currentPerson && p.personId === currentPerson.id) span.classList.add('personHit');
 			// a plain click shows the person's titles in the library; ctrl/cmd/middle-click follows the link to IMDb
 			const link = makeEl('a', 'personLink', p.name);
 			link.href = 'https://www.imdb.com/name/nm' + String(p.personId).padStart(7, '0') + '/';
@@ -245,14 +247,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		const wrap = nameList(people, showDetails);
 		if (people.length > VISIBLE_CAST_COUNT) {
 			const rest = [...wrap.children].slice(VISIBLE_CAST_COUNT);
-			rest.forEach(el => { el.style.display = 'none'; });
-			const more = makeEl('button', 'detailMore', '+ ' + rest.length + ' more');
-			more.type = 'button';
-			more.addEventListener('click', () => {
-				rest.forEach(el => { el.style.display = ''; });
-				more.remove();
-			});
-			wrap.insertBefore(more, rest[0]);
+			// a list that has the filtered person among the collapsed names opens expanded, so they are in sight
+			if (!rest.some(el => el.classList.contains('personHit'))) {
+				rest.forEach(el => { el.style.display = 'none'; });
+				const more = makeEl('button', 'detailMore', '+ ' + rest.length + ' more');
+				more.type = 'button';
+				more.addEventListener('click', () => {
+					rest.forEach(el => { el.style.display = ''; });
+					more.remove();
+				});
+				wrap.insertBefore(more, rest[0]);
+			}
 		}
 		return wrap;
 	}
