@@ -655,26 +655,31 @@ def _connections(cursor, imdb_id, isSeries):
 @server.route('/people')
 def people():
     """Name search for the person filter: up to 8 people whose name contains every word of q (at least 2
-    characters), those whose name starts with q first, then the ones with the most library titles."""
+    characters). Names in which every typed word starts a word (first or last name alike, a half-typed word
+    counts: "nola" finds "Christopher Nolan") come before names that only contain the text inside a word
+    ("Manola"); within each group the ones with the most library titles come first."""
     q = request.args.get('q', '').strip()
     if len(q) < 2:
         return jsonify([])
     words = q.split()
+    # a word starts after a space or a hyphen (the leading space makes the name's first word count too)
+    startsWordSql = "(' ' || p.name LIKE ? COLLATE NOCASE OR p.name LIKE ? COLLATE NOCASE)"
+    startsWordParams = [param for w in words for param in ("% " + w + "%", "%-" + w + "%")]
     try:
         conn = _connect()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT p.imdb_id, p.name, p.birth_year, p.death_year,
                    COUNT(DISTINCT CASE WHEN e.series_imdb_id IS NULL THEN e.imdb_id ELSE e.series_imdb_id END) AS titles,
-                   p.name LIKE ? COLLATE NOCASE AS startsWith
+                   (""" + " AND ".join(startsWordSql for _ in words) + """) AS startsWords
             FROM people p
             JOIN credits c ON c.person_id = p.imdb_id
             JOIN media e ON e.imdb_id = c.imdb_id
             WHERE """ + " AND ".join("p.name LIKE ? COLLATE NOCASE" for _ in words) + """
             GROUP BY p.imdb_id
-            ORDER BY startsWith DESC, titles DESC, p.name
+            ORDER BY startsWords DESC, titles DESC, p.name
             LIMIT 8
-        """, [q + "%"] + ["%" + w + "%" for w in words])
+        """, startsWordParams + ["%" + w + "%" for w in words])
         result = [{"id": i, "name": name, "birthYear": birth, "deathYear": death, "titles": titles}
                   for i, name, birth, death, titles, _ in cursor.fetchall()]
         conn.close()
