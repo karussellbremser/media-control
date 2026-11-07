@@ -10,6 +10,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	const resetButton = document.getElementById('resetButton');
 
     const input = document.getElementById('searchInput');
+
+	// the person filter (see index.html): the person the list is filtered by -- {id, name, roles: {kind: titles}} as
+	// /person answers -- and the checkboxes of the kinds of credit that count
+	const personInput = document.getElementById('personInput');
+	const personSuggestions = document.getElementById('personSuggestions');
+	const personFilterEl = document.getElementById('personFilter');
+	const personChipName = document.getElementById('personChipName');
+	const personRoleCheckboxes = [...document.querySelectorAll('.personRoleCheckbox')];
+	let currentPerson = null;
     const results = document.getElementById('results');
     const resultCount = document.getElementById('resultCount');
 	const errorBanner = document.getElementById('errorBanner');
@@ -205,12 +214,28 @@ document.addEventListener('DOMContentLoaded', () => {
 	function nameList(people, showDetails) {
 		const wrap = makeEl('span', 'detailNames');
 		people.forEach(p => {
-			const span = makeEl('span', '', p.name);
-			if (p.birthYear) span.title = 'b. ' + p.birthYear + (p.deathYear ? ', d. ' + p.deathYear : '');
+			const span = makeEl('span');
+			// a plain click shows the person's titles in the library; ctrl/cmd/middle-click follows the link to IMDb
+			const link = makeEl('a', 'personLink', p.name);
+			link.href = 'https://www.imdb.com/name/nm' + String(p.personId).padStart(7, '0') + '/';
+			const tooltip = [];
+			if (p.birthYear) tooltip.push('b. ' + p.birthYear + (p.deathYear ? ', d. ' + p.deathYear : ''));
+			tooltip.push(countText(p.titleCount, 'title') + ' in the library');
+			link.title = tooltip.join(' \u00B7 ');
+			link.addEventListener('click', e => {
+				if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+				e.preventDefault();
+				showTitlesOfPerson(p.personId);
+			});
+			span.appendChild(link);
 			if (showDetails && p.details) span.appendChild(makeEl('span', 'muted', ' (' + p.details + ')'));
 			wrap.appendChild(span);
 		});
 		return wrap;
+	}
+
+	function countText(n, noun) {
+		return n + ' ' + noun + (n === 1 ? '' : 's');
 	}
 
 	// the first VISIBLE_CAST_COUNT people, the rest behind a "+ N more" button
@@ -785,8 +810,148 @@ document.addEventListener('DOMContentLoaded', () => {
 		clearButtonUpdaters.forEach(update => update());
 	}
 
+	// ---- person filter
+
+	// filters the list by a person (and shows the sidebar's chip with the kinds of credit the person has, all ticked)
+	function setPerson(personId) {
+		fetch('/person/' + personId)
+			.then(response => {
+				if (!response.ok) throw new Error('person request failed with status ' + response.status);
+				return response.json();
+			})
+			.then(p => {
+				currentPerson = p;
+				personChipName.textContent = p.name;
+				personChipName.title = (p.birthYear ? 'b. ' + p.birthYear + (p.deathYear ? ', d. ' + p.deathYear : '') + ' \u00B7 ' : '') +
+					countText(p.titles, 'title') + ' in the library';
+				personRoleCheckboxes.forEach(cb => {
+					const count = p.roles[cb.value];
+					const label = cb.closest('label');
+					label.querySelector('.roleCount').textContent = count;
+					cb.disabled = count === 0; // a kind the person has no credit of can't be ticked
+					cb.checked = count > 0;
+					label.classList.toggle('disabled', count === 0);
+				});
+				personFilterEl.hidden = false;
+				if (sidebarCollapsed) toggleBtn.click(); // the chip must be visible
+				resetAndSearch();
+			})
+			.catch(err => {
+				console.error(err);
+				errorBanner.classList.remove('hidden');
+			});
+	}
+
+	function clearPerson() {
+		currentPerson = null;
+		personFilterEl.hidden = true;
+		resetAndSearch();
+	}
+
+	// a name was clicked in a title's cast & crew: close the overlay and show that person's titles
+	function showTitlesOfPerson(personId) {
+		closeDetail();
+		setPerson(personId);
+	}
+
+	document.getElementById('personChipClear').addEventListener('click', clearPerson);
+	personRoleCheckboxes.forEach(cb => cb.addEventListener('change', () => resetAndSearch()));
+
+	// name search: suggestions drop down while typing (two characters on), the arrow keys and Enter pick one
+	let personSearchTimer = null;
+	let personSearchId = 0;
+	let activeSuggestion = -1;
+
+	function hideSuggestions() {
+		clearTimeout(personSearchTimer);
+		personSearchId++; // a response still on its way must not reopen the list
+		personSuggestions.hidden = true;
+		personSuggestions.replaceChildren();
+		activeSuggestion = -1;
+	}
+
+	function chooseSuggestion(person) {
+		hideSuggestions();
+		personInput.value = '';
+		refreshClearButtons();
+		setPerson(person.id);
+	}
+
+	function showSuggestions(people) {
+		personSuggestions.replaceChildren();
+		activeSuggestion = -1;
+		if (!people.length) {
+			personSuggestions.appendChild(makeEl('div', 'empty', 'No matching people'));
+		}
+		people.forEach(person => {
+			const item = makeEl('button', '', person.name);
+			item.type = 'button';
+			item.appendChild(makeEl('span', 'muted', ' ' + (person.birthYear ? '(b. ' + person.birthYear + ') ' : '') + '\u00B7 ' + countText(person.titles, 'title')));
+			item.addEventListener('mousedown', e => e.preventDefault()); // keeps the field focused until the click lands
+			item.addEventListener('click', () => chooseSuggestion(person));
+			item.suggestion = person;
+			personSuggestions.appendChild(item);
+		});
+		personSuggestions.hidden = false;
+	}
+
+	function moveSuggestion(step) {
+		const items = [...personSuggestions.querySelectorAll('button')];
+		if (!items.length) return;
+		if (items[activeSuggestion]) items[activeSuggestion].classList.remove('active');
+		activeSuggestion = (activeSuggestion + step + items.length) % items.length;
+		items[activeSuggestion].classList.add('active');
+	}
+
+	personInput.addEventListener('input', () => {
+		clearTimeout(personSearchTimer);
+		const q = personInput.value.trim();
+		if (q.length < 2) {
+			hideSuggestions();
+			return;
+		}
+		personSearchTimer = setTimeout(() => {
+			const thisSearch = ++personSearchId;
+			fetch('/people?q=' + encodeURIComponent(q))
+				.then(response => response.ok ? response.json() : Promise.reject(new Error('status ' + response.status)))
+				.then(people => {
+					if (thisSearch === personSearchId) showSuggestions(people);
+				})
+				.catch(() => {
+					if (thisSearch === personSearchId) hideSuggestions();
+				});
+		}, 180);
+	});
+
+	personInput.addEventListener('keydown', e => {
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			moveSuggestion(1);
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			moveSuggestion(-1);
+		} else if (e.key === 'Enter') {
+			const items = [...personSuggestions.querySelectorAll('button')];
+			const pick = items[activeSuggestion] || items[0];
+			if (pick) {
+				e.preventDefault();
+				chooseSuggestion(pick.suggestion);
+			}
+		} else if (e.key === 'Escape' && !personSuggestions.hidden) {
+			e.stopPropagation();
+			hideSuggestions();
+		}
+	});
+
+	personInput.addEventListener('blur', () => setTimeout(hideSuggestions, 150));
+
 	function resetFilters() {
 		input.value = '';
+
+		currentPerson = null;
+		personFilterEl.hidden = true;
+		personInput.value = '';
+		hideSuggestions();
 
 		sortSelect.value = 'year';
 		orderButton.disabled = false;
@@ -862,6 +1027,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			series_not_full: seriesFullCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
 			page: currentPage
         });
+
+		if (currentPerson) {
+			params.set('person', currentPerson.id);
+			params.set('person_roles', personRoleCheckboxes.filter(cb => cb.checked).map(cb => cb.value).join(','));
+		}
 
 		genreCheckboxes.forEach(cb => {
 			if (cb.checked) {
@@ -1063,6 +1233,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	setupClearButton(input, () => resetAndSearch(input.value));
 	[yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => setupClearButton(el, () => resetAndSearch(input.value)));
 	setupClearButton(interestSearchInput, filterInterests);
+	setupClearButton(personInput, hideSuggestions);
 
 	sortSelect.addEventListener('change', () => {
 		if (sortSelect.value === 'random') {

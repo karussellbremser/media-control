@@ -575,6 +575,13 @@ class DBControl:
                     ON DELETE RESTRICT
             )""")
 
+            # every lookup by person -- the web UI's person filter and name search, the "is anything still
+            # crediting this person" check of __pruneOrphanedPeople, and SQLite's own foreign-key check on a
+            # delete/update of a people row (person_id is ON DELETE RESTRICT) -- was a full scan of credits,
+            # whose primary key (imdb_id, role_id, ordering) can't serve it. imdb_id as the second column makes
+            # "which titles does this person appear on" answerable from the index alone.
+            self.c.execute("CREATE INDEX idx_credits_person ON credits (person_id, imdb_id)")
+
     def addSingleMediumWoConnections(self, thisMedia):
         # unlike most public methods here, this one manages no transaction of its own -- it's only
         # ever called from _addMultipleMediaNoCommit (via the public addMultipleMedia or as part of

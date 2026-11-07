@@ -99,7 +99,8 @@ def _buildFilter(search_query, year_from, year_to,
                  show_movies, show_series,
                  series_ended=False, series_fully_owned=False,
                  series_not_ended=False, series_not_fully_owned=False,
-                 series_mini=False, series_not_mini=False):
+                 series_mini=False, series_not_mini=False,
+                 person_id=None, person_roles=()):
     """The part of the media query that decides WHICH titles match the current filter selection,
     shared by queryMedia (the list) and countMedia (the total shown above it) so the two can never
     disagree. Returns (joinSql, whereSql, havingSql, params) to be appended after "FROM media m JOIN
@@ -223,6 +224,25 @@ def _buildFilter(search_query, year_from, year_to,
         sql += f" AND NOT EXISTS (SELECT 1 FROM media_interests mi_excl WHERE mi_excl.imdb_id = m.imdb_id AND mi_excl.imdb_interest_id IN ({placeholders}))"
         params.extend(excluded_interest_ids)
 
+    # person filter -- the titles the person is credited on in any of the ticked kinds (person_roles, a subset
+    # of CREDIT_KINDS: a union, like the movies/series boxes; none ticked matches nothing). A movie has the credits
+    # itself, a series only through its episodes' credits (classified as series credits, see _creditRole). Written
+    # as a set of title ids computed up front rather than a per-title EXISTS: that lets SQLite seek the person's
+    # few credits in idx_credits_person instead of probing credits once per media row (50x slower in a test).
+    if person_id is not None:
+        if not person_roles:
+            return None
+        kinds = [k for k in CREDIT_KINDS if k in person_roles]
+        kindSql = ""
+        kindParams = []
+        if len(kinds) < len(CREDIT_KINDS): # all ticked = any credit at all, no need to classify them
+            kindSql = " AND credit_kind(c.role_id, c.details, {}) IN (" + ",".join("?" for _ in kinds) + ")"
+            kindParams = kinds
+        sql += (" AND m.imdb_id IN (SELECT c.imdb_id FROM credits c WHERE c.person_id = ?" + kindSql.format(0)
+                + " UNION SELECT e.series_imdb_id FROM credits c JOIN media e ON e.imdb_id = c.imdb_id"
+                  " WHERE c.person_id = ? AND e.series_imdb_id IS NOT NULL" + kindSql.format(1) + ")")
+        params.extend([person_id] + kindParams + [person_id] + kindParams)
+
     havingSql = ""
     if selected_interest_ids:
         havingSql = f" HAVING COUNT(DISTINCT mi_filter.imdb_interest_id) = {len(selected_interest_ids)}"
@@ -237,7 +257,7 @@ def countMedia(filters):
         return 0
     joinSql, whereSql, havingSql, params = built
 
-    conn = sqlite3.connect(serverconfig.DB_PATH)
+    conn = _connect()
     try:
         return conn.execute("SELECT COUNT(*) FROM (SELECT m.imdb_id FROM media m JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id"
                             + joinSql + whereSql + " GROUP BY m.imdb_id" + havingSql + ")", params).fetchone()[0]
@@ -252,7 +272,7 @@ def queryMedia(filters, sort_by, order, limit, offset, random_seed=0):
         return []
     joinSql, whereSql, havingSql, filterParams = built
 
-    conn = sqlite3.connect(serverconfig.DB_PATH)
+    conn = _connect()
     cursor = conn.cursor()
 
     # the list view's genre line must not show hidden interests either (its params come first: this
@@ -401,6 +421,13 @@ def search():
     series_not_fully_owned = args.get('series_not_full', '0') == '1'
     series_mini = args.get('series_mini', '0') == '1'
     series_not_mini = args.get('series_not_mini', '0') == '1'
+    # person filter: person = a person's imdb id, person_roles = the ticked kinds of credit, comma separated (absent
+    # = all of them, empty = none ticked, which matches nothing)
+    try:
+        person_id = int(args['person']) if args.get('person') else None
+    except ValueError:
+        person_id = None
+    person_roles = tuple(k for k in args.get('person_roles', ','.join(CREDIT_KINDS)).split(',') if k in CREDIT_KINDS)
 
     page = int(args.get('page', 1))
     limit = 50
@@ -433,7 +460,9 @@ def search():
             series_not_ended,
             series_not_fully_owned,
             series_mini,
-            series_not_mini
+            series_not_mini,
+            person_id,
+            person_roles
         )
         media = queryMedia(filters, args.get('sort', 'year'), args.get('order', 'desc'), limit, offset, random_seed)
         # the total only changes with the filters, not with the page, so only the first page asks for it
@@ -480,6 +509,21 @@ def _creditRole(role_id, details, isSeries):
         if _SOURCE_DETAILS.match(details):
             return "source"
     return role_id
+
+# the kinds of credit a person can have in the library, in the order the overlay lists them: the five lists of
+# the "Cast & crew" block. "created" only exists for series (see _creditRole), the rest for movies and series alike.
+CREDIT_KINDS = ("created", "directed", "written", "basedon", "cast")
+
+def _creditKind(role_id, details, isSeries):
+    """Which of CREDIT_KINDS a credit belongs to -- decided by _creditRole, so the person filter and the
+    lists of the detail view can never disagree about it."""
+    return {1: "directed", 2: "written", 3: "cast", "creators": "created", "source": "basedon"}[_creditRole(role_id, details, isSeries)]
+
+def _connect():
+    """A connection to the DB with credit_kind(role_id, details, is_series) available to SQL (the person filter)."""
+    conn = sqlite3.connect(serverconfig.DB_PATH)
+    conn.create_function("credit_kind", 3, lambda role_id, details, isSeries: _creditKind(role_id, details, bool(isSeries)), deterministic=True)
+    return conn
 
 def _sourceDetails(details):
     """A source credit's wording as shown behind the person's name: without "(as <alias>)", the
@@ -531,7 +575,7 @@ def _seriesCredits(cursor, series_imdb_id):
             details = _sourceDetails(details)
         relativePosition = (ordering - 1) / listLength
         entry = people.setdefault((role, person_id), {
-            "person": {"name": name, "birthYear": birth_year, "deathYear": death_year},
+            "person": {"personId": person_id, "name": name, "birthYear": birth_year, "deathYear": death_year},
             "score": 0.0, "episodes": set(), "positionSum": 0.0, "credits": 0, "details": collections.Counter()})
         entry["score"] += (1 - relativePosition) ** _POSITION_EXPONENT
         entry["episodes"].add(episode_id)
@@ -546,6 +590,24 @@ def _seriesCredits(cursor, series_imdb_id):
     for (role, _), entry in ranked:
         result[role].append(dict(entry["person"], details=entry["details"].most_common(1)[0][0]))
     return result
+
+def _addTitleCounts(cursor, credits):
+    """Adds "titleCount" -- how many library titles (movies and series, an episode counting for its series) the
+    person is credited on -- to every person of a credits dict as built for the detail view."""
+    people = [p for kind in credits.values() for p in kind]
+    counts = {}
+    ids = sorted({p["personId"] for p in people})
+    for i in range(0, len(ids), 500):
+        batch = ids[i:i + 500]
+        cursor.execute("""
+            SELECT c.person_id, COUNT(DISTINCT CASE WHEN e.series_imdb_id IS NULL THEN e.imdb_id ELSE e.series_imdb_id END)
+            FROM credits c JOIN media e ON e.imdb_id = c.imdb_id
+            WHERE c.person_id IN (""" + ",".join("?" for _ in batch) + """)
+            GROUP BY c.person_id
+        """, batch)
+        counts.update(cursor.fetchall())
+    for p in people:
+        p["titleCount"] = counts.get(p["personId"], 0)
 
 def _connections(cursor, imdb_id, isSeries):
     """The connections shown for a title, as a list of {type, imdbId, title, year, owned, seriesTitle,
@@ -589,6 +651,65 @@ def _connections(cursor, imdb_id, isSeries):
     for target in ordered:
         del target["own"], target["typeId"]
     return ordered
+
+@server.route('/people')
+def people():
+    """Name search for the person filter: up to 8 people whose name contains every word of q (at least 2
+    characters), those whose name starts with q first, then the ones with the most library titles."""
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    words = q.split()
+    try:
+        conn = _connect()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT p.imdb_id, p.name, p.birth_year, p.death_year,
+                   COUNT(DISTINCT CASE WHEN e.series_imdb_id IS NULL THEN e.imdb_id ELSE e.series_imdb_id END) AS titles,
+                   p.name LIKE ? COLLATE NOCASE AS startsWith
+            FROM people p
+            JOIN credits c ON c.person_id = p.imdb_id
+            JOIN media e ON e.imdb_id = c.imdb_id
+            WHERE """ + " AND ".join("p.name LIKE ? COLLATE NOCASE" for _ in words) + """
+            GROUP BY p.imdb_id
+            ORDER BY startsWith DESC, titles DESC, p.name
+            LIMIT 8
+        """, [q + "%"] + ["%" + w + "%" for w in words])
+        result = [{"id": i, "name": name, "birthYear": birth, "deathYear": death, "titles": titles}
+                  for i, name, birth, death, titles, _ in cursor.fetchall()]
+        conn.close()
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 503
+    return jsonify(result)
+
+@server.route('/person/<int:person_id>')
+def person(person_id):
+    """A person for the filter chip: name, years and how many library titles they are credited on in each kind of
+    credit (CREDIT_KINDS; a title counts once per kind, an episode for its series) and overall."""
+    try:
+        conn = _connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, birth_year, death_year FROM people WHERE imdb_id = ?", (person_id,))
+        row = cursor.fetchone()
+        if row is None:
+            conn.close()
+            return jsonify({"error": "not found"}), 404
+        cursor.execute("""
+            SELECT c.imdb_id, c.role_id, c.details, e.series_imdb_id
+            FROM credits c JOIN media e ON e.imdb_id = c.imdb_id
+            WHERE c.person_id = ?
+        """, (person_id,))
+        titlesByKind = {kind: set() for kind in CREDIT_KINDS}
+        allTitles = set()
+        for imdb_id, role_id, details, series_imdb_id in cursor.fetchall():
+            title = series_imdb_id if series_imdb_id is not None else imdb_id
+            titlesByKind[_creditKind(role_id, details, series_imdb_id is not None)].add(title)
+            allTitles.add(title)
+        conn.close()
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 503
+    return jsonify({"id": person_id, "name": row[0], "birthYear": row[1], "deathYear": row[2],
+                    "titles": len(allTitles), "roles": {kind: len(titles) for kind, titles in titlesByKind.items()}})
 
 @server.route('/detail/<int:imdb_id>')
 def detail(imdb_id):
@@ -694,8 +815,9 @@ def detail(imdb_id):
                 listed.add((role, person_id))
                 if role == "source":
                     details = _sourceDetails(details)
-                credits[role].append({"name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
+                credits[role].append({"personId": person_id, "name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
 
+        _addTitleCounts(cursor, credits)
         connections = _connections(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
         conn.close()
     except sqlite3.Error as e:
