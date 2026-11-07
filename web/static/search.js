@@ -240,20 +240,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// the first VISIBLE_CAST_COUNT people, the rest behind a "+ N more" button
 	function collapsibleList(people, showDetails) {
-		const wrap = makeEl('span', 'detailNames');
-		const first = nameList(people.slice(0, VISIBLE_CAST_COUNT), showDetails);
-		wrap.appendChild(first);
+		// one wrapping list for all of them (the extra names merely hidden, the button standing in their place), so
+		// that expanding continues the same line instead of starting a new block below it
+		const wrap = nameList(people, showDetails);
 		if (people.length > VISIBLE_CAST_COUNT) {
-			const rest = nameList(people.slice(VISIBLE_CAST_COUNT), showDetails);
-			rest.style.display = 'none';
-			const more = makeEl('button', 'detailMore', '+ ' + (people.length - VISIBLE_CAST_COUNT) + ' more');
+			const rest = [...wrap.children].slice(VISIBLE_CAST_COUNT);
+			rest.forEach(el => { el.style.display = 'none'; });
+			const more = makeEl('button', 'detailMore', '+ ' + rest.length + ' more');
 			more.type = 'button';
 			more.addEventListener('click', () => {
-				rest.style.display = 'flex';
+				rest.forEach(el => { el.style.display = ''; });
 				more.remove();
 			});
-			wrap.appendChild(more);
-			wrap.appendChild(rest);
+			wrap.insertBefore(more, rest[0]);
 		}
 		return wrap;
 	}
