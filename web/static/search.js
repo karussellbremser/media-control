@@ -394,7 +394,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailMeta.textContent = meta;
 
 		detailChips.replaceChildren();
-		d.interests.forEach(i => detailChips.appendChild(makeEl('span', 'detailChip' + (i.isGenre ? ' detailChip--genre' : ''), i.name)));
+		// a genre/subgenre chip shows the titles with it (see showTitlesOfInterest)
+		d.interests.forEach(i => {
+			const chip = makeEl('a', 'detailChip' + (i.isGenre ? ' detailChip--genre' : ''), i.name);
+			chip.href = '#';
+			chip.title = 'show the titles with ' + i.name;
+			chip.addEventListener('click', e => {
+				e.preventDefault();
+				showTitlesOfInterest(i.id);
+			});
+			detailChips.appendChild(chip);
+		});
 		const imdbLink = makeEl('a', 'imdbLink', 'IMDb ↗');
 		imdbLink.href = 'https://www.imdb.com/title/' + idString(d.imdbId) + '/';
 		imdbLink.target = '_blank';
@@ -978,19 +988,37 @@ document.addEventListener('DOMContentLoaded', () => {
 		refreshClearButtons();
 	}
 
-	function resetFilters() {
+	// every filter back to its default, the person's included -- the sort order and the view stay as they are
+	function clearAllFilters() {
 		currentPerson = null;
 		personFilterEl.hidden = true;
 		personInput.value = '';
 		hideSuggestions();
+		clearOtherFilters();
+	}
+
+	// a genre/subgenre chip was clicked in a title's overview: close the overlay and show the titles with that genre
+	// (or subgenre) -- all other filters are reset first, as when a person's name is clicked
+	function showTitlesOfInterest(interestId) {
+		closeDetail();
+		clearAllFilters();
+		const checkbox = document.querySelector('.genreCheckbox[value="' + interestId + '"], .interestCheckbox[value="' + interestId + '"]');
+		if (checkbox) {
+			checkbox.checked = true;
+			if (sidebarCollapsed) toggleBtn.click(); // the ticked box must be visible
+			checkbox.scrollIntoView({ block: 'nearest' });
+		}
+		resetAndSearch();
+	}
+
+	function resetFilters() {
+		clearAllFilters();
 
 		sortSelect.value = 'year';
 		orderButton.disabled = false;
 
 		currentOrder = 'desc';
 		orderButton.textContent = '↓ Descending';
-
-		clearOtherFilters();
 
 		currentPage = 1;
 		allLoaded = false;

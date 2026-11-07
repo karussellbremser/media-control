@@ -946,6 +946,20 @@
 			color: #bcd0f3;
 		}
 
+		/* the chips are links: a click shows the titles with that genre/subgenre */
+		a.detailChip {
+			text-decoration: none;
+			cursor: pointer;
+		}
+
+		a.detailChip:hover {
+			background: rgba(255, 255, 255, 0.20);
+		}
+
+		a.detailChip--genre:hover {
+			background: rgba(90, 140, 235, 0.45);
+		}
+
 		#detailChips a.imdbLink {
 			margin-left: auto;
 			font-size: 12px;

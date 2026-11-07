@@ -758,13 +758,13 @@ def detail(imdb_id):
         # as everywhere else the UI lists interests
         hiddenSql, hiddenParams = _excludeHiddenInterests("mi.imdb_interest_id")
         cursor.execute("""
-            SELECT ie.name, ie.parent_imdb_interest_id IS NULL
+            SELECT ie.imdb_interest_id, ie.name, ie.parent_imdb_interest_id IS NULL
             FROM media_interests mi
             JOIN interest_enum ie ON mi.imdb_interest_id = ie.imdb_interest_id
             WHERE mi.imdb_id = ?""" + hiddenSql + """
             ORDER BY (ie.parent_imdb_interest_id IS NOT NULL), ie.name
         """, [imdb_id] + hiddenParams)
-        interests = [{"name": name, "isGenre": bool(isGenre)} for name, isGenre in cursor.fetchall()]
+        interests = [{"id": interestId, "name": name, "isGenre": bool(isGenre)} for interestId, name, isGenre in cursor.fetchall()]
 
         allEpisodesOwned = False
         seasons = []
