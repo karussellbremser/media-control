@@ -853,8 +853,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	// a name was clicked in a title's cast & crew: close the overlay and show that person's titles
+	// all other filters are reset first: the person's titles are what's wanted, not those that also match what happened
+	// to be set (setPerson runs the search)
 	function showTitlesOfPerson(personId) {
 		closeDetail();
+		clearOtherFilters();
 		setPerson(personId);
 	}
 
@@ -949,19 +952,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	personInput.addEventListener('blur', () => setTimeout(hideSuggestions, 150));
 
-	function resetFilters() {
+	// every filter but the person's back to its default (title search, type, years/rating/votes, language, genres and
+	// subgenres incl. NOT ones) -- the sort order and the view stay as they are
+	function clearOtherFilters() {
 		input.value = '';
-
-		currentPerson = null;
-		personFilterEl.hidden = true;
-		personInput.value = '';
-		hideSuggestions();
-
-		sortSelect.value = 'year';
-		orderButton.disabled = false;
-
-		currentOrder = 'desc';
-		orderButton.textContent = '↓ Descending';
 
 		yearFrom.value = '';
 		yearTo.value = '';
@@ -982,6 +976,21 @@ document.addEventListener('DOMContentLoaded', () => {
 		interestSearchInput.value = '';
 		filterInterests();
 		refreshClearButtons();
+	}
+
+	function resetFilters() {
+		currentPerson = null;
+		personFilterEl.hidden = true;
+		personInput.value = '';
+		hideSuggestions();
+
+		sortSelect.value = 'year';
+		orderButton.disabled = false;
+
+		currentOrder = 'desc';
+		orderButton.textContent = '↓ Descending';
+
+		clearOtherFilters();
 
 		currentPage = 1;
 		allLoaded = false;
