@@ -416,6 +416,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailBody.replaceChildren();
 		if (d.plotSummary) detailBody.appendChild(makeEl('p', 'plot', d.plotSummary));
 
+		// the languages and production countries, the primary language / first country first
+		const facts = [[d.languages, 'Language', 'Languages'], [d.countries, 'Country', 'Countries']].filter(([names]) => names.length);
+		if (facts.length) {
+			const grid = makeEl('div', 'detailGrid');
+			facts.forEach(([names, singular, plural]) => {
+				grid.appendChild(makeEl('span', 'label', names.length === 1 ? singular : plural));
+				grid.appendChild(makeEl('span', '', names.join(' · '))); // not commas: ISO names have some ("Korea, Republic of")
+			});
+			detailBody.appendChild(grid);
+		}
+
 		if (d.isSeries && d.seasons.length) {
 			const seasons = seasonsSection(d.seasons, focus);
 			detailBody.appendChild(seasons.section);

@@ -766,6 +766,18 @@ def detail(imdb_id):
         """, [imdb_id] + hiddenParams)
         interests = [{"id": interestId, "name": name, "isGenre": bool(isGenre)} for interestId, name, isGenre in cursor.fetchall()]
 
+        # languages and production countries as IMDb lists them (the primary one first), by name
+        cursor.execute("""
+            SELECT e.name FROM media_languages ml JOIN iso_language_enum e ON ml.language_code = e.iso639_3
+            WHERE ml.imdb_id = ? ORDER BY ml.ordering
+        """, (imdb_id,))
+        languages = [row[0] for row in cursor.fetchall()]
+        cursor.execute("""
+            SELECT e.name FROM media_countries mc JOIN iso_country_enum e ON mc.country_code = e.country_code
+            WHERE mc.imdb_id = ? ORDER BY mc.ordering
+        """, (imdb_id,))
+        countries = [row[0] for row in cursor.fetchall()]
+
         allEpisodesOwned = False
         seasons = []
         if title_type_name in Media.seriesTitleTypes:
@@ -842,6 +854,8 @@ def detail(imdb_id):
         "votes": num_votes,
         "plotSummary": plot_summary,
         "interests": interests,
+        "languages": languages,
+        "countries": countries,
         "allEpisodesOwned": allEpisodesOwned,
         "seasons": seasons,
         "creators": credits["creators"],
