@@ -311,6 +311,7 @@ class ScrapeIMDbOnline:
             interests = self.__scrapeAllInterests(currentMedia.getIDString())
             currentMedia.plot_summary = self.__scrapePlotSummary()
             languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
+            self.__warnIfNoLanguageOrCountry(currentMedia, languages, countries)
             currentMedia.languages = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             currentMedia.countries = self.__resolveCountryCodes(countries, isoCountryLookup)
 
@@ -372,6 +373,7 @@ class ScrapeIMDbOnline:
             interests = self.__scrapeAllInterests(currentMedia.getIDString())
             plotSummary = self.__scrapePlotSummary()
             languages, countries = self.__scrapeLanguagesAndCountries(currentMedia.getIDString())
+            self.__warnIfNoLanguageOrCountry(currentMedia, languages, countries)
             languageCodes = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             countryCodes = self.__resolveCountryCodes(countries, isoCountryLookup)
 
@@ -808,6 +810,20 @@ class ScrapeIMDbOnline:
         self.__checkAgainstVisibleDetailsRow(raw.get("domLanguages"), ("Languages", "Language"), languages, "languages")
         self.__checkAgainstVisibleDetailsRow(raw.get("domOrigin"), ("Countries of origin", "Country of origin"), countries, "countries of origin")
         return languages, countries
+
+    def __warnIfNoLanguageOrCountry(self, currentMedia, languages, countries):
+        """Prints a warning when the main page lists no language and/or no country of origin -- a real, if rare,
+        IMDb gap (wordless shorts, say) that is otherwise accepted silently as an empty list. For a movie, no
+        language also means its cover isn't downloaded automatically (see scrapeMainPages: that needs English as
+        the primary language), which is worth knowing before wondering where the cover is."""
+        missing = [what for what, items in (("language", languages), ("country of origin", countries)) if not items]
+        if not missing:
+            return
+        warning = "WARNING: " + currentMedia.getIDString() + (" (" + str(currentMedia.original_title) + ")" if currentMedia.original_title else "") + \
+                  " lists no " + " and no ".join(missing) + " on its IMDb page"
+        if not languages and currentMedia.titleType not in ["localSeries"] + Media.seriesTitleTypes:
+            warning += " -- its cover isn't downloaded automatically, add one manually"
+        printAlways(warning)
 
     def __parseCodeNameList(self, container, listKey, what):
         """Normalizes one of IMDb's {"<listKey>": [{"id": ..., "text": ...}, ...]} blocks into an
