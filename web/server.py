@@ -770,15 +770,17 @@ def detail(imdb_id):
         seasons = []
         if title_type_name in Media.seriesTitleTypes:
             credits = _seriesCredits(cursor, imdb_id)
-            # episodes per season and how many of them are owned (season None = episodes IMDb gives no season number)
+            # episodes per season, how many of them are owned and the years they came out (season None = episodes IMDb
+            # gives no season number)
             cursor.execute("""
-                SELECT season_number, COUNT(*), SUM(subdir IS NOT NULL)
+                SELECT season_number, COUNT(*), SUM(subdir IS NOT NULL), MIN(start_year), MAX(start_year)
                 FROM media
                 WHERE series_imdb_id = ?
                 GROUP BY season_number
                 ORDER BY season_number IS NULL, season_number
             """, (imdb_id,))
-            seasons = [{"season": season, "total": total, "owned": owned} for season, total, owned in cursor.fetchall()]
+            seasons = [{"season": season, "total": total, "owned": owned, "firstYear": firstYear, "lastYear": lastYear}
+                       for season, total, owned, firstYear, lastYear in cursor.fetchall()]
             # a season that is only partly owned also says which of its episodes are (only those: the others stay unnamed)
             if any(0 < s["owned"] < s["total"] for s in seasons):
                 cursor.execute("""

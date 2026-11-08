@@ -314,6 +314,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			el.title = s.owned + ' of ' + s.total + ' episodes available';
 			el.appendChild(makeEl('span', 'seasonLabel', s.season === null ? 'Unnumbered' : s.season === 0 ? 'Specials' : 'Season ' + s.season));
 			el.appendChild(makeEl('span', 'seasonCount', s.owned + '/' + s.total));
+			// the year(s) the season came out: its first to its last episode's
+			el.appendChild(makeEl('span', 'seasonYears', s.firstYear === s.lastYear ? String(s.firstYear) : s.firstYear + '\u2013' + s.lastYear));
 			if (state === 'part') {
 				const bar = makeEl('span', 'seasonBar');
 				bar.appendChild(makeEl('span', 'seasonBarFill'));
