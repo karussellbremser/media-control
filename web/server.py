@@ -655,12 +655,15 @@ def _versions(cursor, imdb_id):
     decides how a version reads."""
     cursor.execute("""
         SELECT filename, version, mtime, duration, format, hdr_format, bitrate, width, height, display_aspect_ratio,
-               frame_rate, scan_type
+               frame_rate, scan_type, multiview_count
         FROM media_versions WHERE imdb_id = ?
     """, (imdb_id,))
     versions = {}
-    for filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, frameRate, scanType in cursor.fetchall():
+    for (filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, frameRate, scanType,
+         multiviewCount) in cursor.fetchall():
         video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
+        if multiviewCount and multiviewCount > 1: # a stereoscopic file: one view per eye
+            video.append({"text": "3D", "kind": "3d"})
         if codec:
             video.append({"text": {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec), "kind": "video"})
         hdr = _hdrLabel(hdrFormat)

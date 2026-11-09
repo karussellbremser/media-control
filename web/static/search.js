@@ -424,7 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				}
 				chips.appendChild(chip);
 			});
-			v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : ''), x.text)));
+			v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : x.kind === '3d' ? ' versionChip--3d' : ''), x.text)));
 			card.appendChild(chips);
 
 			const rows = makeEl('div', 'versionRows');
