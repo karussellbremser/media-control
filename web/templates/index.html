@@ -995,6 +995,92 @@
 		}
 
 		/* a series' seasons: one tile each, green when every episode is owned, a progress bar when some are, dimmed when none */
+		/* the versions (files) of a movie: one card each */
+		.versions {
+			margin-bottom: 18px;
+		}
+
+		.versionCard {
+			margin-bottom: 8px;
+			padding: 10px 12px;
+			border-radius: 8px;
+			background: rgba(255, 255, 255, 0.05);
+		}
+
+		.versionCard:last-child {
+			margin-bottom: 0;
+		}
+
+		.versionHead {
+			display: flex;
+			justify-content: space-between;
+			align-items: baseline;
+			gap: 10px;
+			margin-bottom: 6px;
+		}
+
+		.versionHead b {
+			font-weight: 500;
+			font-size: 13px;
+		}
+
+		.versionHead span {
+			flex: none;
+			font-size: 12px;
+			color: #a2a2aa;
+		}
+
+		.versionChips {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 5px;
+			margin-bottom: 8px;
+		}
+
+		.versionChip {
+			font-size: 11px;
+			padding: 2px 8px;
+			border-radius: 9px;
+			background: rgba(255, 255, 255, 0.10);
+			color: rgba(255, 255, 255, 0.75);
+			text-decoration: none;
+		}
+
+		.versionChip--src {
+			background: rgba(90, 140, 235, 0.28);
+			color: #bcd0f3;
+		}
+
+		a.versionChip--src:hover {
+			background: rgba(90, 140, 235, 0.45);
+		}
+
+		.versionChip--hdr {
+			background: rgba(212, 160, 60, 0.25);
+			color: #f0d49a;
+		}
+
+		.versionRows {
+			display: grid;
+			grid-template-columns: 72px minmax(0, 1fr);
+			gap: 2px 10px;
+			font-size: 12px;
+		}
+
+		.versionRows .label {
+			color: #8b8b93;
+		}
+
+		.versionRows .muted {
+			color: #a2a2aa;
+		}
+
+		.versionModified {
+			margin-top: 6px;
+			font-size: 10px;
+			color: #8b8b93;
+		}
+
 		.seasonsSummary {
 			margin-left: 10px;
 			font-weight: 400;

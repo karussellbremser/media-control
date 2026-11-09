@@ -391,6 +391,73 @@ document.addEventListener('DOMContentLoaded', () => {
 		return { section, reveal };
 	}
 
+	// The versions (files) of a movie as cards, best sorted by name by the server: the version's name and runtime, chips
+	// for the source (discs link to blu-ray.com), resolution, codec, HDR, aspect ratio and bitrate, then the audio and
+	// subtitle tracks. A single version needs no "Versions" heading; without a name the runtime gets a row of its own.
+	function versionsSection(versions) {
+		const section = document.createDocumentFragment();
+		if (versions.length > 1) section.appendChild(makeEl('h3', '', 'Versions'));
+		const list = makeEl('div', 'versions');
+
+		function row(rows, label, content) {
+			rows.appendChild(makeEl('span', 'label', label));
+			rows.appendChild(content);
+		}
+
+		versions.forEach(v => {
+			const card = makeEl('div', 'versionCard');
+			if (v.name) {
+				const head = makeEl('div', 'versionHead');
+				head.appendChild(makeEl('b', '', v.name));
+				head.appendChild(makeEl('span', '', v.runtime));
+				card.appendChild(head);
+			}
+
+			const chips = makeEl('div', 'versionChips');
+			v.sources.forEach(source => {
+				const chip = makeEl(source.url ? 'a' : 'span', 'versionChip versionChip--src', source.text);
+				if (source.url) {
+					chip.href = source.url;
+					chip.title = 'open on blu-ray.com';
+					chip.target = '_blank';
+					chip.rel = 'noopener noreferrer';
+				}
+				chips.appendChild(chip);
+			});
+			v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : ''), x.text)));
+			card.appendChild(chips);
+
+			const rows = makeEl('div', 'versionRows');
+			if (!v.name) row(rows, 'Runtime', makeEl('span', '', v.runtime));
+			if (v.audio.length) {
+				const tracks = makeEl('div');
+				v.audio.forEach(a => {
+					const line = makeEl('div', '', a.text);
+					if (a.note) line.appendChild(makeEl('span', 'muted', ' (' + a.note + ')'));
+					tracks.appendChild(line);
+				});
+				row(rows, 'Audio', tracks);
+			}
+			if (v.subtitles.length) {
+				const tracks = makeEl('span');
+				v.subtitles.forEach((t, i) => {
+					tracks.appendChild(document.createTextNode((i ? ' \u00B7 ' : '') + t.text));
+					if (t.note) tracks.appendChild(makeEl('span', 'muted', ' (' + t.note + ')'));
+				});
+				row(rows, 'Subtitles', tracks);
+			}
+			card.appendChild(rows);
+			// when the file was last modified, small, at the bottom of the card
+			if (v.modified) {
+				const date = new Date(v.modified + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+				card.appendChild(makeEl('div', 'versionModified', 'Modified ' + date));
+			}
+			list.appendChild(card);
+		});
+		section.appendChild(list);
+		return section;
+	}
+
 	function renderDetail(d, focus = null) {
 		let reveal = null; // see seasonsSection
 		detailTitle.textContent = d.title;
@@ -434,6 +501,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			});
 			detailBody.appendChild(grid);
 		}
+
+		if (d.versions.length) detailBody.appendChild(versionsSection(d.versions));
 
 		if (d.isSeries && d.seasons.length) {
 			const seasons = seasonsSection(d.seasons, focus);

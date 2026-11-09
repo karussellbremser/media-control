@@ -1,6 +1,6 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory
 from werkzeug.security import check_password_hash, generate_password_hash
-import sqlite3, os, sys, hashlib, hmac, codecs, re, collections
+import sqlite3, os, sys, hashlib, hmac, codecs, re, collections, datetime
 import serverconfig
 from model.imdbinterestid import parseInterestID
 from model.media import Media
@@ -591,6 +591,154 @@ def _seriesCredits(cursor, series_imdb_id):
         result[role].append(dict(entry["person"], details=entry["details"].most_common(1)[0][0]))
     return result
 
+# ---- versions: the files a title is available as (one per row of media_versions), for the detail view of movies
+
+_SOURCE_LABELS = {"dvd": "DVD", "br": "Blu-ray", "uhd": "UHD Blu-ray", "web-dl": "WEB-DL", "webrip": "WEBRip", "tv": "TV",
+                  "vhs": "VHS", "hifivhs": "Hi-Fi VHS", "ld": "LaserDisc", "di": "DI", "kscape": "Kaleidescape", "hddvd": "HD DVD"}
+# the discs blu-ray.com knows, by their id in media_version_sources.disc_id
+_BLURAY_COM_TYPES = ("dvd", "br", "uhd")
+# how a source's role in a version reads in front of it (a version made from one source has role "main": no prefix)
+_SOURCE_ROLE_LABELS = {"main": "", "video": "Video", "audio": "Audio", "video_base": "Base video", "video_dynhdr": "Dynamic HDR"}
+_SOURCE_ROLE_ORDER = {"main": 0, "video": 1, "video_base": 2, "video_dynhdr": 3, "audio": 4}
+_HDR_LABELS = {"Dolby Vision": "Dolby Vision", "SMPTE ST 2086": "HDR10", "SMPTE ST 2094 App 4": "HDR10+"}
+
+def _runtimeText(seconds):
+    minutes = round(seconds / 60)
+    return str(minutes // 60) + "h " + "%02d" % (minutes % 60) + "m" if minutes >= 60 else str(minutes) + "m"
+
+def _resolutionLabel(width, height, scanType):
+    """"4K", "1080p", "720p", or for standard definition the nominal lines ("480p", "576i"); the width decides for
+    HD and up, since letterboxed encodes are cropped in height (3840x1600 is 4K, 1920x1040 is 1080p)."""
+    if width >= 7000:
+        return "8K"
+    if width >= 3000:
+        return "4K"
+    if width >= 1800:
+        return "1080p"
+    if width >= 1200:
+        return "720p"
+    lines = 480 if height <= 480 else 576 if height <= 576 else height
+    return str(lines) + ("i" if scanType == "Interlaced" else "p")
+
+def _hdrLabel(hdrFormat):
+    """"Dolby Vision", "HDR10", "HDR10+" or a combination ("Dolby Vision + HDR10") from MediaInfo's HDR format
+    string ("Dolby Vision / SMPTE ST 2086"); None for SDR. An unknown part is kept as MediaInfo spells it."""
+    if not hdrFormat:
+        return None
+    return " + ".join(_HDR_LABELS.get(part.strip(), part.strip()) for part in hdrFormat.split("/"))
+
+def _channelsLabel(channels, layout):
+    if channels is None:
+        return None
+    if layout and "LFE" in layout.split():
+        return str(channels - 1) + ".1"
+    return str(channels) + ".0"
+
+_TRIVIAL_TRACK_TITLE = re.compile(r"(mono|stereo|surround [\d.]+)|.*\b\d\.\d", re.IGNORECASE)
+
+def _trackNote(title, language):
+    """A track's own title when it says something beyond the language and the channels ("Commentary", "from DVD",
+    "SDH"); a leading language name is dropped ("English Complete" -> "Complete"). None if nothing is left."""
+    if not title:
+        return None
+    remainder = re.sub("^" + re.escape(language) + r"\b[\s:-]*", "", title.strip(), flags=re.IGNORECASE).strip()
+    if remainder[:1] + remainder[-1:] in ("()", "[]", "{}") and not any(ch in remainder[1:-1] for ch in "()[]{}"): # "(Forced)" -> "Forced"
+        remainder = remainder[1:-1].strip()
+    if not remainder or _TRIVIAL_TRACK_TITLE.fullmatch(remainder):
+        return None
+    return "forced" if remainder.lower() == "forced" else remainder
+
+def _versions(cursor, imdb_id):
+    """The versions of a title as a list of dicts ready to display, sorted by version name (unnamed first):
+    {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
+    sources link to blu-ray.com for discs (dvd/br/uhd); text strings are final, built here so there is one place that
+    decides how a version reads."""
+    cursor.execute("""
+        SELECT filename, version, mtime, duration, format, hdr_format, bitrate, width, height, display_aspect_ratio,
+               frame_rate, scan_type
+        FROM media_versions WHERE imdb_id = ?
+    """, (imdb_id,))
+    versions = {}
+    for filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, frameRate, scanType in cursor.fetchall():
+        video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
+        if codec:
+            video.append({"text": {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec), "kind": "video"})
+        hdr = _hdrLabel(hdrFormat)
+        if hdr:
+            video.append({"text": hdr, "kind": "hdr"})
+        if aspect:
+            video.append({"text": "%.2f:1" % aspect, "kind": "video"})
+        if bitrate:
+            mbps = bitrate / 1000000
+            video.append({"text": ("%.0f" if mbps >= 10 else "%.1f") % mbps + " Mbps", "kind": "video"})
+        if frameRate and abs(frameRate - 24) > 0.4: # only an unusual rate is worth saying (23.976 and the like read as 24)
+            video.append({"text": ("%.3f" % frameRate).rstrip("0").rstrip(".") + " fps", "kind": "video"})
+        versions[filename] = {"name": name, "runtime": _runtimeText(duration),
+                              "modified": datetime.date.fromtimestamp(mtime).isoformat() if mtime else None, # the file's modification date
+                              "sources": [], "video": video, "audio": [], "subtitles": [], "_filename": filename}
+
+    # sources: one chip per source, prefixed with its role when a version is put together from several; a video
+    # and an audio source that are one and the same (the same disc) read as one
+    cursor.execute("""
+        SELECT ms.filename, r.role_name, st.source_type_name, ms.disc_id, w.full_name, ms.base_layer, ms.downmixed, ms.core
+        FROM media_version_sources ms
+        JOIN source_role_enum r ON ms.role_id = r.role_id
+        JOIN source_type_enum st ON ms.source_type_id = st.source_type_id
+        LEFT JOIN source_web_provider_enum w ON ms.web_provider_id = w.web_provider_id
+        WHERE ms.imdb_id = ?
+        ORDER BY ms.filename, ms.seq
+    """, (imdb_id,))
+    sourcesByFile = collections.defaultdict(list)
+    for filename, role, sourceType, discId, provider, baseLayer, downmixed, core in cursor.fetchall():
+        sourcesByFile[filename].append((role, sourceType, discId, provider, baseLayer, downmixed, core))
+    for filename, sources in sourcesByFile.items():
+        if filename not in versions:
+            continue
+        sources.sort(key=lambda source: _SOURCE_ROLE_ORDER.get(source[0], 9))
+        keyOf = lambda source: source[1:4]
+        if len(sources) == 2 and {sources[0][0], sources[1][0]} == {"video", "audio"} and keyOf(sources[0]) == keyOf(sources[1]):
+            sources = [("main",) + sources[0][1:]]
+        for role, sourceType, discId, provider, baseLayer, downmixed, core in sources:
+            text = _SOURCE_LABELS.get(sourceType, sourceType) + (" \u00B7 " + provider if provider else "")
+            qualifiers = [word for word, flag in (("base layer", baseLayer), ("downmixed", downmixed), ("core", core)) if flag]
+            if qualifiers:
+                text += " (" + ", ".join(qualifiers) + ")"
+            prefix = _SOURCE_ROLE_LABELS.get(role, role)
+            versions[filename]["sources"].append({
+                "text": (prefix + ": " if prefix and len(sources) > 1 else "") + text,
+                "url": "https://www.blu-ray.com/movies/movies.php?id=" + str(discId) if sourceType in _BLURAY_COM_TYPES and discId is not None else None})
+
+    cursor.execute("""
+        SELECT a.filename, a.format, a.format_commercial, a.channels, a.channel_layout, e.name, a.title
+        FROM media_audio_tracks a JOIN iso_language_enum e ON a.language = e.iso639_3
+        WHERE a.imdb_id = ? ORDER BY a.filename, a.track_id
+    """, (imdb_id,))
+    for filename, audioFormat, commercial, channels, layout, language, title in cursor.fetchall():
+        if filename not in versions:
+            continue
+        name = (commercial or audioFormat).replace(" with Dolby Atmos", " Atmos").replace(" with DTS:X", " DTS:X")
+        channelsText = _channelsLabel(channels, layout)
+        versions[filename]["audio"].append({"text": name + (" " + channelsText if channelsText else "") + " \u00B7 " + language,
+                                            "note": _trackNote(title, language)})
+
+    cursor.execute("""
+        SELECT s.filename, e.name, s.title, s.forced_track
+        FROM media_subtitle_tracks s JOIN iso_language_enum e ON s.language = e.iso639_3
+        WHERE s.imdb_id = ? ORDER BY s.filename, s.track_id
+    """, (imdb_id,))
+    for filename, language, title, forced in cursor.fetchall():
+        if filename not in versions:
+            continue
+        note = _trackNote(title, language)
+        if forced and "forced" not in (note or "").lower():
+            note = (note + ", " if note else "") + "forced"
+        versions[filename]["subtitles"].append({"text": language, "note": note})
+
+    ordered = sorted(versions.values(), key=lambda v: (v["name"] is not None, (v["name"] or "").casefold(), v["_filename"].casefold()))
+    for version in ordered:
+        del version["_filename"] # the file name is internal: it only ties the tables together
+    return ordered
+
 def _addTitleCounts(cursor, credits):
     """Adds "titleCount" -- how many library titles (movies and series, an episode counting for its series) the
     person is credited on -- to every person of a credits dict as built for the detail view."""
@@ -837,6 +985,8 @@ def detail(imdb_id):
                 credits[role].append({"personId": person_id, "name": name, "birthYear": birth_year, "deathYear": death_year, "details": details})
 
         _addTitleCounts(cursor, credits)
+        # the versions (files) of a movie -- series and episodes have none to show for now
+        versions = [] if title_type_name in Media.seriesTitleTypes + Media.episodeTitleTypes else _versions(cursor, imdb_id)
         connections = _connections(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
         conn.close()
     except sqlite3.Error as e:
@@ -855,6 +1005,7 @@ def detail(imdb_id):
         "plotSummary": plot_summary,
         "interests": interests,
         "languages": languages,
+        "versions": versions,
         "countries": countries,
         "allEpisodesOwned": allEpisodesOwned,
         "seasons": seasons,
