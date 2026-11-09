@@ -686,10 +686,13 @@ def _versions(cursor, imdb_id):
     for (filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, pixelAspect, frameRate, scanType,
          multiviewCount) in cursor.fetchall():
         video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
-        if multiviewCount and multiviewCount > 1: # a stereoscopic file: one view per eye
+        stereoscopic = bool(multiviewCount and multiviewCount > 1) # one view per eye
+        if stereoscopic:
             video.append({"text": "3D", "kind": "3d"})
         if codec:
-            video.append({"text": {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec), "kind": "video"})
+            # MediaInfo calls a Blu-ray 3D file's video AVC (its profile says "Stereo High"), but two views in AVC are MVC
+            text = "MVC" if stereoscopic and codec == "AVC" else {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec)
+            video.append({"text": text, "kind": "video"})
         hdr = _hdrLabel(hdrFormat)
         if hdr:
             video.append({"text": hdr, "kind": "hdr"})
