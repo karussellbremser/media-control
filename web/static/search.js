@@ -416,8 +416,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailBody.replaceChildren();
 		if (d.plotSummary) detailBody.appendChild(makeEl('p', 'plot', d.plotSummary));
 
-		// the languages and production countries, the primary language / first country first
-		const facts = [[d.languages, 'Language', 'Languages'], [d.countries, 'Country', 'Countries']].filter(([names]) => names.length);
+		// the primary language (only that one: IMDb's further spoken languages are no help here) and the production
+		// countries, the first one first
+		const facts = [[d.languages.slice(0, 1), 'Language', 'Languages'], [d.countries, 'Country', 'Countries']].filter(([names]) => names.length);
 		if (facts.length) {
 			const grid = makeEl('div', 'detailGrid');
 			facts.forEach(([names, singular, plural]) => {
