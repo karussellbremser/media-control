@@ -296,7 +296,14 @@ document.addEventListener('DOMContentLoaded', () => {
 				const row = makeEl('div', 'seasonEpisode');
 				row.dataset.episode = e.number === null ? '' : String(e.number);
 				row.appendChild(makeEl('span', 'seasonEpisodeNumber', e.number === null ? '' : 'E' + e.number));
-				row.appendChild(makeEl('span', '', e.title));
+				// the episode's IMDb page (an episode has no page of its own here)
+				const link = makeEl('a', 'seasonEpisodeLink', e.title);
+				link.href = 'https://www.imdb.com/title/' + idString(e.imdbId) + '/';
+				link.title = 'open on IMDb';
+				link.target = '_blank';
+				link.rel = 'noopener noreferrer';
+				link.appendChild(makeEl('span', 'seasonEpisodeArrow', ' \u2197'));
+				row.appendChild(link);
 				episodes.appendChild(row);
 			});
 			el.classList.add('open');

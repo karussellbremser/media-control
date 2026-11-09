@@ -796,14 +796,14 @@ def detail(imdb_id):
             # a season that is only partly owned also says which of its episodes are (only those: the others stay unnamed)
             if any(0 < s["owned"] < s["total"] for s in seasons):
                 cursor.execute("""
-                    SELECT season_number, episode_number, original_title
+                    SELECT season_number, episode_number, original_title, imdb_id
                     FROM media
                     WHERE series_imdb_id = ? AND subdir IS NOT NULL
                     ORDER BY episode_number IS NULL, episode_number, original_title
                 """, (imdb_id,))
                 ownedBySeason = collections.defaultdict(list)
-                for season, episode, title in cursor.fetchall():
-                    ownedBySeason[season].append({"number": episode, "title": title})
+                for season, episode, title, episodeId in cursor.fetchall():
+                    ownedBySeason[season].append({"number": episode, "title": title, "imdbId": episodeId})
                 for s in seasons:
                     if 0 < s["owned"] < s["total"]:
                         s["ownedEpisodes"] = ownedBySeason[s["season"]]
