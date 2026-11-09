@@ -627,6 +627,22 @@ def _hdrLabel(hdrFormat):
         return None
     return " + ".join(_HDR_LABELS.get(part.strip(), part.strip()) for part in hdrFormat.split("/"))
 
+def _aspectRatios(width, height, aspect, pixelAspect, croppings):
+    """The aspect ratios of the picture itself, as "2.40:1" labels -- not the frame's: a 1920x1080 file with black bars
+    above and below holds a 2.40:1 picture. One label per cropping the version has (its black bars as top, bottom,
+    left, right pixel counts); a version with several has a variable aspect ratio (IMAX-expansion scenes and the
+    like), and its ratios come out in the order they are stored in. Without any cropping the frame's own ratio."""
+    pixel = pixelAspect or (aspect / (width / height) if aspect else 1.0)
+    labels = []
+    for top, bottom, left, right in croppings or [(0, 0, 0, 0)]:
+        pictureWidth, pictureHeight = width - left - right, height - top - bottom
+        if pictureWidth <= 0 or pictureHeight <= 0:
+            continue
+        label = "%.2f:1" % (pictureWidth / pictureHeight * pixel)
+        if label not in labels:
+            labels.append(label)
+    return labels
+
 def _channelsLabel(channels, layout):
     if channels is None:
         return None
@@ -653,13 +669,18 @@ def _versions(cursor, imdb_id):
     {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
     sources link to blu-ray.com for discs (dvd/br/uhd); text strings are final, built here so there is one place that
     decides how a version reads."""
+    cursor.execute("SELECT filename, top, bottom, left, right FROM cropping WHERE imdb_id = ? ORDER BY filename, ordering", (imdb_id,))
+    croppings = collections.defaultdict(list)
+    for filename, top, bottom, left, right in cursor.fetchall():
+        croppings[filename].append((top, bottom, left, right))
+
     cursor.execute("""
         SELECT filename, version, mtime, duration, format, hdr_format, bitrate, width, height, display_aspect_ratio,
-               frame_rate, scan_type, multiview_count
+               pixel_aspect_ratio, frame_rate, scan_type, multiview_count
         FROM media_versions WHERE imdb_id = ?
     """, (imdb_id,))
     versions = {}
-    for (filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, frameRate, scanType,
+    for (filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, pixelAspect, frameRate, scanType,
          multiviewCount) in cursor.fetchall():
         video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
         if multiviewCount and multiviewCount > 1: # a stereoscopic file: one view per eye
@@ -669,8 +690,11 @@ def _versions(cursor, imdb_id):
         hdr = _hdrLabel(hdrFormat)
         if hdr:
             video.append({"text": hdr, "kind": "hdr"})
-        if aspect:
-            video.append({"text": "%.2f:1" % aspect, "kind": "video"})
+        ratios = _aspectRatios(width, height, aspect, pixelAspect, croppings.get(filename))
+        if len(ratios) == 1:
+            video.append({"text": ratios[0], "kind": "video"})
+        elif ratios: # a variable aspect ratio
+            video.append({"text": "Variable " + " / ".join(ratios), "kind": "video"})
         if bitrate:
             mbps = bitrate / 1000000
             video.append({"text": ("%.0f" if mbps >= 10 else "%.1f") % mbps + " Mbps", "kind": "video"})
