@@ -595,8 +595,11 @@ def _seriesCredits(cursor, series_imdb_id):
 
 _SOURCE_LABELS = {"dvd": "DVD", "br": "Blu-ray", "uhd": "UHD Blu-ray", "web-dl": "WEB-DL", "webrip": "WEBRip", "tv": "TV",
                   "vhs": "VHS", "hifivhs": "Hi-Fi VHS", "ld": "LaserDisc", "di": "DI", "kscape": "Kaleidescape", "hddvd": "HD DVD"}
-# the discs blu-ray.com knows, by their id in media_version_sources.disc_id
-_BLURAY_COM_TYPES = ("dvd", "br", "uhd")
+# the discs blu-ray.com knows, by their id in media_version_sources.disc_id: Blu-rays and UHD Blu-rays have a page under
+# /movies/, DVDs one under /dvd/ (the /movies/ address doesn't work for them)
+_BLURAY_COM_URLS = {"br": "https://www.blu-ray.com/movies/movies.php?id=%d",
+                    "uhd": "https://www.blu-ray.com/movies/movies.php?id=%d",
+                    "dvd": "https://www.blu-ray.com/dvd/link-to-DVD/%d/"}
 # how a source's role in a version reads in front of it (a version made from one source has role "main": no prefix)
 _SOURCE_ROLE_LABELS = {"main": "", "video": "Video", "audio": "Audio", "video_base": "Base video", "video_dynhdr": "Dynamic HDR"}
 _SOURCE_ROLE_ORDER = {"main": 0, "video": 1, "video_base": 2, "video_dynhdr": 3, "audio": 4}
@@ -733,7 +736,7 @@ def _versions(cursor, imdb_id):
             prefix = _SOURCE_ROLE_LABELS.get(role, role)
             versions[filename]["sources"].append({
                 "text": (prefix + ": " if prefix and len(sources) > 1 else "") + text,
-                "url": "https://www.blu-ray.com/movies/movies.php?id=" + str(discId) if sourceType in _BLURAY_COM_TYPES and discId is not None else None})
+                "url": _BLURAY_COM_URLS[sourceType] % discId if sourceType in _BLURAY_COM_URLS and discId is not None else None})
 
     cursor.execute("""
         SELECT a.filename, a.format, a.format_commercial, a.channels, a.channel_layout, e.name, a.title
