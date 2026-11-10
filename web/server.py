@@ -1,6 +1,6 @@
 from flask import Flask, Response, render_template, request, jsonify, send_from_directory
 from werkzeug.security import check_password_hash, generate_password_hash
-import sqlite3, os, sys, hashlib, hmac, codecs, re, collections, datetime
+import sqlite3, os, sys, hashlib, hmac, codecs, re, collections, datetime, unicodedata, functools
 import serverconfig
 from model.imdbinterestid import parseInterestID
 from model.media import Media
@@ -143,13 +143,14 @@ def _buildFilter(search_query, year_from, year_to,
         typeBranches.append("(" + seriesCond + ")")
     sql += " AND (" + " OR ".join(typeBranches) + ")"
 
-    # text search -- each word must match either the original or the primary (localized) title
+    # text search -- each word must match either the original or the primary (localized) title, regardless of case and
+    # accents (fold, see _connect): "meduses" finds "L'année des méduses"
     if search_query:
         words = search_query.split()
         for word in words:
-            sql += " AND (original_title LIKE ? COLLATE NOCASE OR primary_title LIKE ? COLLATE NOCASE)"
-            params.append(f"%{word}%")
-            params.append(f"%{word}%")
+            sql += " AND (fold(original_title) LIKE ? OR fold(primary_title) LIKE ?)"
+            params.append(f"%{_fold(word)}%")
+            params.append(f"%{_fold(word)}%")
 
     # filter years -- movies match on an exact start_year range; series match if the filter range
     # overlaps the series' production span (start_year..end_year, or start_year..currentYear if the
@@ -519,10 +520,24 @@ def _creditKind(role_id, details, isSeries):
     lists of the detail view can never disagree about it."""
     return {1: "directed", 2: "written", 3: "cast", "creators": "created", "source": "basedon"}[_creditRole(role_id, details, isSeries)]
 
+# letters that unicodedata can't take apart into a base letter and an accent, as they fold to plain letters
+_FOLD_EXTRA = str.maketrans({"ø": "o", "ł": "l", "đ": "d", "ð": "d", "æ": "ae", "œ": "oe", "þ": "th"})
+
+@functools.lru_cache(maxsize=None) # a search folds every name in the DB, over and over: remember them (about 70,000, a few MB)
+def _fold(text):
+    """text as it is compared in searches: lower case and without accents ("L'année des méduses" ->
+    "l'annee des meduses"), so that "meduses" finds it. None stays None."""
+    if text is None:
+        return None
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).translate(_FOLD_EXTRA)
+
 def _connect():
-    """A connection to the DB with credit_kind(role_id, details, is_series) available to SQL (the person filter)."""
+    """A connection to the DB with credit_kind(role_id, details, is_series) and fold(text) available to SQL (the
+    person filter and the accent-insensitive name searches)."""
     conn = sqlite3.connect(serverconfig.DB_PATH)
     conn.create_function("credit_kind", 3, lambda role_id, details, isSeries: _creditKind(role_id, details, bool(isSeries)), deterministic=True)
+    conn.create_function("fold", 1, _fold, deterministic=True)
     return conn
 
 def _sourceDetails(details):
@@ -876,9 +891,9 @@ def people():
     q = request.args.get('q', '').strip()
     if len(q) < 2:
         return jsonify([])
-    words = q.split()
+    words = [_fold(w) for w in q.split()] # case and accents don't matter, see _fold
     # a word starts after a space or a hyphen (the leading space makes the name's first word count too)
-    startsWordSql = "(' ' || p.name LIKE ? COLLATE NOCASE OR p.name LIKE ? COLLATE NOCASE)"
+    startsWordSql = "(' ' || fold(p.name) LIKE ? OR fold(p.name) LIKE ?)"
     startsWordParams = [param for w in words for param in ("% " + w + "%", "%-" + w + "%")]
     try:
         conn = _connect()
@@ -890,7 +905,7 @@ def people():
             FROM people p
             JOIN credits c ON c.person_id = p.imdb_id
             JOIN media e ON e.imdb_id = c.imdb_id
-            WHERE """ + " AND ".join("p.name LIKE ? COLLATE NOCASE" for _ in words) + """
+            WHERE """ + " AND ".join("fold(p.name) LIKE ?" for _ in words) + """
             GROUP BY p.imdb_id
             ORDER BY startsWords DESC, titles DESC, p.name
             LIMIT 8
