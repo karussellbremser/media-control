@@ -623,11 +623,13 @@ def _resolutionLabel(width, height, scanType):
     lines = 480 if height <= 480 else 576 if height <= 576 else height
     return str(lines) + ("i" if scanType == "Interlaced" else "p")
 
-def _hdrLabel(hdrFormat):
+def _hdrLabel(hdrFormat, transfer):
     """"Dolby Vision", "HDR10", "HDR10+" or a combination ("Dolby Vision + HDR10") from MediaInfo's HDR format
-    string ("Dolby Vision / SMPTE ST 2086"); None for SDR. An unknown part is kept as MediaInfo spells it."""
+    string ("Dolby Vision / SMPTE ST 2086"); None for SDR. An unknown part is kept as MediaInfo spells it.
+    Without an HDR format a PQ transfer curve still means HDR -- PQ10, HDR10 without its static metadata (no mastering
+    display, MaxCLL, MaxFALL): MediaInfo leaves the HDR format empty then, but no SDR file is ever PQ -- shown as "HDR"."""
     if not hdrFormat:
-        return None
+        return "HDR" if transfer == "PQ" else None
     return " + ".join(_HDR_LABELS.get(part.strip(), part.strip()) for part in hdrFormat.split("/"))
 
 def _aspectRatios(width, height, aspect, pixelAspect, croppings):
@@ -678,13 +680,13 @@ def _versions(cursor, imdb_id):
         croppings[filename].append((top, bottom, left, right))
 
     cursor.execute("""
-        SELECT filename, version, mtime, duration, format, hdr_format, bitrate, width, height, display_aspect_ratio,
-               pixel_aspect_ratio, frame_rate, scan_type, multiview_count
+        SELECT filename, version, mtime, duration, format, hdr_format, transfer_characteristics, bitrate, width, height,
+               display_aspect_ratio, pixel_aspect_ratio, frame_rate, scan_type, multiview_count
         FROM media_versions WHERE imdb_id = ?
     """, (imdb_id,))
     versions = {}
-    for (filename, name, mtime, duration, codec, hdrFormat, bitrate, width, height, aspect, pixelAspect, frameRate, scanType,
-         multiviewCount) in cursor.fetchall():
+    for (filename, name, mtime, duration, codec, hdrFormat, transfer, bitrate, width, height, aspect, pixelAspect, frameRate,
+         scanType, multiviewCount) in cursor.fetchall():
         video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
         stereoscopic = bool(multiviewCount and multiviewCount > 1) # one view per eye
         if stereoscopic:
@@ -693,7 +695,7 @@ def _versions(cursor, imdb_id):
             # MediaInfo calls a Blu-ray 3D file's video AVC (its profile says "Stereo High"), but two views in AVC are MVC
             text = "MVC" if stereoscopic and codec == "AVC" else {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec)
             video.append({"text": text, "kind": "video"})
-        hdr = _hdrLabel(hdrFormat)
+        hdr = _hdrLabel(hdrFormat, transfer)
         if hdr:
             video.append({"text": hdr, "kind": "hdr"})
         ratios = _aspectRatios(width, height, aspect, pixelAspect, croppings.get(filename))
