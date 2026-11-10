@@ -669,6 +669,26 @@ def _trackNote(title, language):
         return None
     return "forced" if remainder.lower() == "forced" else remainder
 
+# words that qualify subtitles in a video track's title ("hardcoded English subtitles") rather than name their language
+_SUBTITLE_QUALIFIERS = {"hardcoded", "hard-coded", "burned-in", "burnt-in", "burned", "burnt", "forced", "english-language"}
+
+def _hardcodedSubtitleLanguage(cursor, videoTitle, videoLanguage):
+    """The language of subtitles burned into a version's picture, from the video track's title ("hardcoded English
+    subtitles", "forced English subtitles" -- on the video track they can only be burned in); None when the title doesn't
+    speak of subtitles, or says there are none. A title that names no language ("hardcoded subtitles") falls back to
+    the video track's own."""
+    if not videoTitle or not re.search(r"\bsubtitles?\b", videoTitle, re.IGNORECASE):
+        return None
+    match = re.search(r"([^\W\d_][\w'-]*)\s+subtitles?\b", videoTitle, re.IGNORECASE)
+    word = match.group(1) if match else None
+    if word and word.lower() in ("no", "without", "non"):
+        return None
+    if not word or word.lower() in _SUBTITLE_QUALIFIERS:
+        return videoLanguage or "Subtitles"
+    cursor.execute("SELECT name FROM iso_language_enum WHERE name = ? COLLATE NOCASE LIMIT 1", (word,))
+    row = cursor.fetchone()
+    return row[0] if row else word.capitalize()
+
 def _versions(cursor, imdb_id):
     """The versions of a title as a list of dicts ready to display, sorted by version name (unnamed first):
     {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
@@ -681,12 +701,14 @@ def _versions(cursor, imdb_id):
 
     cursor.execute("""
         SELECT filename, version, mtime, duration, format, hdr_format, transfer_characteristics, bitrate, width, height,
-               display_aspect_ratio, pixel_aspect_ratio, frame_rate, scan_type, multiview_count
+               display_aspect_ratio, pixel_aspect_ratio, frame_rate, scan_type, multiview_count, title, language
         FROM media_versions WHERE imdb_id = ?
     """, (imdb_id,))
     versions = {}
+    videoTracks = {} # filename -> (the video track's title, its language's name): subtitles burned in are noted there
     for (filename, name, mtime, duration, codec, hdrFormat, transfer, bitrate, width, height, aspect, pixelAspect, frameRate,
-         scanType, multiviewCount) in cursor.fetchall():
+         scanType, multiviewCount, videoTitle, videoLanguage) in cursor.fetchall():
+        videoTracks[filename] = (videoTitle, videoLanguage)
         video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
         stereoscopic = bool(multiviewCount and multiviewCount > 1) # one view per eye
         if stereoscopic:
@@ -768,6 +790,16 @@ def _versions(cursor, imdb_id):
         if forced and "forced" not in (note or "").lower():
             note = (note + ", " if note else "") + "forced"
         versions[filename]["subtitles"].append({"text": language, "note": note})
+
+    for filename, (videoTitle, videoLanguage) in videoTracks.items():
+        languageName = None
+        if videoLanguage:
+            cursor.execute("SELECT name FROM iso_language_enum WHERE iso639_3 = ?", (videoLanguage,))
+            row = cursor.fetchone()
+            languageName = row[0] if row else None
+        hardcoded = _hardcodedSubtitleLanguage(cursor, videoTitle, languageName)
+        if hardcoded and filename in versions:
+            versions[filename]["subtitles"].append({"text": hardcoded, "note": "hardcoded"})
 
     ordered = sorted(versions.values(), key=lambda v: (v["name"] is not None, (v["name"] or "").casefold(), v["_filename"].casefold()))
     for version in ordered:
