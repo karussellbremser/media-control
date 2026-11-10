@@ -671,6 +671,17 @@ def _channelsLabel(channels, layout):
     return str(channels) + ".0"
 
 _TRIVIAL_TRACK_TITLE = re.compile(r"(mono|stereo|surround [\d.]+)|.*\b\d\.\d", re.IGNORECASE)
+# A track title written by a disc-analysis tool, describing the stream: "DTS-HD Master Audio / 5.1 / 48 kHz / 3408 kbps /
+# 24-bit", "FLAC Audio", "DTS-HD.MA5.1". Its parts are told apart by their " / " (a codec name like "TrueHD/Atmos" has
+# none around its slash).
+_STREAM_PART = re.compile(r"\d\.\d|\d+(\.\d+)?\s*kHz|\d+\s*kbps|\d+\s*-?\s*bits?"
+                          r"|(FLAC|DTS|Dolby|PCM|LPCM|AAC|AC-?3|E-?AC-?3|TrueHD|MLP|MP3|Opus|Vorbis)[\w .\-/+]*Audio"
+                          r"|(DTS|DD|DDP|TrueHD|Atmos|FLAC|PCM|LPCM|AAC|AC-?3|MA)[\w.\-+ ]*\d\.\d", re.IGNORECASE)
+
+def _describesStream(title):
+    """True if any part of the title is a stream description -- such a title is boilerplate as a whole, whatever else it
+    says ("Original Stereo / FLAC Audio / 2.0 / 48 kHz / 530 kbps / 16-bit")."""
+    return any(_STREAM_PART.fullmatch(part.strip()) for part in re.split(r"\s+/\s+|^/\s*", title.strip()))
 
 def _trackNote(title, language):
     """A track's own title when it says something beyond the language and the channels ("Commentary", "from DVD",
@@ -678,6 +689,8 @@ def _trackNote(title, language):
     if not title:
         return None
     remainder = re.sub("^" + re.escape(language) + r"\b[\s:-]*", "", title.strip(), flags=re.IGNORECASE).strip()
+    if _describesStream(remainder):
+        return None
     if remainder[:1] + remainder[-1:] in ("()", "[]", "{}") and not any(ch in remainder[1:-1] for ch in "()[]{}"): # "(Forced)" -> "Forced"
         remainder = remainder[1:-1].strip()
     if not remainder or _TRIVIAL_TRACK_TITLE.fullmatch(remainder):
