@@ -683,6 +683,65 @@ def _describesStream(title):
     says ("Original Stereo / FLAC Audio / 2.0 / 48 kHz / 530 kbps / 16-bit")."""
     return any(_STREAM_PART.fullmatch(part.strip()) for part in re.split(r"\s+/\s+|^/\s*", title.strip()))
 
+# how a track title spells a source type, once lower-cased and stripped of everything but letters and digits
+_SOURCE_TYPE_SPELLINGS = {"br": "br", "bd": "br", "bluray": "br", "3dbluray": "br", "uhd": "uhd", "uhdbd": "uhd", "uhdbluray": "uhd",
+                          "dvd": "dvd", "web": "web-dl", "webdl": "web-dl", "webrip": "webrip", "ld": "ld", "laserdisc": "ld",
+                          "tv": "tv", "vhs": "vhs", "hifivhs": "hifivhs", "hddvd": "hddvd"}
+# when a track names only a disc type ("from dvd"), the disc of that type in the version's own source description is meant;
+# if there are several, the one in the most fitting role
+_DISC_ROLE_PREFERENCE = ("audio", "main", "video", "video_base", "video_dynhdr")
+
+def _splitTrackSource(title):
+    """(label, source text) of an audio track's title that names where the track comes from -- "from DVD", "from br-164692",
+    "src-br-300821", "70mm Soundtrack (from UHD)" -- else (title, None). The label is what is left besides the source."""
+    title = title.strip()
+    match = re.fullmatch(r"src-(.+)", title, re.IGNORECASE) or re.fullmatch(r"from\s+(.+)", title, re.IGNORECASE)
+    if match:
+        return "", match.group(1).strip()
+    match = re.fullmatch(r"(.*?)\s*\(from\s+(.+)\)", title, re.IGNORECASE)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return title, None
+
+def _audioSource(sourceText, generalSources, providers):
+    """A track's source, as {"text": "from DVD", "url": ...}: a disc (Blu-ray, UHD Blu-ray, DVD) links to blu-ray.com, by the
+    disc id the track names ("br-164692") or, when it names only the type ("from dvd"), by that of the disc of this type
+    in the version's general source description (generalSources: its (role, type, disc id, ...) tuples). Spellings are
+    read leniently ("BR", "Blu-ray", "UHD BD", "3D-Blu-ray", "WEB"); a provider abbreviation ("AMZN") reads as its name;
+    anything else stays as it is written, without a link."""
+    base, remark = sourceText, ""
+    match = re.fullmatch(r"(.*?)\s*(\(.*\))", sourceText)
+    if match:
+        base, remark = match.group(1), match.group(2)
+
+    sourceType, discId, text = None, None, None
+    idMatch = re.fullmatch(r"(br|uhd|dvd)-(\d+)", base, re.IGNORECASE)
+    webMatch = re.fullmatch(r"(web-dl|webrip)(?:-(\w+))?", base, re.IGNORECASE)
+    if idMatch:
+        sourceType, discId = idMatch.group(1).lower(), int(idMatch.group(2))
+    elif webMatch: # "WEB-DL-NF": the web-dl, from this provider
+        sourceType = webMatch.group(1).lower()
+        provider = providers.get((webMatch.group(2) or "").upper())
+        text = _SOURCE_LABELS[sourceType] + (" \u00B7 " + provider if provider else "")
+    else:
+        sourceType = _SOURCE_TYPE_SPELLINGS.get(re.sub(r"[^a-z0-9]", "", base.lower()))
+        if sourceType is None and base.upper() in providers: # "AMZN" -> "Amazon"
+            text = providers[base.upper()]
+
+    url = None
+    if sourceType in _BLURAY_COM_URLS:
+        text = _SOURCE_LABELS[sourceType]
+        if discId is None:
+            candidates = {role: disc for role, type_, disc, *_ in generalSources if type_ == sourceType and disc is not None}
+            discId = next((candidates[role] for role in _DISC_ROLE_PREFERENCE if role in candidates), None)
+        if discId is not None:
+            url = _BLURAY_COM_URLS[sourceType] % discId
+    elif text is None:
+        text = sourceText # as written
+    elif remark:
+        text += " " + remark
+    return {"text": "from " + text, "url": url}
+
 def _trackNote(title, language):
     """A track's own title when it says something beyond the language and the channels ("Commentary", "from DVD",
     "SDH"); a leading language name is dropped ("English Complete" -> "Complete"). None if nothing is left."""
@@ -798,13 +857,19 @@ def _versions(cursor, imdb_id):
         FROM media_audio_tracks a JOIN iso_language_enum e ON a.language = e.iso639_3
         WHERE a.imdb_id = ? ORDER BY a.filename, a.track_id
     """, (imdb_id,))
-    for filename, audioFormat, commercial, channels, layout, language, title in cursor.fetchall():
-        if filename not in versions:
-            continue
+    audioTracks = [track for track in cursor.fetchall() if track[0] in versions]
+    audioCounts = collections.Counter(track[0] for track in audioTracks)
+    cursor.execute("SELECT abbreviation, full_name FROM source_web_provider_enum")
+    providers = {abbreviation.upper(): fullName for abbreviation, fullName in cursor.fetchall()}
+    for filename, audioFormat, commercial, channels, layout, language, title in audioTracks:
         name = (commercial or audioFormat).replace(" with Dolby Atmos", " Atmos").replace(" with DTS:X", " DTS:X")
         channelsText = _channelsLabel(channels, layout)
+        # where a track comes from is only said for a file with several tracks: with one, the version's general source
+        # description is that source. A title that names a source but is also a label keeps the label as its note.
+        label, sourceText = _splitTrackSource(title) if title else (title, None)
+        source = _audioSource(sourceText, sourcesByFile.get(filename, []), providers) if sourceText and audioCounts[filename] > 1 else None
         versions[filename]["audio"].append({"text": name + (" " + channelsText if channelsText else "") + " \u00B7 " + language,
-                                            "note": _trackNote(title, language)})
+                                            "note": _trackNote(label if sourceText else title, language), "source": source})
 
     cursor.execute("""
         SELECT s.filename, e.name, s.title, s.forced_track

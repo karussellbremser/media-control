@@ -434,6 +434,21 @@ document.addEventListener('DOMContentLoaded', () => {
 				v.audio.forEach(a => {
 					const line = makeEl('div', '', a.text);
 					if (a.note) line.appendChild(makeEl('span', 'muted', ' (' + a.note + ')'));
+					// where this track comes from, when it differs from the version's general source (files with several tracks)
+					if (a.source) {
+						line.appendChild(document.createTextNode(' \u00B7 '));
+						if (a.source.url) {
+							const link = makeEl('a', 'versionSourceLink', a.source.text);
+							link.href = a.source.url;
+							link.title = 'open on blu-ray.com';
+							link.target = '_blank';
+							link.rel = 'noopener noreferrer';
+							link.appendChild(makeEl('span', 'versionSourceArrow', ' \u2197'));
+							line.appendChild(link);
+						} else {
+							line.appendChild(makeEl('span', 'muted', a.source.text));
+						}
+					}
 					tracks.appendChild(line);
 				});
 				row(rows, 'Audio', tracks);
