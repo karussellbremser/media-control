@@ -706,9 +706,10 @@ def _splitTrackSource(title):
 def _audioSource(sourceText, generalSources, providers):
     """A track's source, as {"text": "from DVD", "url": ...}: a disc (Blu-ray, UHD Blu-ray, DVD) links to blu-ray.com, by the
     disc id the track names ("br-164692") or, when it names only the type ("from dvd"), by that of the disc of this type
-    in the version's general source description (generalSources: its (role, type, disc id, ...) tuples). Spellings are
-    read leniently ("BR", "Blu-ray", "UHD BD", "3D-Blu-ray", "WEB"); a provider abbreviation ("AMZN") reads as its name;
-    anything else stays as it is written, without a link."""
+    in the version's general source description (generalSources: its (role, type, disc id, provider, ...) tuples). Spellings
+    are read leniently ("BR", "Blu-ray", "UHD BD", "3D-Blu-ray", "WEB"); a provider abbreviation ("AMZN") reads as its
+    name, and a web source named without a provider ("from WEB") gets that of the version's own web source; anything
+    else stays as it is written, without a link."""
     base, remark = sourceText, ""
     match = re.fullmatch(r"(.*?)\s*(\(.*\))", sourceText)
     if match:
@@ -727,6 +728,13 @@ def _audioSource(sourceText, generalSources, providers):
         sourceType = _SOURCE_TYPE_SPELLINGS.get(re.sub(r"[^a-z0-9]", "", base.lower()))
         if sourceType is None and base.upper() in providers: # "AMZN" -> "Amazon"
             text = providers[base.upper()]
+
+    if sourceType in ("web-dl", "webrip") and (text is None or "\u00B7" not in text):
+        # a web source named without its provider ("from WEB"): the provider of the version's own web source of this type
+        providersByRole = {role: provider for role, type_, disc, provider, *_ in generalSources if type_ == sourceType and provider}
+        provider = next((providersByRole[role] for role in _DISC_ROLE_PREFERENCE if role in providersByRole), None)
+        if provider:
+            text = _SOURCE_LABELS[sourceType] + " \u00B7 " + provider
 
     url = None
     if sourceType in _BLURAY_COM_URLS:
