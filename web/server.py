@@ -736,6 +736,10 @@ def _audioSource(sourceText, generalSources, providers):
         if provider:
             text = _SOURCE_LABELS[sourceType] + " \u00B7 " + provider
 
+    # whether the track says more than a plain source type, disc or provider (which the version's general source description
+    # says as well): free text, or a remark on a type ("LD (Dolby Stereo)")
+    informative = (sourceType is None and text is None) or bool(remark)
+
     url = None
     if sourceType in _BLURAY_COM_URLS:
         text = _SOURCE_LABELS[sourceType]
@@ -748,7 +752,7 @@ def _audioSource(sourceText, generalSources, providers):
         text = sourceText # as written
     elif remark:
         text += " " + remark
-    return {"text": "from " + text, "url": url}
+    return {"text": "from " + text, "url": url, "informative": informative}
 
 def _trackNote(title, language):
     """A track's own title when it says something beyond the language and the channels ("Commentary", "from DVD",
@@ -872,10 +876,15 @@ def _versions(cursor, imdb_id):
     for filename, audioFormat, commercial, channels, layout, language, title in audioTracks:
         name = (commercial or audioFormat).replace(" with Dolby Atmos", " Atmos").replace(" with DTS:X", " DTS:X")
         channelsText = _channelsLabel(channels, layout)
-        # where a track comes from is only said for a file with several tracks: with one, the version's general source
-        # description is that source. A title that names a source but is also a label keeps the label as its note.
+        # where a track comes from is said for a file with several tracks; with a single one, the version's general source
+        # description is that source, so only what the title says beyond it (a LaserDisc edition, say) is shown. A title
+        # that names a source but is also a label keeps the label as its note.
         label, sourceText = _splitTrackSource(title) if title else (title, None)
-        source = _audioSource(sourceText, sourcesByFile.get(filename, []), providers) if sourceText and audioCounts[filename] > 1 else None
+        source = _audioSource(sourceText, sourcesByFile.get(filename, []), providers) if sourceText else None
+        if source:
+            informative = source.pop("informative")
+            if audioCounts[filename] == 1 and not informative:
+                source = None
         versions[filename]["audio"].append({"text": name + (" " + channelsText if channelsText else "") + " \u00B7 " + language,
                                             "note": _trackNote(label if sourceText else title, language), "source": source})
 
