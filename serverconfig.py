@@ -30,7 +30,7 @@ HIDDEN_INTEREST_IDS_PATH = resolve(parser["paths"]["hidden_interest_ids_path"])
 SERVER_HOST = parser["server"]["host"]
 SERVER_PORT = parser.getint("server", "port")
 # optional: the browser tab's title
-SERVER_TITLE = parser.get("server", "title", fallback="").strip() or "My Movies"
+SERVER_TITLE = parser.get("server", "title", fallback="").strip() or "Movie Database"
 CURTAIN_ANIMATION_ENABLED = parser.getboolean("server", "curtain_animation")
 CURTAIN_STYLE = parser["server"]["curtain_style"]
 if CURTAIN_STYLE not in ("classic", "reserved"):

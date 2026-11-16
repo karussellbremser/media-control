@@ -98,7 +98,7 @@ Then edit `config.ini` with your own paths and settings -- see `config.example.i
 
 **`[server]`**
 - `host` / `port` — for the Flask web server
-- `title` — optional: the browser tab's title (default `My Movies`)
+- `title` — optional: the browser tab's title (default `Movie Database`)
 - `curtain_animation` — whether a theater-curtain-opening animation plays on page load (real loads only, never on an in-place filter/search/sort update)
 - `curtain_style` — `classic` (red velvet, gold scalloped valance) or `reserved` (warm greige, echoing the page's own light-gray palette)
 - `auth_file` — optional: a one-line `username:password-hash` file; when set, the whole web UI asks for that login (see "Hosting the web UI with Docker")
