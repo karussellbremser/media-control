@@ -118,7 +118,10 @@ python main.py --backup   # immediately create a DB backup, regardless of how re
 python main.py --help     # list all options
 
 python main.py --sync --max-count 5  # override config.ini's [scraping] max_count for this run only
+python main.py --sync --deploy       # after the sync succeeded, also send the new covers and the database to the hosted web UI
 ```
+
+`--deploy` (`-d`) can go with any of the options above and runs `python deploy/deploy.py content -y` once they have all finished without an error (see "Hosting the web UI with Docker"; it never prunes covers). If the deploy fails, the sync itself stays done and the run ends with a warning and the deploy's exit code.
 
 To browse the collection in a browser:
 

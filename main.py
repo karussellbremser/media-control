@@ -12,7 +12,7 @@ from db.statistics import Statistics
 from model.exceptions import LocalLibraryError, OfflineDatasetError, MediaInfoError, FFmpegError, CroppingError
 from model.verbosity import printAlways, printDetail, printPerson, printVerbose
 import config
-import getopt, os, sys, time
+import getopt, os, subprocess, sys, time
 
 def requireMainDBExists():
     """Fail fast, before any real work starts, if the main DB hasn't been created yet -- otherwise
@@ -932,9 +932,22 @@ def ensureHelperDBFresh(runAutoRefresh):
         printAlways("Auto-refresh enabled -- refreshing all known media against the freshly-updated helper DB...")
         refreshTitleData()
 
+def deployContent():
+    """Runs "deploy/deploy.py content -y": the new and changed covers and a snapshot of the database go to the server
+    (see README.md, "Hosting the web UI with Docker"). Never prunes, so nothing is deleted there; deploy.py's own checks
+    and its automatic restore of the previous database apply as usual. A failed deploy ends this run with its exit code --
+    the local DB is untouched, and "python deploy/deploy.py content" repeats it."""
+    printAlways("Deploying the content to the server...")
+    root = os.path.dirname(os.path.abspath(__file__))
+    result = subprocess.run([sys.executable, os.path.join(root, "deploy", "deploy.py"), "content", "-y"], cwd=root)
+    if result.returncode != 0:
+        printAlways("WARNING: deploying failed (exit code " + str(result.returncode) + ") -- the sync itself is done; " +
+                    "run 'python deploy/deploy.py content' to try again")
+        sys.exit(result.returncode)
+
 args = sys.argv[1:]
-options = "hcsturbm:"
-long_options = ["help", "createdb", "sync", "stats", "update", "refresh", "backup", "max-count="]
+options = "hcsturbdm:"
+long_options = ["help", "createdb", "sync", "stats", "update", "refresh", "backup", "deploy", "max-count="]
 
 try:
     arguments, values = getopt.getopt(args, options, long_options)
@@ -955,9 +968,10 @@ try:
                 raise getopt.error("--max-count must not be negative, got " + str(maxCountOverride))
             config.SCRAPE_MAX_COUNT = maxCountOverride
 
+    deployAfter = False
     for currentArg, currentVal in arguments:
         if currentArg in ("-h", "--help"):
-            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section, auto_backup).\n-m N | --max-count N: Override config.ini's [scraping] max_count for this run only (0 = unlimited). Only -s's per-run scrape budget and cover-backfill sweep actually consult it today; harmless to pass alongside -u/-r as well.")
+            print("Usage:\n-h | --help: Show this help.\n-c | --createdb: Create a new, empty database at the configured db_path.\n-s | --sync: Perform a sync between media folder and database.\n-t | --stats: Show statistics about media collection.\n-u | --update: Rebuild the IMDb offline dataset helper DB.\n-r | --refresh: Refresh ratings, basic title data, each owned series' episode list, and known people, for all known media from the IMDb offline dataset helper DB.\n-b | --backup: Immediately create a DB backup, regardless of how recent the last one is (-s and -r also create one automatically once the last backup is old enough -- see config.ini's [backup] section, auto_backup).\n-d | --deploy: After everything else given in this run has succeeded, send the new and changed covers and the database to the hosted web UI (deploy/deploy.py content -y; e.g. -s -d).\n-m N | --max-count N: Override config.ini's [scraping] max_count for this run only (0 = unlimited). Only -s's per-run scrape budget and cover-backfill sweep actually consult it today; harmless to pass alongside -u/-r as well.")
         elif currentArg in ("-m", "--max-count"):
             pass # already applied above, before this loop started
         elif currentArg in ("-c", "--createdb"):
@@ -993,6 +1007,11 @@ try:
             refreshTitleData()
         elif currentArg in ("-b", "--backup"):
             DBBackup(config.DB_PATH, config.BACKUP_DIR, config.BACKUP_MAX_COUNT).forceBackup()
+        elif currentArg in ("-d", "--deploy"):
+            deployAfter = True # after everything else of this run, and only if that all succeeded (an error ends the run before)
+
+    if deployAfter:
+        deployContent()
 except getopt.error as err:
     print(str(err))
 except KeyboardInterrupt:
