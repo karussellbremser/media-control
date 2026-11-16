@@ -39,6 +39,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	const seriesEndedCheckbox = document.getElementById('seriesEndedCheckbox');
 	const seriesFullCheckbox = document.getElementById('seriesFullCheckbox');
 
+	// titles with a 3D version / with a Dolby Atmos or DTS:X track
+	const video3dCheckbox = document.getElementById('video3dCheckbox');
+	const audio3dCheckbox = document.getElementById('audio3dCheckbox');
+
 	function updateSeriesOptions() {
 		const enabled = seriesCheckbox.checked;
 		[seriesMiniCheckbox, seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
@@ -1085,6 +1089,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		document.querySelector('.languageRadio[value=""]').checked = true;
 
+		video3dCheckbox.checked = false;
+		audio3dCheckbox.checked = false;
+
 		genreCheckboxes.forEach(cb => cb.checked = false);
 		interestCheckboxes.forEach(cb => cb.checked = false);
 		document.querySelectorAll('label.excluded').forEach(label => label.classList.remove('excluded'));
@@ -1171,6 +1178,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			series_full: seriesFullCheckbox.checked ? '1' : '0',
 			series_not_ended: seriesEndedCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
 			series_not_full: seriesFullCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
+			video_3d: video3dCheckbox.checked ? '1' : '0',
+			not_video_3d: video3dCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
+			audio_3d: audio3dCheckbox.checked ? '1' : '0',
+			not_audio_3d: audio3dCheckbox.closest('label').classList.contains('excluded') ? '1' : '0',
 			page: currentPage
         });
 
@@ -1403,6 +1414,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	seriesMiniCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 	seriesEndedCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 	seriesFullCheckbox.addEventListener('change', () => resetAndSearch(input.value));
+	video3dCheckbox.addEventListener('change', () => resetAndSearch(input.value));
+	audio3dCheckbox.addEventListener('change', () => resetAndSearch(input.value));
 
     [yearFrom, yearTo, ratingFrom, ratingTo, votesFrom, votesTo].forEach(el => {
         el.addEventListener('input', () => debounceSearch(input.value));
@@ -1418,7 +1431,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	interestSearchInput.addEventListener('input', filterInterests);
 
-	// NOT filter for genres/subgenres (and the two series options): right-click (mouse) or long-press (touch) toggles an option
+	// NOT filter for genres/subgenres (and the series and 3D options): right-click (mouse) or long-press (touch) toggles an option
 	// into/out of "excluded" -- shown red, sent as notGenres[]/notInterests[], and mutually exclusive
 	// with being checked (included). Each button flips the other state directly: a left click takes an
 	// excluded option straight to included, and a right-click/long-press takes an included one
@@ -1438,7 +1451,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		resetAndSearch(input.value);
 	}
 
-	[...genreCheckboxes, ...interestCheckboxes, seriesMiniCheckbox, seriesEndedCheckbox, seriesFullCheckbox].forEach(cb => {
+	[...genreCheckboxes, ...interestCheckboxes, seriesMiniCheckbox, seriesEndedCheckbox, seriesFullCheckbox, video3dCheckbox, audio3dCheckbox].forEach(cb => {
 		const label = cb.closest('label');
 		let lastPointerType = 'mouse';
 		let pressTimer = null;

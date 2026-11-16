@@ -85,6 +85,12 @@ def _randomKey(imdb_id, seed):
     digest = hashlib.blake2b((str(seed) + ":" + str(imdb_id)).encode(), digest_size=8).digest()
     return int.from_bytes(digest, "big") >> 1 # keep it within SQLite's signed 64-bit integers
 
+# what the 3D filters look for, in the alias "t" of media_versions / media_audio_tracks: a second view (MVC), and
+# object-based audio -- Dolby Atmos and DTS:X (whose "X" feature is also on IMAX Enhanced tracks)
+_VIDEO_3D_CONDITION = "t.multiview_count > 1"
+_AUDIO_3D_CONDITION = ("(t.format_commercial LIKE '%Atmos%' OR t.format_commercial LIKE '%DTS:X%'"
+                       " OR instr(' ' || COALESCE(t.format_additional_features, '') || ' ', ' X ') > 0)")
+
 def _buildFilter(search_query, year_from, year_to,
                  rating_from, rating_to,
                  votes_from, votes_to,
@@ -95,7 +101,8 @@ def _buildFilter(search_query, year_from, year_to,
                  series_ended=False, series_fully_owned=False,
                  series_not_ended=False, series_not_fully_owned=False,
                  series_mini=False, series_not_mini=False,
-                 person_id=None, person_roles=()):
+                 person_id=None, person_roles=(),
+                 video_3d=False, not_video_3d=False, audio_3d=False, not_audio_3d=False):
     """The part of the media query that decides WHICH titles match the current filter selection,
     shared by queryMedia (the list) and countMedia (the total shown above it) so the two can never
     disagree. Returns (joinSql, whereSql, havingSql, params) to be appended after "FROM media m JOIN
@@ -238,6 +245,16 @@ def _buildFilter(search_query, year_from, year_to,
                 + " UNION SELECT e.series_imdb_id FROM credits c JOIN media e ON e.imdb_id = c.imdb_id"
                   " WHERE c.person_id = ? AND e.series_imdb_id IS NOT NULL" + kindSql.format(1) + ")")
         params.extend([person_id] + kindParams + [person_id] + kindParams)
+
+    # 3D video / 3D audio -- titles with a 3D version / an object-based audio track in any of their versions, a series
+    # through its episodes; each also as its NOT (right-click in the UI): none of them has one
+    for table, condition, wanted, unwanted in (("media_versions", _VIDEO_3D_CONDITION, video_3d, not_video_3d),
+                                               ("media_audio_tracks", _AUDIO_3D_CONDITION, audio_3d, not_audio_3d)):
+        if wanted or unwanted:
+            sql += (" AND m.imdb_id " + ("IN" if wanted else "NOT IN")
+                    + " (SELECT t.imdb_id FROM " + table + " t WHERE " + condition
+                    + " UNION SELECT e.series_imdb_id FROM " + table + " t JOIN media e ON e.imdb_id = t.imdb_id"
+                      " WHERE e.series_imdb_id IS NOT NULL AND " + condition + ")")
 
     havingSql = ""
     if selected_interest_ids:
@@ -418,6 +435,10 @@ def search():
     series_not_fully_owned = args.get('series_not_full', '0') == '1'
     series_mini = args.get('series_mini', '0') == '1'
     series_not_mini = args.get('series_not_mini', '0') == '1'
+    video_3d = args.get('video_3d', '0') == '1'
+    not_video_3d = args.get('not_video_3d', '0') == '1'
+    audio_3d = args.get('audio_3d', '0') == '1'
+    not_audio_3d = args.get('not_audio_3d', '0') == '1'
     # person filter: person = a person's imdb id, person_roles = the ticked kinds of credit, comma separated (absent
     # = all of them, empty = none ticked, which matches nothing)
     try:
@@ -459,7 +480,11 @@ def search():
             series_mini,
             series_not_mini,
             person_id,
-            person_roles
+            person_roles,
+            video_3d,
+            not_video_3d,
+            audio_3d,
+            not_audio_3d
         )
         media = queryMedia(filters, args.get('sort', 'year'), args.get('order', 'desc'), limit, offset, random_seed)
         # the total only changes with the filters, not with the page, so only the first page asks for it
