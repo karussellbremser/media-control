@@ -48,7 +48,8 @@ def requireLogin():
     return Response("Login required", 401)
 
 def _loginPage(error=None, username="", status=200):
-    response = Response(render_template('login.html', title=serverconfig.SERVER_TITLE, error=error, username=username), status)
+    response = Response(render_template('login.html', title=serverconfig.SERVER_TITLE, error=error, username=username,
+                                        curtain_enabled=serverconfig.CURTAIN_ANIMATION_ENABLED, curtain_style=serverconfig.CURTAIN_STYLE), status)
     response.headers["Cache-Control"] = "no-store"
     return response
 

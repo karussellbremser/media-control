@@ -89,9 +89,24 @@
             text-align: center;
             color: #666;
         }
+
+        {% if curtain_enabled %}
+        {% include 'curtain.css' %}
+
+        /* the closed curtain behind the form (the page's own curtain opens after the login) */
+        #curtainOverlay { z-index: 0; }
+        form { position: relative; z-index: 1; box-shadow: 0 6px 30px rgba(0, 0, 0, 0.45); }
+        {% endif %}
     </style>
 </head>
 <body>
+    {% if curtain_enabled %}
+    <div id="curtainOverlay"{% if curtain_style == 'reserved' %} class="reserved"{% endif %}>
+        <div class="curtainPanel" id="curtainLeft"></div>
+        <div class="curtainPanel" id="curtainRight"></div>
+        <div id="curtainValance"></div>
+    </div>
+    {% endif %}
     <form id="login" method="post" action="/login">
         <h1>{{ title }}</h1>
         {% if error %}

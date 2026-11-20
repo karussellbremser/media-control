@@ -1,0 +1,137 @@
+/* The theater curtain's look, in both styles (curtain_style in config.ini). Included -- inline, so that the login
+   page needs no request of its own -- by index.html, where static/curtain.js animates it, and by login.html, where it
+   stays closed. */
+/* theater curtain (see static/curtain.js) -- only ever plays on a real page load, never on
+   an in-place filter/search/sort update, since those don't reload the page at all */
+#curtainOverlay {
+	position: fixed;
+	inset: 0;
+	z-index: 9999;
+	overflow: hidden;
+}
+
+#curtainOverlay.finished {
+	display: none;
+}
+
+.curtainPanel {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 52%;
+	background-image:
+		repeating-linear-gradient(
+			100deg,
+			#5c0f14 0px, #5c0f14 16px,
+			#74151b 16px, #74151b 30px,
+			#4d0b10 30px, #4d0b10 44px
+		),
+		radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.12), rgba(0,0,0,0) 60%);
+	box-shadow: 0 0 60px 10px rgba(0,0,0,0.55) inset;
+	transition: transform 1.15s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.curtainPanel::after {
+	content: "";
+	position: absolute;
+	top: 0; bottom: 0; width: 24px;
+	background: linear-gradient(to right, rgba(0,0,0,0.45), rgba(0,0,0,0));
+}
+
+#curtainLeft {
+	left: 0;
+	border-right: 2px solid rgba(0,0,0,0.35);
+}
+
+#curtainLeft::after { right: 0; }
+
+#curtainRight {
+	right: 0;
+	border-left: 2px solid rgba(0,0,0,0.35);
+}
+
+#curtainRight::after {
+	left: 0;
+	background: linear-gradient(to left, rgba(0,0,0,0.45), rgba(0,0,0,0));
+}
+
+#curtainOverlay.open #curtainLeft { transform: translateX(-102%); }
+#curtainOverlay.open #curtainRight { transform: translateX(102%); }
+
+#curtainValance {
+	position: absolute;
+	top: 0; left: 0; right: 0;
+	height: 46px;
+	background: linear-gradient(to bottom, #caa23a, #8a6a1e);
+	z-index: 2;
+	clip-path: polygon(
+		0% 0%, 100% 0%, 100% 70%,
+		95% 100%, 90% 70%, 85% 100%, 80% 70%,
+		75% 100%, 70% 70%, 65% 100%, 60% 70%,
+		55% 100%, 50% 70%, 45% 100%, 40% 70%,
+		35% 100%, 30% 70%, 25% 100%, 20% 70%,
+		15% 100%, 10% 70%, 5% 100%, 0% 70%
+	);
+	transition: transform 0.9s ease-in, opacity 0.5s ease-in 0.5s;
+}
+
+#curtainOverlay.open #curtainValance {
+	transform: translateY(-100%);
+	opacity: 0;
+}
+
+#curtainSkipHint {
+	position: absolute;
+	bottom: 24px;
+	left: 50%;
+	transform: translateX(-50%);
+	color: rgba(255,255,255,0.75);
+	font-size: 13px;
+	letter-spacing: 0.5px;
+	z-index: 3;
+	transition: opacity 0.3s ease;
+}
+
+#curtainOverlay.open #curtainSkipHint {
+	opacity: 0;
+}
+
+/* "reserved" curtain look: same fold/valance shape as classic (still reads as a curtain),
+   recolored to a warm greige that echoes the page's own light-gray palette (#dcdcdc)
+   instead of red velvet/gold -- restraint in material, not in form */
+#curtainOverlay.reserved .curtainPanel {
+	background-image:
+		repeating-linear-gradient(
+			100deg,
+			#c7bfae 0px, #c7bfae 16px,
+			#b0a794 16px, #b0a794 30px,
+			#988e79 30px, #988e79 44px
+		),
+		radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.15), rgba(0,0,0,0) 60%);
+	box-shadow: 0 0 60px 10px rgba(60,50,35,0.3) inset;
+}
+
+#curtainOverlay.reserved #curtainLeft {
+	border-right-color: rgba(60,50,35,0.25);
+}
+
+#curtainOverlay.reserved #curtainRight {
+	border-left-color: rgba(60,50,35,0.25);
+}
+
+#curtainOverlay.reserved .curtainPanel::after {
+	background: linear-gradient(to right, rgba(60,50,35,0.2), rgba(0,0,0,0));
+}
+
+#curtainOverlay.reserved #curtainRight::after {
+	background: linear-gradient(to left, rgba(60,50,35,0.2), rgba(0,0,0,0));
+}
+
+#curtainOverlay.reserved #curtainValance {
+	background: linear-gradient(to bottom, #ab9f89, #7d735f);
+	clip-path: none;
+}
+
+#curtainOverlay.reserved #curtainSkipHint {
+	color: rgba(60,50,35,0.45);
+}
