@@ -593,11 +593,12 @@ def restoreDatabase(remote):
 
 def healthCheck(remote):
     """Waits (up to ~40 s) for the container to answer on the host port it is published on (asked of docker
-    compose): 401 (login required) or 200. Returns (ok, description)."""
+    compose): 200 -- the page itself, or the login form it redirects to (curl follows that) -- or 401 (an
+    older version's basic-auth login, as after a rollback to one). Returns (ok, description)."""
     port = remote.publishedPort()
     if port is None:
         return False, "the container publishes no port (is it running?)"
-    command = ("for i in $(seq 1 20); do code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:" + str(port) + "/); "
+    command = ("for i in $(seq 1 20); do code=$(curl -s -L -o /dev/null -w '%{http_code}' http://127.0.0.1:" + str(port) + "/); "
                "if [ \"$code\" = 401 ] || [ \"$code\" = 200 ]; then echo OK $code; exit 0; fi; sleep 2; done; echo FAIL $code; exit 1")
     result = remote.run(command, capture=True, check=False)
     return result.returncode == 0, result.stdout.strip() + " (port " + str(port) + ")"

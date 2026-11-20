@@ -1579,6 +1579,12 @@
 				<span>3D audio</span>
 			</label>
 		</div>
+
+		{% if login_user %}
+		<form method="post" action="/logout" style="margin-top: 20px;">
+			<button type="submit">Log out ({{ login_user }})</button>
+		</form>
+		{% endif %}
 	</div>
 
 	<!-- right side -->

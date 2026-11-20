@@ -35,6 +35,6 @@ CURTAIN_ANIMATION_ENABLED = parser.getboolean("server", "curtain_animation")
 CURTAIN_STYLE = parser["server"]["curtain_style"]
 if CURTAIN_STYLE not in ("classic", "reserved"):
     sys.exit("config.ini: [server] curtain_style must be 'classic' or 'reserved', got '" + CURTAIN_STYLE + "'")
-# optional: protects the whole web UI with HTTP basic auth when set (see web/server.py's requireLogin)
+# optional: puts the whole web UI behind a login form when set (see web/server.py's requireLogin)
 _authFile = parser.get("server", "auth_file", fallback="").strip()
 SERVER_AUTH_FILE = resolve(_authFile) if _authFile else None

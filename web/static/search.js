@@ -6,6 +6,14 @@ if ('scrollRestoration' in history) {
 	history.scrollRestoration = 'manual';
 }
 
+// a request answered with 401 means the login has ended or expired (see requireLogin in web/server.py): reload the
+// page, which then leads to the login form
+const pageFetch = window.fetch.bind(window);
+window.fetch = (...args) => pageFetch(...args).then(response => {
+	if (response.status === 401) location.reload();
+	return response;
+});
+
 document.addEventListener('DOMContentLoaded', () => {
 	const resetButton = document.getElementById('resetButton');
 

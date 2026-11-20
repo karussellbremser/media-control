@@ -1,10 +1,11 @@
-from flask import Flask, Response, render_template, request, jsonify, send_from_directory
+from flask import Flask, Response, redirect, render_template, request, jsonify, send_from_directory
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
-import sqlite3, os, sys, hashlib, hmac, codecs, re, collections, datetime, unicodedata, functools
+import sqlite3, os, sys, hashlib, codecs, re, collections, datetime, unicodedata, functools
 import serverconfig
 from model.imdbinterestid import parseInterestID
 from model.media import Media
-from web import authfile
+from web import authfile, login
 
 server = Flask(__name__)
 
@@ -19,38 +20,65 @@ def _readAuthFile(path):
     except authfile.AuthFileError as e:
         sys.exit(str(e))
 
-# optional HTTP basic auth for the whole site (pages, API and covers alike) -- only active when
-# config.ini's [server] auth_file names a credentials file, so running the server locally needs no
-# login. Meant for hosting it behind a reverse proxy that provides the HTTPS
+# optional login for the whole site (pages, API and covers alike) -- only active when config.ini's [server]
+# auth_file names a credentials file, so running the server locally needs no login. The login form (/login) sets
+# a signed cookie that lasts 30 days (see login.py). Meant for hosting it behind a reverse proxy that provides the HTTPS
 AUTH_CREDENTIALS = _readAuthFile(serverconfig.SERVER_AUTH_FILE) if serverconfig.SERVER_AUTH_FILE else None
-_verifiedCredentialsDigests = {}  # see requireLogin
-_UNKNOWN_USER_HASH = generate_password_hash("not a password anybody has")  # see requireLogin
+_UNKNOWN_USER_HASH = generate_password_hash("not a password anybody has")  # see loginPage
+_loginFailures = login.FailureThrottle()
+
+if AUTH_CREDENTIALS is not None:
+    # behind the proxy, the client's address (for the throttle of failed logins) and the scheme (for the cookie's
+    # Secure flag) are what the proxy forwards: the one value its own hop added
+    server.wsgi_app = ProxyFix(server.wsgi_app, x_for=1, x_proto=1)
+
+def _loggedInUser():
+    """The user the request's login cookie belongs to, or None (also when no login is configured)."""
+    if AUTH_CREDENTIALS is None:
+        return None
+    return login.userOfCookie(request.cookies.get(login.COOKIE_NAME), AUTH_CREDENTIALS)
 
 @server.before_request
 def requireLogin():
-    if AUTH_CREDENTIALS is None:
+    if AUTH_CREDENTIALS is None or request.endpoint in ("loginPage", "logout") or _loggedInUser() is not None:
         return None
+    if request.path == "/":
+        return redirect("/login") # the page itself leads to the login form
+    # everything else is the page's own requests (API, covers): a plain 401, which search.js answers by reloading the page
+    return Response("Login required", 401)
 
-    auth = request.authorization
-    if auth is not None and auth.type == "basic":
-        username = auth.username or ""
-        presented = username + "\0" + (auth.password or "")
-        presentedDigest = hashlib.sha256(presented.encode("utf-8")).digest()
-        # the browser repeats its credentials on every request, a coverwall page easily making dozens
-        # in a burst, and checking a scrypt hash costs ~100ms each -- so once a full check has
-        # succeeded, the SHA-256 of those exact credentials is remembered (in memory only, one per
-        # user) and later requests are compared against it instead
-        verified = _verifiedCredentialsDigests.get(username)
-        if verified is not None and hmac.compare_digest(presentedDigest, verified):
-            return None
-        # an unknown user costs one hash check too (against a hash nobody can match), so a response's timing
-        # doesn't tell which names exist
-        passwordHash = AUTH_CREDENTIALS.get(username)
-        if check_password_hash(passwordHash or _UNKNOWN_USER_HASH, auth.password or "") and passwordHash is not None:
-            _verifiedCredentialsDigests[username] = presentedDigest
-            return None
+def _loginPage(error=None, username="", status=200):
+    response = Response(render_template('login.html', title=serverconfig.SERVER_TITLE, error=error, username=username), status)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
-    return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="media-control", charset="UTF-8"'})
+@server.route('/login', methods=['GET', 'POST'])
+def loginPage():
+    if AUTH_CREDENTIALS is None or (request.method == 'GET' and _loggedInUser() is not None):
+        return redirect("/")
+    if request.method == 'GET':
+        return _loginPage()
+    address = request.remote_addr or ""
+    username = request.form.get("username", "")
+    if _loginFailures.blocked(address):
+        return _loginPage("Too many failed attempts. Try again in a few minutes.", username, 429)
+    passwordHash = AUTH_CREDENTIALS.get(username)
+    # an unknown user costs one hash check too (against a hash nobody can match), so the answer's timing doesn't
+    # tell which names exist
+    if not (check_password_hash(passwordHash or _UNKNOWN_USER_HASH, request.form.get("password", "")) and passwordHash is not None):
+        _loginFailures.failed(address)
+        return _loginPage("Wrong username or password.", username, 401)
+    _loginFailures.succeeded(address)
+    response = redirect("/")
+    response.set_cookie(login.COOKIE_NAME, login.makeCookie(username, passwordHash), max_age=login.COOKIE_MAX_AGE,
+                        httponly=True, samesite="Lax", secure=request.is_secure)
+    return response
+
+@server.route('/logout', methods=['POST'])
+def logout():
+    response = redirect("/login")
+    response.delete_cookie(login.COOKIE_NAME, httponly=True, samesite="Lax", secure=request.is_secure)
+    return response
 
 def _readHiddenInterestIDs(path):
     """Reads serverconfig.HIDDEN_INTEREST_IDS_PATH: subgenres never shown/selectable in the UI, though
@@ -419,7 +447,7 @@ def index():
     conn.close()
     return render_template('index.html', genres=genres, interestGroups=interestGroups, languages=languages,
                             curtain_enabled=serverconfig.CURTAIN_ANIMATION_ENABLED, curtain_style=serverconfig.CURTAIN_STYLE,
-                            title=serverconfig.SERVER_TITLE)
+                            title=serverconfig.SERVER_TITLE, login_user=_loggedInUser())
 
 @server.route('/search')
 def search():
