@@ -671,8 +671,9 @@ _BLURAY_COM_URLS = {"br": "https://www.blu-ray.com/movies/movies.php?id=%d",
                     "uhd": "https://www.blu-ray.com/movies/movies.php?id=%d",
                     "dvd": "https://www.blu-ray.com/dvd/link-to-DVD/%d/"}
 # how a source's role in a version reads in front of it (a version made from one source has role "main": no prefix)
-_SOURCE_ROLE_LABELS = {"main": "", "video": "Video", "audio": "Audio", "video_base": "Base video", "video_dynhdr": "Dynamic HDR"}
-_SOURCE_ROLE_ORDER = {"main": 0, "video": 1, "video_base": 2, "video_dynhdr": 3, "audio": 4}
+_SOURCE_ROLE_LABELS = {"main": "", "video": "Video", "audio": "Audio", "video_base": "Base video", "video_dynhdr": "Dynamic HDR",
+                       "video_base_audio": "Base video & audio"}
+_SOURCE_ROLE_ORDER = {"main": 0, "video": 1, "video_base": 2, "video_base_audio": 2, "video_dynhdr": 3, "audio": 4}
 _HDR_LABELS = {"Dolby Vision": "Dolby Vision", "SMPTE ST 2086": "HDR10", "SMPTE ST 2094 App 4": "HDR10+"}
 
 def _runtimeText(seconds):
@@ -889,7 +890,8 @@ def _versions(cursor, imdb_id):
                               "sources": [], "video": video, "audio": [], "subtitles": [], "_filename": filename}
 
     # sources: one chip per source, prefixed with its role when a version is put together from several; a video
-    # and an audio source that are one and the same (the same disc) read as one
+    # and an audio source that are one and the same (the same disc) read as one, and so do a hybrid's base video and
+    # its audio when it names no audio source of its own (the audio then comes from the base video's source)
     cursor.execute("""
         SELECT ms.filename, r.role_name, st.source_type_name, ms.disc_id, w.full_name, ms.base_layer, ms.downmixed, ms.core
         FROM media_version_sources ms
@@ -909,6 +911,12 @@ def _versions(cursor, imdb_id):
         keyOf = lambda source: source[1:4]
         if len(sources) == 2 and {sources[0][0], sources[1][0]} == {"video", "audio"} and keyOf(sources[0]) == keyOf(sources[1]):
             sources = [("main",) + sources[0][1:]]
+        byRole = {source[0]: source for source in sources}
+        base, audio = byRole.get("video_base"), byRole.get("audio")
+        if base is not None and "video_dynhdr" in byRole and (audio is None or audio[1:] == base[1:]):
+            # a hybrid (base video plus another source's dynamic HDR) has its audio from the base video's source, unless it
+            # names an audio source of its own that differs
+            sources = [("video_base_audio",) + source[1:] if source is base else source for source in sources if source is not audio]
         for role, sourceType, discId, provider, baseLayer, downmixed, core in sources:
             text = _SOURCE_LABELS.get(sourceType, sourceType) + (" \u00B7 " + provider if provider else "")
             qualifiers = [word for word, flag in (("base layer", baseLayer), ("downmixed", downmixed), ("core", core)) if flag]
