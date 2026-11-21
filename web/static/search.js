@@ -406,6 +406,27 @@ document.addEventListener('DOMContentLoaded', () => {
 	// The versions (files) of a movie as cards, best sorted by name by the server: the version's name and runtime, chips
 	// for the source (discs link to blu-ray.com), resolution, codec, HDR, aspect ratio and bitrate, then the audio and
 	// subtitle tracks. A single version needs no "Versions" heading; without a name the runtime gets a row of its own.
+	// a source made of several (a fan restoration): one segmented chip, a label segment and then one segment per source,
+	// each a link of its own when it is a disc
+	function sourceSegments(source) {
+		const segments = makeEl('span', 'versionSeg');
+		const label = makeEl('span', 'versionSegLabel', source.label);
+		label.title = source.title;
+		segments.appendChild(label);
+		source.parts.forEach((part, i) => {
+			if (i) segments.appendChild(makeEl('span', 'versionSegPlus', '+'));
+			const segment = makeEl(part.url ? 'a' : 'span', '', part.text);
+			if (part.url) {
+				segment.href = part.url;
+				segment.title = 'open on blu-ray.com';
+				segment.target = '_blank';
+				segment.rel = 'noopener noreferrer';
+			}
+			segments.appendChild(segment);
+		});
+		return segments;
+	}
+
 	function versionsSection(versions) {
 		const section = document.createDocumentFragment();
 		if (versions.length > 1) section.appendChild(makeEl('h3', '', 'Versions'));
@@ -427,6 +448,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 			const chips = makeEl('div', 'versionChips');
 			v.sources.forEach(source => {
+				if (source.parts) {
+					chips.appendChild(sourceSegments(source));
+					return;
+				}
 				const chip = makeEl(source.url ? 'a' : 'span', 'versionChip versionChip--src', source.text);
 				if (source.url) {
 					chip.href = source.url;

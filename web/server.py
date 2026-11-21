@@ -847,8 +847,9 @@ def _hardcodedSubtitleLanguage(cursor, videoTitle, videoLanguage):
 def _versions(cursor, imdb_id):
     """The versions of a title as a list of dicts ready to display, sorted by version name (unnamed first):
     {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
-    sources link to blu-ray.com for discs (dvd/br/uhd); text strings are final, built here so there is one place that
-    decides how a version reads."""
+    sources link to blu-ray.com for discs (dvd/br/uhd); a source that is a fan restoration out of several (a role with
+    several fanres sources) is one {label, title, parts: [{text, url}]} instead. Text strings are final, built here so there
+    is one place that decides how a version reads."""
     cursor.execute("SELECT filename, top, bottom, left, right FROM cropping WHERE imdb_id = ? ORDER BY filename, ordering", (imdb_id,))
     croppings = collections.defaultdict(list)
     for filename, top, bottom, left, right in cursor.fetchall():
@@ -891,10 +892,11 @@ def _versions(cursor, imdb_id):
 
     # sources: one chip per source, prefixed with its role when a version is put together from several; a video
     # and an audio source that are one and the same (the same disc) read as one, and so do a hybrid's base video and
-    # its audio when it names no audio source of its own (the audio then comes from the base video's source)
+    # its audio when it names no audio source of its own (the audio then comes from the base video's source). The several
+    # sources of a role that a fan restoration blends are one chip, with a part (and its own link) per source.
     cursor.execute("""
         SELECT ms.filename, r.role_name, st.source_type_name, ms.disc_id, w.full_name, ms.base_layer, ms.downmixed, ms.core,
-               ms.disc_corrected
+               ms.disc_corrected, ms.fanres
         FROM media_version_sources ms
         JOIN source_role_enum r ON ms.role_id = r.role_id
         JOIN source_type_enum st ON ms.source_type_id = st.source_type_id
@@ -903,14 +905,14 @@ def _versions(cursor, imdb_id):
         ORDER BY ms.filename, ms.seq
     """, (imdb_id,))
     sourcesByFile = collections.defaultdict(list)
-    for filename, role, sourceType, discId, provider, baseLayer, downmixed, core, corrected in cursor.fetchall():
-        sourcesByFile[filename].append((role, sourceType, discId, provider, baseLayer, downmixed, core, corrected))
+    for filename, role, sourceType, discId, provider, baseLayer, downmixed, core, corrected, fanres in cursor.fetchall():
+        sourcesByFile[filename].append((role, sourceType, discId, provider, baseLayer, downmixed, core, corrected, fanres))
     for filename, sources in sourcesByFile.items():
         if filename not in versions:
             continue
         sources.sort(key=lambda source: _SOURCE_ROLE_ORDER.get(source[0], 9))
         # the same source: the same disc (a corrected pressing of it is another one) or web provider
-        keyOf = lambda source: source[1:4] + source[7:]
+        keyOf = lambda source: source[1:4] + source[7:8]
         def merged(role, first, second):
             """first and second, one source in the end under role: what is said of either of them (base layer, downmixed,
             core) stays said"""
@@ -918,21 +920,38 @@ def _versions(cursor, imdb_id):
         if len(sources) == 2 and {sources[0][0], sources[1][0]} == {"video", "audio"} and keyOf(sources[0]) == keyOf(sources[1]):
             sources = [merged("main", sources[0], sources[1])]
         byRole = {source[0]: source for source in sources}
+        roleCounts = collections.Counter(source[0] for source in sources)
         base, audio = byRole.get("video_base"), byRole.get("audio")
-        if base is not None and "video_dynhdr" in byRole and (audio is None or keyOf(audio) == keyOf(base)):
+        if (base is not None and "video_dynhdr" in byRole and roleCounts["video_base"] == 1 and roleCounts["audio"] <= 1
+                and (audio is None or keyOf(audio) == keyOf(base))):
             # a hybrid (base video plus another source's dynamic HDR) has its audio from the base video's source, unless it
             # names an audio source of its own that differs
             both = merged("video_base_audio", base, audio or base)
             sources = [both if source is base else source for source in sources if source is not audio]
-        for role, sourceType, discId, provider, baseLayer, downmixed, core, corrected in sources:
+        chips, groups = [], {} # (role, chip) in display order; a role's fanres group by role
+        fanresCounts = collections.Counter(source[0] for source in sources if source[8])
+        for role, sourceType, discId, provider, baseLayer, downmixed, core, corrected, fanres in sources:
+            grouped = fanres and fanresCounts[role] > 1 # a fan restoration of one source only is a plain chip that says so
             text = _SOURCE_LABELS.get(sourceType, sourceType) + (" \u00B7 " + provider if provider else "")
-            qualifiers = [word for word, flag in (("corrected disc", corrected), ("base layer", baseLayer), ("downmixed", downmixed), ("core", core)) if flag]
+            qualifiers = [word for word, flag in (("corrected disc", corrected), ("base layer", baseLayer), ("downmixed", downmixed),
+                                                  ("core", core), ("fan restoration", fanres and not grouped)) if flag]
             if qualifiers:
                 text += " (" + ", ".join(qualifiers) + ")"
+            part = {"text": text, "url": _BLURAY_COM_URLS[sourceType] % discId if sourceType in _BLURAY_COM_URLS and discId is not None else None}
+            if not grouped:
+                chips.append((role, part))
+            elif role in groups:
+                groups[role]["parts"].append(part)
+            else:
+                groups[role] = {"title": "fan restoration: put together from several sources", "parts": [part]}
+                chips.append((role, groups[role]))
+        for role, chip in chips:
             prefix = _SOURCE_ROLE_LABELS.get(role, role)
-            versions[filename]["sources"].append({
-                "text": (prefix + ": " if prefix and len(sources) > 1 else "") + text,
-                "url": _BLURAY_COM_URLS[sourceType] % discId if sourceType in _BLURAY_COM_URLS and discId is not None else None})
+            if "parts" in chip:
+                chip["label"] = prefix + " \u00B7 combined" if prefix else "Combined"
+            elif prefix and len(chips) > 1:
+                chip["text"] = prefix + ": " + chip["text"]
+            versions[filename]["sources"].append(chip)
 
     cursor.execute("""
         SELECT a.filename, a.format, a.format_commercial, a.channels, a.channel_layout, e.name, a.title

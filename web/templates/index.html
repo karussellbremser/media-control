@@ -922,7 +922,38 @@
 			background: rgba(90, 140, 235, 0.45);
 		}
 
-		.versionChip--hdr {
+		.versionSeg {
+				display: inline-flex;
+				flex-wrap: wrap;
+				align-items: stretch;
+				font-size: 11px;
+				border: 1px solid rgba(90, 140, 235, 0.5);
+				border-radius: 9px;
+				overflow: hidden;
+			}
+
+			.versionSeg > span, .versionSeg > a {
+				padding: 2px 8px;
+				background: rgba(90, 140, 235, 0.28);
+				color: #bcd0f3;
+				text-decoration: none;
+			}
+
+			.versionSeg > a:hover {
+				background: rgba(90, 140, 235, 0.45);
+			}
+
+			.versionSeg > .versionSegLabel {
+				background: rgba(90, 140, 235, 0.12);
+				color: #8fa9d9;
+			}
+
+			.versionSeg > .versionSegPlus {
+				padding: 2px 1px;
+				color: #8fa9d9;
+			}
+
+			.versionChip--hdr {
 			background: rgba(212, 160, 60, 0.25);
 			color: #f0d49a;
 		}
