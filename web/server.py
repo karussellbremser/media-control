@@ -893,7 +893,8 @@ def _versions(cursor, imdb_id):
     # and an audio source that are one and the same (the same disc) read as one, and so do a hybrid's base video and
     # its audio when it names no audio source of its own (the audio then comes from the base video's source)
     cursor.execute("""
-        SELECT ms.filename, r.role_name, st.source_type_name, ms.disc_id, w.full_name, ms.base_layer, ms.downmixed, ms.core
+        SELECT ms.filename, r.role_name, st.source_type_name, ms.disc_id, w.full_name, ms.base_layer, ms.downmixed, ms.core,
+               ms.disc_corrected
         FROM media_version_sources ms
         JOIN source_role_enum r ON ms.role_id = r.role_id
         JOIN source_type_enum st ON ms.source_type_id = st.source_type_id
@@ -902,24 +903,30 @@ def _versions(cursor, imdb_id):
         ORDER BY ms.filename, ms.seq
     """, (imdb_id,))
     sourcesByFile = collections.defaultdict(list)
-    for filename, role, sourceType, discId, provider, baseLayer, downmixed, core in cursor.fetchall():
-        sourcesByFile[filename].append((role, sourceType, discId, provider, baseLayer, downmixed, core))
+    for filename, role, sourceType, discId, provider, baseLayer, downmixed, core, corrected in cursor.fetchall():
+        sourcesByFile[filename].append((role, sourceType, discId, provider, baseLayer, downmixed, core, corrected))
     for filename, sources in sourcesByFile.items():
         if filename not in versions:
             continue
         sources.sort(key=lambda source: _SOURCE_ROLE_ORDER.get(source[0], 9))
-        keyOf = lambda source: source[1:4]
+        # the same source: the same disc (a corrected pressing of it is another one) or web provider
+        keyOf = lambda source: source[1:4] + source[7:]
+        def merged(role, first, second):
+            """first and second, one source in the end under role: what is said of either of them (base layer, downmixed,
+            core) stays said"""
+            return (role,) + first[1:4] + tuple(a or b for a, b in zip(first[4:], second[4:]))
         if len(sources) == 2 and {sources[0][0], sources[1][0]} == {"video", "audio"} and keyOf(sources[0]) == keyOf(sources[1]):
-            sources = [("main",) + sources[0][1:]]
+            sources = [merged("main", sources[0], sources[1])]
         byRole = {source[0]: source for source in sources}
         base, audio = byRole.get("video_base"), byRole.get("audio")
-        if base is not None and "video_dynhdr" in byRole and (audio is None or audio[1:] == base[1:]):
+        if base is not None and "video_dynhdr" in byRole and (audio is None or keyOf(audio) == keyOf(base)):
             # a hybrid (base video plus another source's dynamic HDR) has its audio from the base video's source, unless it
             # names an audio source of its own that differs
-            sources = [("video_base_audio",) + source[1:] if source is base else source for source in sources if source is not audio]
-        for role, sourceType, discId, provider, baseLayer, downmixed, core in sources:
+            both = merged("video_base_audio", base, audio or base)
+            sources = [both if source is base else source for source in sources if source is not audio]
+        for role, sourceType, discId, provider, baseLayer, downmixed, core, corrected in sources:
             text = _SOURCE_LABELS.get(sourceType, sourceType) + (" \u00B7 " + provider if provider else "")
-            qualifiers = [word for word, flag in (("base layer", baseLayer), ("downmixed", downmixed), ("core", core)) if flag]
+            qualifiers = [word for word, flag in (("corrected disc", corrected), ("base layer", baseLayer), ("downmixed", downmixed), ("core", core)) if flag]
             if qualifiers:
                 text += " (" + ", ".join(qualifiers) + ")"
             prefix = _SOURCE_ROLE_LABELS.get(role, role)
