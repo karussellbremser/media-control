@@ -442,7 +442,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (v.name) {
 				const head = makeEl('div', 'versionHead');
 				head.appendChild(makeEl('b', '', v.name));
-				head.appendChild(makeEl('span', '', v.runtime));
 				card.appendChild(head);
 			}
 
@@ -465,7 +464,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			card.appendChild(chips);
 
 			const rows = makeEl('div', 'versionRows');
-			if (!v.name) row(rows, 'Runtime', makeEl('span', '', v.runtime));
+			row(rows, 'Runtime', makeEl('span', '', v.runtime));
 			if (v.audio.length) {
 				const tracks = makeEl('div');
 				v.audio.forEach(a => {
