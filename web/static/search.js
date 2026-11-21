@@ -617,12 +617,22 @@ document.addEventListener('DOMContentLoaded', () => {
 					if (t.seriesTitle) {
 						text.appendChild(makeEl('span', 'connNote', ' – ' + t.seriesTitle + episodeCode(t.season, t.episode, ' ')));
 					}
-					// a series' connection that comes from its episodes: the first two of them, all in the hover text
+					// a series' connection that comes from its episodes: the first two of them, a "+ N more" button for the rest (all in the hover text)
 					if (t.origins.length) {
 						const label = o => episodeCode(o.season, o.episode, '', ' ') + o.title;
 						const note = makeEl('span', 'connNote', ' · ' + t.origins.slice(0, 2).map(label).join(', '));
 						note.title = t.origins.map(label).join('\n');
 						text.appendChild(note);
+						if (t.origins.length > 2) {
+							const more = makeEl('button', 'detailMore', '+ ' + (t.origins.length - 2) + ' more');
+							more.type = 'button';
+							more.addEventListener('click', () => {
+								note.textContent = ' · ' + t.origins.map(label).join(', ');
+								more.remove();
+							});
+							text.appendChild(document.createTextNode(' '));
+							text.appendChild(more);
+						}
 					}
 					row.appendChild(text);
 					cell.appendChild(row);
