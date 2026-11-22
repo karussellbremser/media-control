@@ -508,7 +508,27 @@ document.addEventListener('DOMContentLoaded', () => {
 			chips.appendChild(chip);
 		});
 		v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : x.kind === '3d' ? ' versionChip--3d' : ''), x.text)));
-		(v.differences || []).forEach(text => chips.appendChild(makeEl('span', 'versionChip versionChip--diff', text)));
+		// the episodes of a season that differ from the rest: a text, or for a differing source {episodes, parts} whose discs link
+		(v.differences || []).forEach(note => {
+			if (typeof note === 'string') {
+				chips.appendChild(makeEl('span', 'versionChip versionChip--diff', note));
+				return;
+			}
+			const chip = makeEl('span', 'versionChip versionChip--diff', note.episodes + ': ');
+			note.parts.forEach(part => {
+				if (!part.url) {
+					chip.appendChild(document.createTextNode(part.text));
+					return;
+				}
+				const link = makeEl('a', '', part.text);
+				link.href = part.url;
+				link.title = 'open on blu-ray.com';
+				link.target = '_blank';
+				link.rel = 'noopener noreferrer';
+				chip.appendChild(link);
+			});
+			chips.appendChild(chip);
+		});
 		card.appendChild(chips);
 
 		const rows = makeEl('div', 'versionRows');

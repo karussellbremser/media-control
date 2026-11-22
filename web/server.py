@@ -1063,9 +1063,22 @@ def _sourceKey(source):
         return ("group", source["label"], tuple((part["text"], part["url"]) for part in source["parts"]))
     return ("plain", source["text"], source["url"])
 
-def _sourcesText(sources):
-    return ", ".join(source["label"] + ": " + " + ".join(part["text"] for part in source["parts"]) if "parts" in source else source["text"]
-                     for source in sources)
+def _sourceParts(sources):
+    """The sources as the pieces of one line of text, [{text, url}], so that the discs in it stay links: "Video: UHD
+    Blu-ray, Audio: Blu-ray", a fan restoration "Combined: Blu-ray + DVD"."""
+    parts = []
+    for source in sources:
+        if parts:
+            parts.append({"text": ", ", "url": None})
+        if "parts" in source:
+            parts.append({"text": source["label"] + ": ", "url": None})
+            for i, part in enumerate(source["parts"]):
+                if i:
+                    parts.append({"text": " + ", "url": None})
+                parts.append({"text": part["text"], "url": part["url"]})
+        else:
+            parts.append({"text": source["text"], "url": source["url"]})
+    return parts or [{"text": "no source", "url": None}]
 
 def _seasonBlock(name, members):
     """The episodes of a season that have a version of this name (members: [((number, title), version as _versions gives it
@@ -1139,7 +1152,13 @@ def _seasonBlock(name, members):
     sourceKeys = [tuple(_sourceKey(source) for source in version["sources"]) for version in versions]
     common = commonest(sourceKeys)
     sources = versions[sourceKeys.index(common)]["sources"]
-    differences += notes(sourceKeys, common, lambda value: _sourcesText(versions[sourceKeys.index(value)]["sources"]) or "no source")
+    # a differing source is not a text like the other notes but {episodes, parts}: the discs in it stay links
+    sourceGroups = {}
+    for episode, key in zip(episodes, sourceKeys):
+        if key != common:
+            sourceGroups.setdefault(key, []).append(episode)
+    differences += [{"episodes": _coverage(group), "parts": _sourceParts(versions[sourceKeys.index(key)]["sources"])}
+                    for key, group in sourceGroups.items()]
 
     audioKeys = [tuple(track["text"] for track in version["audio"]) for version in versions]
     common = commonest(audioKeys)
