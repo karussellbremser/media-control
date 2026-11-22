@@ -1198,7 +1198,9 @@ def _seasonBlock(name, members):
 def _seasonCard(cursor, series_id, season):
     """What the card of a season tile shows: the owned episodes' versions grouped by version name (unnamed first, then
     alphabetical; the extras that _IGNORED_EPISODE_VERSION names are left out), each group aggregated by _seasonBlock, and
-    the latest modification date of any episode file. None if the season has no owned episode."""
+    the latest modification date of any episode file. None if the season has no owned episode. Everything is counted per
+    episode: a file that holds several episodes (S01E01_S01E02.mkv) gives each of them its runtime divided by their number,
+    so the totals count the file once."""
     cursor.execute("""
         SELECT imdb_id, episode_number, original_title FROM media
         WHERE series_imdb_id = ? AND season_number IS ? AND subdir IS NOT NULL
@@ -1207,11 +1209,17 @@ def _seasonCard(cursor, series_id, season):
     owned = cursor.fetchall()
     if not owned:
         return None
+    cursor.execute("""
+        SELECT v.filename, COUNT(DISTINCT v.imdb_id) FROM media_versions v JOIN media m ON m.imdb_id = v.imdb_id
+        WHERE m.series_imdb_id = ? GROUP BY v.filename HAVING COUNT(DISTINCT v.imdb_id) > 1
+    """, (series_id,))
+    episodesInFile = dict(cursor.fetchall())
     byName = {}
     for imdbId, number, title in owned:
         for version in _versions(cursor, imdbId, internal=True):
             if _IGNORED_EPISODE_VERSION.fullmatch(version["name"] or ""):
                 continue
+            version["_seconds"] /= episodesInFile.get(version["_filename"], 1)
             byName.setdefault(version["name"], []).append(((number, title), version))
     cursor.execute("""
         SELECT MAX(v.mtime) FROM media_versions v JOIN media m ON m.imdb_id = v.imdb_id
