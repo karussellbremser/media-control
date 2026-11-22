@@ -473,7 +473,13 @@ def runSmoke(snapshotPath):
     series = get("/search?movies=0&series=1").get_json()
     for row in rows[:3] + series[:2]:
         get("/detail/%d" % row[0])
-    print("smoke test passed (%d requests: pages, search with filters and every sort, detail views)" % requests)
+    con = sqlite3.connect(snapshotPath)
+    seasons = con.execute("""SELECT series_imdb_id, season_number FROM media WHERE series_imdb_id IS NOT NULL AND subdir IS NOT NULL
+                             GROUP BY 1, 2 ORDER BY COUNT(*) DESC LIMIT 3""").fetchall()
+    con.close()
+    for seriesId, season in seasons:
+        get("/season/%d/%s" % (seriesId, "none" if season is None else season))
+    print("smoke test passed (%d requests: pages, search with filters and every sort, detail views, season cards)" % requests)
 
 
 def gitCheck(branch):

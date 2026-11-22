@@ -947,7 +947,36 @@
 				color: #8fa9d9;
 			}
 
-			.versionChip--hdr {
+			.versionChip--diff, .versionDiff {
+			background: rgba(212, 160, 60, 0.2);
+			color: #f0d49a;
+		}
+
+		.versionDiff {
+			display: inline-block;
+			padding: 1px 7px;
+			border-radius: 8px;
+			font-size: 11px;
+		}
+
+		.seasonCardHead {
+			display: flex;
+			align-items: baseline;
+			gap: 10px;
+			margin-bottom: 6px;
+		}
+
+		.seasonCardHead b {
+			font-weight: 500;
+			font-size: 13px;
+		}
+
+		.seasonCardHead span, .seasonCardNote {
+			font-size: 12px;
+			color: #a2a2aa;
+		}
+
+		.versionChip--hdr {
 			background: rgba(212, 160, 60, 0.25);
 			color: #f0d49a;
 		}
@@ -1099,6 +1128,10 @@
 			background: rgba(255, 255, 255, 0.16);
 		}
 
+		button.seasonTile--full:hover, button.seasonTile--full.open {
+			background: rgba(56, 142, 60, 0.45);
+		}
+
 		.seasonChevron {
 			position: absolute;
 			top: 6px;
@@ -1107,9 +1140,13 @@
 			color: rgba(255, 255, 255, 0.5);
 		}
 
-		/* the owned episodes of the opened partly owned season */
-		.seasonEpisodes {
+		/* what an opened season tile shows below the tiles: the owned episodes (partly owned seasons), then the season's card */
+		.seasonPanel {
 			margin-top: 8px;
+		}
+
+		.seasonEpisodes {
+			margin-bottom: 8px;
 			padding: 8px 12px;
 			border-radius: 8px;
 			background: rgba(255, 255, 255, 0.05);

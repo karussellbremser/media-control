@@ -844,12 +844,13 @@ def _hardcodedSubtitleLanguage(cursor, videoTitle, videoLanguage):
     row = cursor.fetchone()
     return row[0] if row else word.capitalize()
 
-def _versions(cursor, imdb_id):
+def _versions(cursor, imdb_id, internal=False):
     """The versions of a title as a list of dicts ready to display, sorted by version name (unnamed first):
     {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
     sources link to blu-ray.com for discs (dvd/br/uhd); a source that is a fan restoration out of several (a role with
     several fanres sources) is one {label, title, parts: [{text, url}]} instead. Text strings are final, built here so there
-    is one place that decides how a version reads."""
+    is one place that decides how a version reads. internal=True keeps the keys that start with "_" (_seconds, the runtime,
+    and _facets, the video values the chips are made of), which a season's aggregation needs; otherwise they are dropped."""
     cursor.execute("SELECT filename, top, bottom, left, right FROM cropping WHERE imdb_id = ? ORDER BY filename, ordering", (imdb_id,))
     croppings = collections.defaultdict(list)
     for filename, top, bottom, left, right in cursor.fetchall():
@@ -865,14 +866,16 @@ def _versions(cursor, imdb_id):
     for (filename, name, mtime, duration, codec, hdrFormat, transfer, bitrate, width, height, aspect, pixelAspect, frameRate,
          scanType, multiviewCount, videoTitle, videoLanguage) in cursor.fetchall():
         videoTracks[filename] = (videoTitle, videoLanguage)
-        video = [{"text": _resolutionLabel(width, height, scanType), "kind": "video"}]
+        resolution = _resolutionLabel(width, height, scanType)
+        video = [{"text": resolution, "kind": "video"}]
         stereoscopic = bool(multiviewCount and multiviewCount > 1) # one view per eye
         if stereoscopic:
             video.append({"text": "3D", "kind": "3d"})
+        codecText = None
         if codec:
             # MediaInfo calls a Blu-ray 3D file's video AVC (its profile says "Stereo High"), but two views in AVC are MVC
-            text = "MVC" if stereoscopic and codec == "AVC" else {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec)
-            video.append({"text": text, "kind": "video"})
+            codecText = "MVC" if stereoscopic and codec == "AVC" else {"MPEG Video": "MPEG-2", "MPEG-4 Visual": "MPEG-4"}.get(codec, codec)
+            video.append({"text": codecText, "kind": "video"})
         hdr = _hdrLabel(hdrFormat, transfer)
         if hdr:
             video.append({"text": hdr, "kind": "hdr"})
@@ -884,11 +887,16 @@ def _versions(cursor, imdb_id):
         if bitrate:
             mbps = bitrate / 1000000
             video.append({"text": ("%.0f" if mbps >= 10 else "%.1f") % mbps + " Mbps", "kind": "video"})
+        fpsText = None
         if frameRate and abs(frameRate - 24) > 0.4: # only an unusual rate is worth saying (23.976 and the like read as 24)
-            video.append({"text": ("%.3f" % frameRate).rstrip("0").rstrip(".") + " fps", "kind": "video"})
+            fpsText = ("%.3f" % frameRate).rstrip("0").rstrip(".") + " fps"
+            video.append({"text": fpsText, "kind": "video"})
         versions[filename] = {"name": name, "runtime": _runtimeText(duration),
                               "modified": datetime.date.fromtimestamp(mtime).isoformat() if mtime else None, # the file's modification date
-                              "sources": [], "video": video, "audio": [], "subtitles": [], "_filename": filename}
+                              "sources": [], "video": video, "audio": [], "subtitles": [], "_filename": filename,
+                              "_seconds": duration,
+                              "_facets": {"resolution": resolution, "stereo": stereoscopic, "codec": codecText, "hdr": hdr, "ratios": ratios,
+                                          "bitrate": bitrate / 1000000 if bitrate else None, "fps": fpsText}}
 
     # sources: one chip per source, prefixed with its role when a version is put together from several; a video
     # and an audio source that are one and the same (the same disc) read as one, and so do a hybrid's base video and
@@ -1001,9 +1009,216 @@ def _versions(cursor, imdb_id):
             versions[filename]["subtitles"].append({"text": hardcoded, "note": "hardcoded"})
 
     ordered = sorted(versions.values(), key=lambda v: (v["name"] is not None, (v["name"] or "").casefold(), v["_filename"].casefold()))
-    for version in ordered:
-        del version["_filename"] # the file name is internal: it only ties the tables together
+    if not internal:
+        for version in ordered:
+            for key in [key for key in version if key.startswith("_")]:
+                del version[key] # the file name and the like are internal: they only tie the tables together
     return ordered
+
+# ---- seasons: the technical data of a season's episodes, aggregated, for the card a season tile opens
+
+# a short extra file an episode comes with (a recap, a title sequence), not a version of the episode: left out of the card
+_IGNORED_EPISODE_VERSION = re.compile(r"Intro\d*", re.IGNORECASE)
+
+def _isForcedSubtitle(note):
+    """Whether a subtitle track is a forced one, by its note: the forced flag (which _versions has put in the note), the
+    word "forced", "foreign" (subtitles for the foreign-language parts only), or "for English", "for Foreign" and the like
+    -- but not "for English audio", which is a full track that goes with that audio."""
+    if not note:
+        return False
+    lowered = note.lower()
+    return "forced" in lowered or "foreign" in lowered or (lowered.startswith("for ") and not lowered.endswith("audio"))
+
+def _coverage(episodes):
+    """The episodes as text, "E1, E4, E8, E9": a run of three or more consecutive numbers is written "E5\u2013E7", and a
+    missing number always breaks a run. episodes is [(number, title)] in order; one without a number goes by its title."""
+    episodes = list(dict.fromkeys(episodes))
+    parts, i = [], 0
+    while i < len(episodes):
+        number, title = episodes[i]
+        if number is None:
+            parts.append(title)
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(episodes) and episodes[j + 1][0] is not None and episodes[j + 1][0] == episodes[j][0] + 1:
+            j += 1
+        if j - i >= 2:
+            parts.append("E%d\u2013E%d" % (number, episodes[j][0]))
+        else:
+            parts.extend("E%d" % episodes[k][0] for k in range(i, j + 1))
+        i = j + 1
+    return ", ".join(parts)
+
+def _runtimeRange(shortest, longest):
+    low, high = round(shortest / 60), round(longest / 60)
+    if low == high:
+        return _runtimeText(shortest)
+    if high < 60:
+        return "%d\u2013%dm" % (low, high)
+    return _runtimeText(shortest) + " \u2013 " + _runtimeText(longest)
+
+def _sourceKey(source):
+    if "parts" in source:
+        return ("group", source["label"], tuple((part["text"], part["url"]) for part in source["parts"]))
+    return ("plain", source["text"], source["url"])
+
+def _sourcesText(sources):
+    return ", ".join(source["label"] + ": " + " + ".join(part["text"] for part in source["parts"]) if "parts" in source else source["text"]
+                     for source in sources)
+
+def _seasonBlock(name, members):
+    """The episodes of a season that have a version of this name (members: [((number, title), version as _versions gives it
+    with internal=True)]) as one card: what most of them have is shown as it is, what only some have as a note naming those
+    episodes. The bitrate is always a range, the runtime a range and a total; forced subtitle tracks are the union of all
+    episodes' (one lacking a forced track is not worth a note), the other tracks follow the most common set."""
+    episodes = [member[0] for member in members]
+    versions = [member[1] for member in members]
+    facets = [version["_facets"] for version in versions]
+
+    def commonest(values):
+        return collections.Counter(values).most_common(1)[0][0]
+
+    def notes(values, common, show):
+        """one note per differing value, naming the episodes that have it: ["E1, E4: 4K"]"""
+        groups = {}
+        for episode, value in zip(episodes, values):
+            if value != common:
+                groups.setdefault(value, []).append(episode)
+        return [_coverage(group) + ": " + show(value) for value, group in groups.items()]
+
+    # the chips: the common value of each facet, and a note for the episodes that differ
+    differences, video = [], []
+    resolutions = [facet["resolution"] for facet in facets]
+    common = commonest(resolutions)
+    video.append({"text": common, "kind": "video"})
+    differences += notes(resolutions, common, lambda value: value)
+    stereo = [facet["stereo"] for facet in facets]
+    common = commonest(stereo)
+    if common:
+        video.append({"text": "3D", "kind": "3d"})
+    differences += notes(stereo, common, lambda value: "3D" if value else "2D")
+    codecs = [facet["codec"] for facet in facets]
+    common = commonest(codecs)
+    if common:
+        video.append({"text": common, "kind": "video"})
+    differences += notes(codecs, common, lambda value: value or "no codec")
+    hdrs = [facet["hdr"] for facet in facets]
+    common = commonest(hdrs)
+    if common:
+        video.append({"text": common, "kind": "hdr"})
+    differences += notes(hdrs, common, lambda value: value or "SDR")
+
+    # aspect ratios within 0.02 of each other are the same (1.99:1 and 2.00:1 are one picture shape)
+    ratios = [tuple(float(ratio[:-2]) for ratio in facet["ratios"]) for facet in facets]
+    close = lambda a, b: len(a) == len(b) and all(abs(x - y) <= 0.02 for x, y in zip(a, b))
+    candidates = list(dict.fromkeys(ratios))
+    commonRatios = max(candidates, key=lambda candidate: (sum(close(candidate, other) for other in ratios), ratios.count(candidate)))
+    ratioLabel = lambda facet: facet["ratios"][0] if len(facet["ratios"]) == 1 else "Variable " + " / ".join(facet["ratios"]) if facet["ratios"] else None
+    labels = [ratioLabel(facet) for facet in facets]
+    common = labels[ratios.index(commonRatios)]
+    if common:
+        video.append({"text": common, "kind": "video"})
+    groups = {}
+    for episode, shape, label in zip(episodes, ratios, labels):
+        if not close(commonRatios, shape):
+            groups.setdefault(label, []).append(episode)
+    differences += [_coverage(group) + ": " + (label or "no aspect ratio") for label, group in groups.items()]
+
+    bitrates = [facet["bitrate"] for facet in facets if facet["bitrate"]]
+    if bitrates:
+        mbps = lambda value: ("%.0f" if value >= 10 else "%.1f") % value
+        low, high = mbps(min(bitrates)), mbps(max(bitrates))
+        video.append({"text": (low if low == high else low + "\u2013" + high) + " Mbps", "kind": "video"})
+    rates = [facet["fps"] for facet in facets]
+    common = commonest(rates)
+    if common:
+        video.append({"text": common, "kind": "video"})
+    differences += notes(rates, common, lambda value: value or "24 fps")
+
+    sourceKeys = [tuple(_sourceKey(source) for source in version["sources"]) for version in versions]
+    common = commonest(sourceKeys)
+    sources = versions[sourceKeys.index(common)]["sources"]
+    differences += notes(sourceKeys, common, lambda value: _sourcesText(versions[sourceKeys.index(value)]["sources"]) or "no source")
+
+    audioKeys = [tuple(track["text"] for track in version["audio"]) for version in versions]
+    common = commonest(audioKeys)
+    audio = versions[audioKeys.index(common)]["audio"]
+    audioDifferences = notes(audioKeys, common, lambda value: " + ".join(value) or "no audio")
+
+    tracksOf = lambda version: [(track["text"], track["note"]) for track in version["subtitles"]]
+    plain = [collections.Counter(track for track in tracksOf(version) if not _isForcedSubtitle(track[1])) for version in versions]
+    plainKeys = [tuple(sorted(counter.items(), key=repr)) for counter in plain]
+    common = commonest(plainKeys)
+    commonCounter = plain[plainKeys.index(common)]
+    subtitleGroups = {}
+    for episode, counter in zip(episodes, plain):
+        if counter == commonCounter:
+            continue
+        label = lambda track: track[0] + (" (" + track[1] + ")" if track[1] else "")
+        text = ", ".join(["no " + label(track) for track in (commonCounter - counter).elements()]
+                         + ["+ " + label(track) for track in (counter - commonCounter).elements()])
+        subtitleGroups.setdefault(text, []).append(episode)
+    subtitleDifferences = [_coverage(group) + ": " + text for text, group in subtitleGroups.items()]
+    forced = list(dict.fromkeys(track for version in versions for track in tracksOf(version) if _isForcedSubtitle(track[1])))
+    representative = versions[plainKeys.index(common)]
+    subtitles = [{"text": track["text"], "note": track["note"]} for track in representative["subtitles"] if not _isForcedSubtitle(track["note"])]
+    subtitles += [{"text": text, "note": note} for text, note in forced]
+
+    seconds = [version["_seconds"] for version in versions]
+    if len(seconds) == 1:
+        runtime = _runtimeText(seconds[0])
+    else:
+        runtime = _runtimeRange(min(seconds), max(seconds)) + " per episode \u00B7 " + _runtimeText(sum(seconds)) + " total"
+    runtimeTitle = "\n".join(_coverage([episode]) + " " + _runtimeText(second) for episode, second in zip(episodes, seconds))
+
+    return {"name": name, "episodes": _coverage(episodes), "sources": sources, "video": video, "differences": differences,
+            "runtime": runtime, "runtimeTitle": runtimeTitle, "audio": audio, "audioDifferences": audioDifferences,
+            "subtitles": subtitles, "subtitleDifferences": subtitleDifferences}
+
+def _seasonCard(cursor, series_id, season):
+    """What the card of a season tile shows: the owned episodes' versions grouped by version name (unnamed first, then
+    alphabetical; the extras that _IGNORED_EPISODE_VERSION names are left out), each group aggregated by _seasonBlock, and
+    the latest modification date of any episode file. None if the season has no owned episode."""
+    cursor.execute("""
+        SELECT imdb_id, episode_number, original_title FROM media
+        WHERE series_imdb_id = ? AND season_number IS ? AND subdir IS NOT NULL
+        ORDER BY episode_number IS NULL, episode_number, original_title
+    """, (series_id, season))
+    owned = cursor.fetchall()
+    if not owned:
+        return None
+    byName = {}
+    for imdbId, number, title in owned:
+        for version in _versions(cursor, imdbId, internal=True):
+            if _IGNORED_EPISODE_VERSION.fullmatch(version["name"] or ""):
+                continue
+            byName.setdefault(version["name"], []).append(((number, title), version))
+    cursor.execute("""
+        SELECT MAX(v.mtime) FROM media_versions v JOIN media m ON m.imdb_id = v.imdb_id
+        WHERE m.series_imdb_id = ? AND m.season_number IS ? AND m.subdir IS NOT NULL
+    """, (series_id, season))
+    latest = cursor.fetchone()[0]
+    names = sorted(byName, key=lambda name: (name is not None, (name or "").casefold()))
+    return {"season": season, "modified": datetime.date.fromtimestamp(latest).isoformat() if latest else None,
+            "blocks": [_seasonBlock(name, byName[name]) for name in names]}
+
+@server.route('/season/<int:series_id>/<season>')
+def seasonCard(series_id, season):
+    """The card of a season tile of a series' overlay (season "none": the episodes without a season number)."""
+    try:
+        seasonNumber = None if season == "none" else int(season)
+    except ValueError:
+        return jsonify({"error": "not found"}), 404
+    try:
+        conn = sqlite3.connect(serverconfig.DB_PATH)
+        card = _seasonCard(conn.cursor(), series_id, seasonNumber)
+        conn.close()
+    except sqlite3.Error as e:
+        return jsonify({"error": str(e)}), 503
+    if card is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(card)
 
 def _addTitleCounts(cursor, credits):
     """Adds "titleCount" -- how many library titles (movies and series, an episode counting for its series) the

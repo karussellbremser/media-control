@@ -280,7 +280,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	// focus ({season, episode}, optional): returns a reveal() to call once the section is on screen, which brings that
 	// episode's season into view -- the "+ N more" tile expanded if the season sits behind it, a partly owned season
 	// opened with the episode's row marked, a fully owned season's tile marked
-	function seasonsSection(seasons, focus) {
+	function seasonLabel(s) {
+		return s.season === null ? 'Unnumbered' : s.season === 0 ? 'Specials' : 'Season ' + s.season;
+	}
+
+	function seasonsSection(seriesId, seasons, focus) {
 		const section = document.createDocumentFragment();
 		const owned = seasons.reduce((sum, s) => sum + s.owned, 0);
 		const total = seasons.reduce((sum, s) => sum + s.total, 0);
@@ -288,12 +292,25 @@ document.addEventListener('DOMContentLoaded', () => {
 		heading.appendChild(makeEl('span', 'seasonsSummary', owned + ' of ' + total + ' episodes available'));
 		section.appendChild(heading);
 
-		// a partly owned season's tile opens a list of the episodes that are owned, below the tiles
-		const episodes = makeEl('div', 'seasonEpisodes');
-		episodes.hidden = true;
+		// a tile with owned episodes opens the season's card below the tiles: the owned episodes first when the season is only
+		// partly owned, then the technical data of its episodes, aggregated by the server (fetched when first asked for)
+		const panel = makeEl('div', 'seasonPanel');
+		panel.hidden = true;
 		let openTile = null;
+		const cards = new Map(); // season ("none": unnumbered) -> what /season answered
 
-		function toggleEpisodes(el, s) {
+		function seasonCard(data, s) {
+			const card = makeEl('div', 'seasonCard');
+			const head = makeEl('div', 'seasonCardHead');
+			head.appendChild(makeEl('b', '', seasonLabel(s)));
+			head.appendChild(makeEl('span', '', s.owned === s.total ? s.owned + (s.owned === 1 ? ' episode' : ' episodes') : s.owned + ' of ' + s.total + ' episodes available'));
+			card.appendChild(head);
+			data.blocks.forEach(block => card.appendChild(versionCard(block, data.blocks.length > 1)));
+			if (data.modified) card.appendChild(modifiedLine(data.modified));
+			return card;
+		}
+
+		function toggleSeason(el, s) {
 			const wasOpen = openTile === el;
 			if (openTile) {
 				openTile.classList.remove('open');
@@ -301,27 +318,49 @@ document.addEventListener('DOMContentLoaded', () => {
 				openTile.querySelector('.seasonChevron').textContent = '▾';
 				openTile = null;
 			}
-			episodes.hidden = true;
+			panel.hidden = true;
 			if (wasOpen) return;
-			episodes.replaceChildren();
-			s.ownedEpisodes.forEach(e => {
-				const row = makeEl('div', 'seasonEpisode');
-				row.dataset.episode = e.number === null ? '' : String(e.number);
-				row.appendChild(makeEl('span', 'seasonEpisodeNumber', e.number === null ? '' : 'E' + e.number));
-				// the episode's IMDb page (an episode has no page of its own here)
-				const link = makeEl('a', 'seasonEpisodeLink', e.title);
-				link.href = 'https://www.imdb.com/title/' + idString(e.imdbId) + '/';
-				link.title = 'open on IMDb';
-				link.target = '_blank';
-				link.rel = 'noopener noreferrer';
-				link.appendChild(makeEl('span', 'seasonEpisodeArrow', ' \u2197'));
-				row.appendChild(link);
-				episodes.appendChild(row);
-			});
+			panel.replaceChildren();
+			if (s.ownedEpisodes) {
+				const list = makeEl('div', 'seasonEpisodes');
+				s.ownedEpisodes.forEach(e => {
+					const row = makeEl('div', 'seasonEpisode');
+					row.dataset.episode = e.number === null ? '' : String(e.number);
+					row.appendChild(makeEl('span', 'seasonEpisodeNumber', e.number === null ? '' : 'E' + e.number));
+					// the episode's IMDb page (an episode has no page of its own here)
+					const link = makeEl('a', 'seasonEpisodeLink', e.title);
+					link.href = 'https://www.imdb.com/title/' + idString(e.imdbId) + '/';
+					link.title = 'open on IMDb';
+					link.target = '_blank';
+					link.rel = 'noopener noreferrer';
+					link.appendChild(makeEl('span', 'seasonEpisodeArrow', ' \u2197'));
+					row.appendChild(link);
+					list.appendChild(row);
+				});
+				panel.appendChild(list);
+			}
+			const slot = makeEl('div');
+			panel.appendChild(slot);
+			const key = s.season === null ? 'none' : String(s.season);
+			if (cards.has(key)) {
+				slot.appendChild(seasonCard(cards.get(key), s));
+			} else {
+				slot.appendChild(makeEl('div', 'seasonCardNote', 'Loading\u2026'));
+				fetch('/season/' + seriesId + '/' + key)
+					.then(response => {
+						if (!response.ok) throw new Error('season request failed with status ' + response.status);
+						return response.json();
+					})
+					.then(data => {
+						cards.set(key, data);
+						slot.replaceChildren(seasonCard(data, s));
+					})
+					.catch(() => slot.replaceChildren(makeEl('div', 'seasonCardNote', "Couldn't load the technical data of this season.")));
+			}
 			el.classList.add('open');
 			el.setAttribute('aria-expanded', 'true');
 			el.querySelector('.seasonChevron').textContent = '▴';
-			episodes.hidden = false;
+			panel.hidden = false;
 			openTile = el;
 		}
 
@@ -329,9 +368,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		function tile(s) {
 			const state = s.owned === s.total ? 'full' : s.owned === 0 ? 'none' : 'part';
-			const el = makeEl(state === 'part' ? 'button' : 'div', 'seasonTile seasonTile--' + state);
+			const el = makeEl(state === 'none' ? 'div' : 'button', 'seasonTile seasonTile--' + state);
 			el.title = s.owned + ' of ' + s.total + ' episodes available';
-			el.appendChild(makeEl('span', 'seasonLabel', s.season === null ? 'Unnumbered' : s.season === 0 ? 'Specials' : 'Season ' + s.season));
+			el.appendChild(makeEl('span', 'seasonLabel', seasonLabel(s)));
 			el.appendChild(makeEl('span', 'seasonCount', s.owned + '/' + s.total));
 			// the year(s) the season came out: its first to its last episode's
 			el.appendChild(makeEl('span', 'seasonYears', s.firstYear === s.lastYear ? String(s.firstYear) : s.firstYear + '\u2013' + s.lastYear));
@@ -340,12 +379,12 @@ document.addEventListener('DOMContentLoaded', () => {
 				bar.appendChild(makeEl('span', 'seasonBarFill'));
 				bar.firstChild.style.width = Math.round(100 * s.owned / s.total) + '%';
 				el.appendChild(bar);
-				if (s.ownedEpisodes) {
-					el.type = 'button';
-					el.setAttribute('aria-expanded', 'false');
-					el.appendChild(makeEl('span', 'seasonChevron', '▾'));
-					el.addEventListener('click', () => toggleEpisodes(el, s));
-				}
+			}
+			if (state !== 'none') {
+				el.type = 'button';
+				el.setAttribute('aria-expanded', 'false');
+				el.appendChild(makeEl('span', 'seasonChevron', '▾'));
+				el.addEventListener('click', () => toggleSeason(el, s));
 			}
 			tileOf.set(s.season, { el, s });
 			return el;
@@ -372,7 +411,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (hiddenTiles.length) {
 			moreTile = makeEl('button', 'seasonTile seasonTile--none seasonMore', '');
 			moreTile.type = 'button';
-			moreTile.appendChild(makeEl('span', 'seasonLabel', '…'));
+			moreTile.appendChild(makeEl('span', 'seasonLabel', '\u2026'));
 			moreTile.appendChild(makeEl('span', 'seasonCount', '+ ' + hiddenTiles.length + ' more'));
 			moreTile.addEventListener('click', expandAll);
 			grid.appendChild(moreTile);
@@ -380,7 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		unnumbered.forEach(s => grid.appendChild(tile(s)));
 		const block = makeEl('div', 'seasonsBlock');
 		block.appendChild(grid);
-		block.appendChild(episodes);
+		block.appendChild(panel);
 		section.appendChild(block);
 
 		function reveal() {
@@ -390,8 +429,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			found.el.classList.add('seasonTile--focus');
 			let target = found.el;
 			if (found.s.ownedEpisodes) {
-				if (openTile !== found.el) toggleEpisodes(found.el, found.s);
-				const row = [...episodes.children].find(r => r.dataset.episode === String(focus.episode));
+				if (openTile !== found.el) toggleSeason(found.el, found.s);
+				const row = [...panel.querySelectorAll('.seasonEpisode')].find(r => r.dataset.episode === String(focus.episode));
 				if (row) {
 					row.classList.add('seasonEpisode--focus');
 					target = row;
@@ -427,84 +466,106 @@ document.addEventListener('DOMContentLoaded', () => {
 		return segments;
 	}
 
-	function versionsSection(versions) {
-		const section = document.createDocumentFragment();
-		if (versions.length > 1) section.appendChild(makeEl('h3', '', 'Versions'));
-		const list = makeEl('div', 'versions');
-
+	// One card: the name when there is one, chips for the source (discs link to blu-ray.com), resolution, codec, HDR, aspect
+	// ratio and bitrate, then the runtime and the audio and subtitle tracks. A season's block of episodes (see seasonsSection)
+	// is such a card too: it adds the episodes it covers (when the season has several blocks), the exact runtimes in the
+	// runtime's hover text, and an amber note wherever some of the episodes differ from the rest.
+	function versionCard(v, showEpisodes) {
 		function row(rows, label, content) {
 			rows.appendChild(makeEl('span', 'label', label));
 			rows.appendChild(content);
 		}
 
-		versions.forEach(v => {
-			const card = makeEl('div', 'versionCard');
-			if (v.name) {
-				const head = makeEl('div', 'versionHead');
-				head.appendChild(makeEl('b', '', v.name));
-				card.appendChild(head);
-			}
+		const card = makeEl('div', 'versionCard');
+		if (v.name) {
+			const head = makeEl('div', 'versionHead');
+			head.appendChild(makeEl('b', '', v.name));
+			card.appendChild(head);
+		}
 
-			const chips = makeEl('div', 'versionChips');
-			v.sources.forEach(source => {
-				if (source.parts) {
-					chips.appendChild(sourceSegments(source));
-					return;
-				}
-				const chip = makeEl(source.url ? 'a' : 'span', 'versionChip versionChip--src', source.text);
-				if (source.url) {
-					chip.href = source.url;
-					chip.title = 'open on blu-ray.com';
-					chip.target = '_blank';
-					chip.rel = 'noopener noreferrer';
-				}
-				chips.appendChild(chip);
-			});
-			v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : x.kind === '3d' ? ' versionChip--3d' : ''), x.text)));
-			card.appendChild(chips);
-
-			const rows = makeEl('div', 'versionRows');
-			row(rows, 'Runtime', makeEl('span', '', v.runtime));
-			if (v.audio.length) {
-				const tracks = makeEl('div');
-				v.audio.forEach(a => {
-					const line = makeEl('div', '', a.text);
-					if (a.note) line.appendChild(makeEl('span', 'muted', ' (' + a.note + ')'));
-					// where this track comes from, when it differs from the version's general source (files with several tracks)
-					if (a.source) {
-						line.appendChild(document.createTextNode(' \u00B7 '));
-						if (a.source.url) {
-							const link = makeEl('a', 'versionSourceLink', a.source.text);
-							link.href = a.source.url;
-							link.title = 'open on blu-ray.com';
-							link.target = '_blank';
-							link.rel = 'noopener noreferrer';
-							link.appendChild(makeEl('span', 'versionSourceArrow', ' \u2197'));
-							line.appendChild(link);
-						} else {
-							line.appendChild(makeEl('span', 'muted', a.source.text));
-						}
-					}
-					tracks.appendChild(line);
-				});
-				row(rows, 'Audio', tracks);
+		const chips = makeEl('div', 'versionChips');
+		v.sources.forEach(source => {
+			if (source.parts) {
+				chips.appendChild(sourceSegments(source));
+				return;
 			}
-			if (v.subtitles.length) {
-				const tracks = makeEl('span');
-				v.subtitles.forEach((t, i) => {
-					tracks.appendChild(document.createTextNode((i ? ' \u00B7 ' : '') + t.text));
-					if (t.note) tracks.appendChild(makeEl('span', 'muted', ' (' + t.note + ')'));
-				});
-				row(rows, 'Subtitles', tracks);
+			const chip = makeEl(source.url ? 'a' : 'span', 'versionChip versionChip--src', source.text);
+			if (source.url) {
+				chip.href = source.url;
+				chip.title = 'open on blu-ray.com';
+				chip.target = '_blank';
+				chip.rel = 'noopener noreferrer';
 			}
-			card.appendChild(rows);
-			// when the file was last modified, small, at the bottom of the card
-			if (v.modified) {
-				const date = new Date(v.modified + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-				card.appendChild(makeEl('div', 'versionModified', 'Modified ' + date));
-			}
-			list.appendChild(card);
+			chips.appendChild(chip);
 		});
+		v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : x.kind === '3d' ? ' versionChip--3d' : ''), x.text)));
+		(v.differences || []).forEach(text => chips.appendChild(makeEl('span', 'versionChip versionChip--diff', text)));
+		card.appendChild(chips);
+
+		const rows = makeEl('div', 'versionRows');
+		if (showEpisodes) row(rows, 'Episodes', makeEl('span', '', v.episodes));
+		const runtime = makeEl('span', '', v.runtime);
+		if (v.runtimeTitle) runtime.title = v.runtimeTitle;
+		row(rows, 'Runtime', runtime);
+		const audioDifferences = v.audioDifferences || [];
+		if (v.audio.length || audioDifferences.length) {
+			const tracks = makeEl('div');
+			v.audio.forEach(a => {
+				const line = makeEl('div', '', a.text);
+				if (a.note) line.appendChild(makeEl('span', 'muted', ' (' + a.note + ')'));
+				// where this track comes from, when it differs from the version's general source (files with several tracks)
+				if (a.source) {
+					line.appendChild(document.createTextNode(' \u00B7 '));
+					if (a.source.url) {
+						const link = makeEl('a', 'versionSourceLink', a.source.text);
+						link.href = a.source.url;
+						link.title = 'open on blu-ray.com';
+						link.target = '_blank';
+						link.rel = 'noopener noreferrer';
+						link.appendChild(makeEl('span', 'versionSourceArrow', ' \u2197'));
+						line.appendChild(link);
+					} else {
+						line.appendChild(makeEl('span', 'muted', a.source.text));
+					}
+				}
+				tracks.appendChild(line);
+			});
+			audioDifferences.forEach(text => {
+				const line = makeEl('div');
+				line.appendChild(makeEl('span', 'versionDiff', text));
+				tracks.appendChild(line);
+			});
+			row(rows, 'Audio', tracks);
+		}
+		const subtitleDifferences = v.subtitleDifferences || [];
+		if (v.subtitles.length || subtitleDifferences.length) {
+			const tracks = makeEl('span');
+			v.subtitles.forEach((t, i) => {
+				tracks.appendChild(document.createTextNode((i ? ' \u00B7 ' : '') + t.text));
+				if (t.note) tracks.appendChild(makeEl('span', 'muted', ' (' + t.note + ')'));
+			});
+			subtitleDifferences.forEach(text => {
+				if (tracks.firstChild) tracks.appendChild(document.createTextNode(' '));
+				tracks.appendChild(makeEl('span', 'versionDiff', text));
+			});
+			row(rows, 'Subtitles', tracks);
+		}
+		card.appendChild(rows);
+		// when the file was last modified, small, at the bottom of the card
+		if (v.modified) card.appendChild(modifiedLine(v.modified));
+		return card;
+	}
+
+	function modifiedLine(isoDate) {
+		const date = new Date(isoDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+		return makeEl('div', 'versionModified', 'Modified ' + date);
+	}
+
+	function versionsSection(versions) {
+		const section = document.createDocumentFragment();
+		if (versions.length > 1) section.appendChild(makeEl('h3', '', 'Versions'));
+		const list = makeEl('div', 'versions');
+		versions.forEach(v => list.appendChild(versionCard(v, false)));
 		section.appendChild(list);
 		return section;
 	}
@@ -556,7 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (d.versions.length) detailBody.appendChild(versionsSection(d.versions));
 
 		if (d.isSeries && d.seasons.length) {
-			const seasons = seasonsSection(d.seasons, focus);
+			const seasons = seasonsSection(d.imdbId, d.seasons, focus);
 			detailBody.appendChild(seasons.section);
 			reveal = focus ? seasons.reveal : null;
 		}
