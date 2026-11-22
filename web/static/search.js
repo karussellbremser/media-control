@@ -422,6 +422,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		block.appendChild(panel);
 		section.appendChild(block);
 
+		// a series with owned episodes in only one season shows that season's card right away (unless it is opened on a
+		// particular episode, see reveal), the season's tile brought out from behind the "+ N more" tile if it sits there
+		const ownedSeasons = seasons.filter(s => s.owned > 0);
+		if (ownedSeasons.length === 1 && !(focus && tileOf.get(focus.season))) {
+			const only = tileOf.get(ownedSeasons[0].season);
+			if (only.el.style.display === 'none') expandAll();
+			toggleSeason(only.el, only.s);
+		}
+
 		function reveal() {
 			const found = focus && tileOf.get(focus.season);
 			if (!found) return;
