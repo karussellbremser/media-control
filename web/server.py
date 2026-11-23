@@ -1265,48 +1265,187 @@ def _addTitleCounts(cursor, credits):
     for p in people:
         p["titleCount"] = counts.get(p["personId"], 0)
 
-def _connections(cursor, imdb_id, isSeries):
-    """The connections shown for a title, as a list of {type, imdbId, title, year, owned, seriesTitle,
-    seriesId, seriesTitle, season, episode, origins}. A series also takes over the connections of its owned episodes: a
-    target reached from several episodes is listed once, with those episodes as "origins" ({season,
-    episode, title}, in episode order) -- the series' own connections have none, and win when the
-    same target is reached both ways.
-    seriesId/seriesTitle/season/episode say where a target is when that target is itself an episode
-    (else None) -- an episode has no overlay of its own, the UI opens its series instead. Ordered by connection type, then the series' own connections (by year, title) before the
-    episode-derived ones (the more episodes reach a target, the earlier; then year, title)."""
+# ---- connections: the group of titles that are connected to a title, as the map of the detail view draws it
+
+# how a stored connection reads as one edge (a, b, type): "a follows b", "a is a spin-off of b", "a is a remake of b",
+# "a is a version of b" (the two version types have no direction). The flag says whether the stored row has to be turned
+# around: a title that is "followed by" another is what that other one "follows".
+_EDGE_TYPES = {"follows": ("follows", False), "followed_by": ("follows", True),
+               "spin_off_from": ("spin_off_from", False), "spin_off": ("spin_off_from", True),
+               "remake_of": ("remake_of", False), "remade_as": ("remake_of", True),
+               "version_of": ("version_of", None), "alternate_language_version_of": ("alternate_language_version_of", None)}
+
+def _episodeCodes(episodes):
+    """Episodes as text, [(season, episode)] -> "S1E1, S1E5" ("S3E101\u2013105" for a run of three or more)."""
+    bySeason = collections.OrderedDict()
+    for season, episode in sorted(set(episodes), key=lambda x: (x[0] is None, x[0] or 0, x[1] is None, x[1] or 0)):
+        bySeason.setdefault(season, []).append(episode)
+    parts = []
+    for season, numbers in bySeason.items():
+        prefix = "" if season is None else "S%d" % season
+        i = 0
+        while i < len(numbers):
+            j = i
+            while numbers[i] is not None and j + 1 < len(numbers) and numbers[j + 1] is not None and numbers[j + 1] == numbers[j] + 1:
+                j += 1
+            if numbers[i] is None:
+                parts.append(prefix + "E?")
+            elif j - i >= 2:
+                parts.append("%sE%d\u2013%d" % (prefix, numbers[i], numbers[j]))
+            else:
+                parts.extend("%sE%d" % (prefix, numbers[k]) for k in range(i, j + 1))
+            i = j + 1
+    return ", ".join(parts)
+
+def _connectionGraph(cursor, imdb_id, isSeries):
+    """Every title that can be reached from a title through connections, in either direction, and the connections between
+    them: {start, nodes: [{id, kind, title, year, yearText, owned, imdbId, ...}], edges: [{a, b, type, via?, assumed?}]};
+    an edge reads "a follows b" (likewise "is a spin-off of", "is a remake of", "is a version of"). Empty when the title has
+    no connections.
+    An episode is a title of its own: nothing connects two episodes just because they are of one series. The page of a
+    series starts from the series and all its owned episodes, shown as the series itself (an edge that comes from episodes
+    has them as "via"). Episodes of one series that are connected to exactly the same titles in the same way share one node
+    ("kind": "group"). Titles that are not in the library and all follow exactly the same titles of the library are
+    chained in release order, same-year titles side by side ("assumed": the connections between titles that are not in the
+    library are never stored, so this is the best guess)."""
     cursor.execute("""
-        SELECT ct.connection_type_id, ct.connection_type_name, m2.imdb_id, m2.original_title, m2.start_year,
-               m2.subdir IS NOT NULL, s2.original_title, m2.season_number, m2.episode_number,
-               mc.imdb_id, e.season_number, e.episode_number, e.original_title, m2.series_imdb_id
-        FROM media_connections mc
-        JOIN connection_type_enum ct ON mc.connection_type_id = ct.connection_type_id
-        JOIN media m2 ON mc.foreign_imdb_id = m2.imdb_id
-        LEFT JOIN media s2 ON m2.series_imdb_id = s2.imdb_id
-        JOIN media e ON mc.imdb_id = e.imdb_id
-        WHERE mc.imdb_id = :id""" + (" OR (e.series_imdb_id = :id AND e.subdir IS NOT NULL)" if isSeries else ""),
-        {"id": imdb_id})
+        SELECT mc.imdb_id, mc.foreign_imdb_id, ct.connection_type_name
+        FROM media_connections mc JOIN connection_type_enum ct ON mc.connection_type_id = ct.connection_type_id
+    """)
+    rows = cursor.fetchall()
+    ownedEpisodes = []
+    if isSeries:
+        cursor.execute("SELECT imdb_id FROM media WHERE series_imdb_id = ? AND subdir IS NOT NULL", (imdb_id,))
+        ownedEpisodes = [row[0] for row in cursor.fetchall()]
+    start = {imdb_id, *ownedEpisodes}
 
-    targets = {} # (connection type id, target id) -> connection
-    for (typeId, typeName, targetId, title, year, owned, seriesTitle, season, episode,
-         originId, originSeason, originEpisode, originTitle, seriesId) in cursor.fetchall():
-        target = targets.setdefault((typeId, targetId), {
-            "type": typeName, "imdbId": targetId, "title": title, "year": year, "owned": bool(owned),
-            "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode,
-            "own": False, "origins": [], "typeId": typeId})
-        if originId == imdb_id:
-            target["own"] = True
-        else:
-            target["origins"].append({"season": originSeason, "episode": originEpisode, "title": originTitle})
+    neighbours = collections.defaultdict(list)
+    for a, b, _ in rows:
+        neighbours[a].append(b)
+        neighbours[b].append(a)
+    reached, stack = set(start), list(start)
+    while stack:
+        for other in neighbours.get(stack.pop(), ()):
+            if other not in reached:
+                reached.add(other)
+                stack.append(other)
+    meta = {}
+    ids = sorted(reached)
+    for i in range(0, len(ids), 500):
+        batch = ids[i:i + 500]
+        cursor.execute("""
+            SELECT m.imdb_id, m.original_title, m.start_year, m.subdir IS NOT NULL, m.series_imdb_id, m.season_number,
+                   m.episode_number, s.original_title
+            FROM media m LEFT JOIN media s ON m.series_imdb_id = s.imdb_id
+            WHERE m.imdb_id IN (""" + ",".join("?" for _ in batch) + ")", batch)
+        for row in cursor.fetchall():
+            meta[row[0]] = row
 
-    for target in targets.values():
-        if target["own"]:
-            target["origins"] = []
-        target["origins"].sort(key=lambda o: (o["season"] is None, o["season"], o["episode"] is None, o["episode"], o["title"]))
-    ordered = sorted(targets.values(), key=lambda t: (
-        t["typeId"], not t["own"], -len(t["origins"]), t["year"] is None, t["year"], t["title"]))
-    for target in ordered:
-        del target["own"], target["typeId"]
-    return ordered
+    # one edge per connection (both directions of a pair are the same edge); an owned episode of the series being shown
+    # is the series
+    alias = {episode: imdb_id for episode in ownedEpisodes}
+    edges = {}
+    for a, b, typeName in rows:
+        if a not in reached or a == b:
+            continue
+        kind, flip = _EDGE_TYPES[typeName]
+        if flip:
+            a, b = b, a
+        via = [(meta[x][5], meta[x][6]) for x in (a, b) if x in alias and x != imdb_id]
+        a, b = alias.get(a, a), alias.get(b, b)
+        if a == b:
+            continue
+        if flip is None and a > b:
+            a, b = b, a
+        edge = edges.setdefault((a, b, kind), {"a": a, "b": b, "type": kind, "via": []})
+        edge["via"].extend(via)
+    if not edges:
+        return {"start": imdb_id, "nodes": [], "edges": []}
+
+    # episodes of one series with exactly the same connections become one node
+    episodeOf = lambda i: meta[i][4] if i in meta and i != imdb_id else None
+    signature = collections.defaultdict(set)
+    for (a, b, kind) in edges:
+        if episodeOf(a) is not None:
+            signature[a].add((kind, True, b))
+        if episodeOf(b) is not None:
+            signature[b].add((kind, False, a))
+    merged = collections.defaultdict(list)
+    for episode, sig in signature.items():
+        merged[(episodeOf(episode), frozenset(sig))].append(episode)
+    groupOf = {}
+    for (seriesId, _), episodes in merged.items():
+        if len(episodes) > 1:
+            groupId = "g%d" % min(episodes)
+            for episode in episodes:
+                groupOf[episode] = groupId
+    if groupOf:
+        remapped = {}
+        for (a, b, kind), edge in edges.items():
+            a2, b2 = groupOf.get(a, a), groupOf.get(b, b)
+            if kind in ("version_of", "alternate_language_version_of") and str(a2) > str(b2):
+                a2, b2 = b2, a2
+            target = remapped.setdefault((a2, b2, kind), {"a": a2, "b": b2, "type": kind, "via": []})
+            target["via"].extend(edge["via"])
+        edges = remapped
+
+    # the nodes
+    nodes = {}
+    def episodeTitle(i):
+        _, title, year, owned, seriesId, season, episode, seriesTitle = meta[i]
+        code = "" if season is None or episode is None else " S%dE%d" % (season, episode)
+        return "%s%s \"%s\"" % (seriesTitle, code, title)
+    members = collections.defaultdict(list)
+    for episode, groupId in groupOf.items():
+        members[groupId].append(episode)
+    used = {x for (a, b, _) in edges for x in (a, b)} | {imdb_id}
+    for node in used:
+        if isinstance(node, str):
+            eps = sorted(members[node], key=lambda i: (meta[i][5] is None, meta[i][5] or 0, meta[i][6] is None, meta[i][6] or 0, i))
+            years = [meta[i][2] for i in eps if meta[i][2]]
+            first = meta[eps[0]]
+            ownedOnes = [i for i in eps if meta[i][3]]
+            lead = meta[ownedOnes[0] if ownedOnes else eps[0]]
+            nodes[node] = {"id": node, "kind": "group", "title": "%s \u00B7 %s" % (first[7], _episodeCodes([(meta[i][5], meta[i][6]) for i in eps])),
+                           "year": min(years) if years else None,
+                           "yearText": ("%d" % min(years) if min(years) == max(years) else "%d\u2013%d" % (min(years), max(years))) if years else "",
+                           "owned": bool(ownedOnes), "imdbId": lead[0], "seriesId": first[4], "seriesTitle": first[7], "season": lead[5], "episode": lead[6]}
+            continue
+        _, title, year, owned, seriesId, season, episode, seriesTitle = meta[node]
+        entry = {"id": node, "kind": "title" if seriesId is None or node == imdb_id else "episode", "title": title, "year": year,
+                 "yearText": str(year) if year else "", "owned": bool(owned), "imdbId": node}
+        if seriesId is not None and node != imdb_id:
+            entry.update({"title": episodeTitle(node), "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode})
+        nodes[node] = entry
+
+    # titles that are not in the library and follow exactly the same titles of the library: a chain in release order
+    predecessors = collections.defaultdict(set)
+    for (a, b, kind) in edges:
+        if kind == "follows":
+            predecessors[a].add(b)
+    siblings = collections.defaultdict(list)
+    for node, preds in predecessors.items():
+        if not nodes[node]["owned"] and all(nodes[p]["owned"] for p in preds):
+            siblings[frozenset(preds)].append(node)
+    for group in siblings.values():
+        byYear = collections.defaultdict(list)
+        for node in group:
+            byYear[nodes[node]["year"] or 9999].append(node)
+        years = sorted(byYear)
+        for earlier, later in zip(years, years[1:]):
+            for a in byYear[later]:
+                for b in byYear[earlier]:
+                    edges.setdefault((a, b, "follows"), {"a": a, "b": b, "type": "follows", "via": [], "assumed": True})
+
+    out = []
+    for edge in edges.values():
+        item = {"a": edge["a"], "b": edge["b"], "type": edge["type"]}
+        if edge["via"]:
+            item["via"] = _episodeCodes(edge["via"])
+        if edge.get("assumed"):
+            item["assumed"] = True
+        out.append(item)
+    return {"start": imdb_id, "nodes": list(nodes.values()), "edges": out}
 
 @server.route('/people')
 def people():
@@ -1376,9 +1515,9 @@ def person(person_id):
 def detail(imdb_id):
     """Everything the title detail overlay shows, for one locally-owned movie/series: basics, plot
     summary, genres/subgenres, credits (only ever stored for movies and episodes, so a series' are
-    compiled from its episodes, see _seriesCredits), and connections to other titles, each flagged
-    with whether the target is itself locally owned (=> the overlay can open it in place) or only
-    referenced (=> links out to IMDb)."""
+    compiled from its episodes, see _seriesCredits), and the graph of connected titles ("graph", see
+    _connectionGraph), each node flagged with whether the title is itself locally owned (=> the overlay can
+    open it in place) or only referenced (=> links out to IMDb)."""
     try:
         conn = sqlite3.connect(serverconfig.DB_PATH)
         cursor = conn.cursor()
@@ -1495,7 +1634,7 @@ def detail(imdb_id):
         _addTitleCounts(cursor, credits)
         # the versions (files) of a movie -- series and episodes have none to show for now
         versions = [] if title_type_name in Media.seriesTitleTypes + Media.episodeTitleTypes else _versions(cursor, imdb_id)
-        connections = _connections(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
+        graph = _connectionGraph(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
         conn.close()
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 503
@@ -1522,7 +1661,7 @@ def detail(imdb_id):
         "directors": credits[1],
         "writers": credits[2],
         "actors": credits[3],
-        "connections": connections,
+        "graph": graph,
     })
 
 if __name__ == '__main__':

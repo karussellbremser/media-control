@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>{{ title }}</title>
+	<script src="/static/graph.js" defer></script>
 	<script src="/static/search.js" defer></script>
 	{% if curtain_enabled %}
 	<script src="/static/curtain.js" defer></script>
@@ -1263,40 +1264,145 @@
 			text-decoration: underline;
 		}
 
-		.connTarget .detailMore {
-			margin: 0; /* the "+ N more" of a series' connection origins: no space under it, it sits in a text line */
+		/* the connection map (static/graph.js) */
+		.connMap {
+			margin-bottom: 18px;
 		}
 
-		.connTarget {
+		.connMap svg {
+			display: block;
+			width: 100%;
+			height: auto;
+		}
+
+		.graphEdge {
+			fill: none;
+			stroke: rgba(255, 255, 255, 0.42);
+			stroke-width: 1.5;
+		}
+
+		.graphEdge--spin_off_from, .graphEdge--remake_of, .graphEdge--version_of, .graphEdge--alternate_language_version_of {
+			stroke-width: 1;
+		}
+
+		.graphNode rect {
+			fill: rgba(255, 255, 255, 0.06);
+			stroke: rgba(255, 255, 255, 0.30);
+			stroke-width: 0.8;
+			stroke-dasharray: 4 3;
+		}
+
+		.graphNode text {
+			fill: #a2a2aa;
+			font-size: 12px;
+		}
+
+		.graphNode--owned rect {
+			fill: rgba(56, 142, 60, 0.30);
+			stroke: rgba(130, 200, 135, 0.60);
+			stroke-dasharray: none;
+		}
+
+		.graphNode--owned text {
+			fill: #d3ecd4;
+		}
+
+		.graphNode--current rect {
+			stroke: #9bd4a0;
+			stroke-width: 2;
+		}
+
+		.graphNode--current text {
+			font-weight: 500;
+		}
+
+		a.graphNode, .graphNode[role="button"] {
+			cursor: pointer;
+			outline: none;
+		}
+
+		a.graphNode:hover rect, .graphNode[role="button"]:hover rect, .graphNode.graphOpen rect {
+			stroke: #8fb0ea;
+			stroke-width: 1.5;
+		}
+
+		a.graphNode:focus-visible rect, .graphNode[role="button"]:focus-visible rect {
+			stroke: #8fb0ea;
+			stroke-width: 2;
+		}
+
+		/* pointing at a title: its direct connections stand out, the rest steps back */
+		.graphFocus .graphNode, .graphFocus .graphEdge {
+			opacity: 0.25;
+		}
+
+		.graphFocus .graphNode.graphLit {
+			opacity: 1;
+		}
+
+		.graphFocus .graphEdge.graphLit {
+			opacity: 1;
+			stroke: #8fb0ea;
+			stroke-width: 2;
+		}
+
+		.graphHidden {
+			fill: none;
+			stroke: #8fb0ea;
+			stroke-width: 1.5;
+		}
+
+		.graphLegend {
 			display: flex;
-			align-items: baseline; /* the dot sits on the first line when an entry wraps */
-			gap: 8px;
+			flex-wrap: wrap;
+			gap: 4px 16px;
+			margin-top: 6px;
+			font-size: 11px;
+			color: #8b8b93;
 		}
 
-		.connTarget + .connTarget {
-			margin-top: 3px;
+		.graphLegend span {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
 		}
 
-		.connDot {
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			border: 1px solid #7a7c84;
-			flex-shrink: 0;
+		.graphLegend svg {
+			width: auto;
+			flex: none;
 		}
 
-		.connDot.owned {
-			background: #4caf50;
-			border-color: #4caf50;
+		.graphClusterList {
+			margin-top: 8px;
+			padding: 8px 12px;
+			border-radius: 8px;
+			background: rgba(255, 255, 255, 0.05);
+			font-size: 13px;
 		}
 
-		.connTarget a {
+		.graphClusterHeading {
+			margin-bottom: 4px;
+			color: #a2a2aa;
+			font-size: 12px;
+		}
+
+		.graphClusterItems {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+		}
+
+		.graphClusterItems a {
 			color: inherit;
 		}
 
-		/* where a target episode sits / which episodes a series' connection comes from */
-		.connNote {
-			color: #a2a2aa;
+		.srOnly {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
 		}
 
 		.detailError {

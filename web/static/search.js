@@ -216,13 +216,20 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	// showDetails: the credit's details (a character name, a source credit's wording) behind each name
-	// "S01E05" (with the given text before/after it) -- nothing for an episode IMDb gives no number
-	function episodeCode(season, episode, before = '', after = '') {
-		if (season === null || episode === null) return '';
-		return before + 'S' + String(season).padStart(2, '0') + 'E' + String(episode).padStart(2, '0') + after;
+	// where a node of the connection map leads: a title in the library opens in place -- an episode (or a group of them)
+	// through its series, on that episode, as an episode has no overlay of its own --, any other goes to its IMDb page
+	function connectionLink(node) {
+		if (!node.owned) {
+			return { href: 'https://www.imdb.com/title/' + idString(node.imdbId) + '/', title: 'not in the library -- open on IMDb', external: true };
+		}
+		if (node.seriesId) {
+			return { href: '#' + idString(node.seriesId), title: 'in the library -- open the series',
+				open: () => openDetail(node.seriesId, true, node.seriesTitle, { season: node.season, episode: node.episode }) };
+		}
+		return { href: '#' + idString(node.imdbId), title: 'in the library -- open', open: () => openDetail(node.imdbId, true, node.title) };
 	}
 
+	// showDetails: the credit's details (a character name, a source credit's wording) behind each name
 	function nameList(people, showDetails) {
 		const wrap = makeEl('span', 'detailNames');
 		people.forEach(p => {
@@ -673,65 +680,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			detailBody.appendChild(grid);
 		}
 
-		if (d.connections.length) {
+		// the connections as a map of the group of titles they lead to (graph.js); a title that has none gets no section
+		if (d.graph.edges.length) {
 			detailBody.appendChild(makeEl('h3', '', 'Connections'));
-			const grid = makeEl('div', 'detailGrid');
-			const byType = new Map();
-			d.connections.forEach(c => {
-				if (!byType.has(c.type)) byType.set(c.type, []);
-				byType.get(c.type).push(c);
+			const mapBox = makeEl('div', 'connMap');
+			detailBody.appendChild(mapBox);
+			ConnectionGraph.render(mapBox, d.graph, {
+				width: Math.max(360, Math.min(720, detailBody.clientWidth || 560)),
+				fontFamily: getComputedStyle(detailBody).fontFamily,
+				labels: CONNECTION_LABELS,
+				linkFor: connectionLink
 			});
-			byType.forEach((targets, type) => {
-				grid.appendChild(makeEl('span', 'label', CONNECTION_LABELS[type] || type));
-				const cell = makeEl('span');
-				targets.forEach(t => {
-					const row = makeEl('span', 'connTarget');
-					row.appendChild(makeEl('span', 'connDot' + (t.owned ? ' owned' : '')));
-					const text = makeEl('span');
-					const link = makeEl('a', '', t.title + (t.year ? ' (' + t.year + ')' : ''));
-					if (t.owned && t.seriesId) {
-						// an episode has no overlay of its own: open its series, on that episode
-						link.href = '#' + idString(t.seriesId);
-						link.title = 'in the library -- open the series';
-						attachDetailOpen(link, t.seriesId, t.seriesTitle, { season: t.season, episode: t.episode });
-					} else if (t.owned) {
-						link.href = '#' + idString(t.imdbId);
-						link.title = 'in the library -- open';
-						attachDetailOpen(link, t.imdbId, t.title);
-					} else {
-						link.href = 'https://www.imdb.com/title/' + idString(t.imdbId) + '/';
-						link.title = 'not in the library -- open on IMDb';
-						link.target = '_blank';
-						link.rel = 'noopener noreferrer';
-					}
-					text.appendChild(link);
-					// a target that is an episode: where it sits, e.g. " – Disneyland S28E19"
-					if (t.seriesTitle) {
-						text.appendChild(makeEl('span', 'connNote', ' – ' + t.seriesTitle + episodeCode(t.season, t.episode, ' ')));
-					}
-					// a series' connection that comes from its episodes: the first two of them, a "+ N more" button for the rest (all in the hover text)
-					if (t.origins.length) {
-						const label = o => episodeCode(o.season, o.episode, '', ' ') + o.title;
-						const note = makeEl('span', 'connNote', ' · ' + t.origins.slice(0, 2).map(label).join(', '));
-						note.title = t.origins.map(label).join('\n');
-						text.appendChild(note);
-						if (t.origins.length > 2) {
-							const more = makeEl('button', 'detailMore', '+ ' + (t.origins.length - 2) + ' more');
-							more.type = 'button';
-							more.addEventListener('click', () => {
-								note.textContent = ' · ' + t.origins.map(label).join(', ');
-								more.remove();
-							});
-							text.appendChild(document.createTextNode(' '));
-							text.appendChild(more);
-						}
-					}
-					row.appendChild(text);
-					cell.appendChild(row);
-				});
-				grid.appendChild(cell);
-			});
-			detailBody.appendChild(grid);
 		}
 
 		detailBody.scrollTop = 0;
