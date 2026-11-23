@@ -102,9 +102,8 @@ class ScrapeIMDbOnline:
                     raise ScrapingError(description + " failed after retrying for " + str(self.network_retry_max_wait) +
                                          "s (last error: " + str(e).splitlines()[0] + ")") from e
                 delay = min(self.network_retry_delay, remaining)
-                printAlways("WARNING: " + description + " failed (" + str(e).splitlines()[0] + "), retrying in " +
-                            str(round(delay)) + "s... (" + str(round(self.network_retry_max_wait - remaining)) +
-                            "s/" + str(self.network_retry_max_wait) + "s of retry budget used)")
+                printAlways("WARNING: " + description + " failed (" + str(e).splitlines()[0] + "). Trying again in " +
+                            str(round(delay)) + "s, giving up after " + str(self.network_retry_max_wait) + "s in total.")
                 time.sleep(delay)
 
     def __isHumanVerificationPage(self):

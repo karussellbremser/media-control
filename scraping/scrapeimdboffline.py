@@ -244,8 +244,9 @@ class ScrapeIMDbOffline:
             FROM episodes WHERE season_number IS NOT NULL
             GROUP BY parent_id, season_number, episode_number HAVING COUNT(*) > 1""")
         for parent_id, season, episode, ids in c.fetchall():
-            printAlways("WARNING: duplicate season/episode (" + str(season) + ", " + str(episode) + ") for series tt" +
-                  str(parent_id).zfill(7) + ": " + ids)
+            titles = ", ".join("tt" + imdbId.zfill(7) for imdbId in ids.split(","))
+            printAlways("WARNING: IMDb lists more than one title (" + titles + ") as season " + str(season) + ", episode " +
+                  str(episode) + " of series tt" + str(parent_id).zfill(7) + ". Only one of them can be used.")
 
     # ------------------------------------------------------------------
     # looking things up in the helper DB
@@ -318,7 +319,7 @@ class ScrapeIMDbOffline:
         missingIDs = content_dict.keys() - foundIDs
         for missing_id in missingIDs:
             printAlways("WARNING: person " + content_dict[missing_id].getIDString() + " (" + str(content_dict[missing_id].name) +
-                  ") not found in the offline dataset -- keeping existing data unchanged")
+                  ") wasn't found in IMDb's downloaded data. Their stored details were left as they are.")
 
         return content_dict, missingIDs
 

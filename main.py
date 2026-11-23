@@ -439,8 +439,8 @@ def syncLocal(mediaDir, coverDir, thumbnailDir):
         for x in flaggedMediaDict.values():
             if x.series_imdb_id is not None and x.start_year is None:
                 approxYear = scrapeimdboffline.approximateEpisodeStartYear(x.series_imdb_id, x.season_number, x.episode_number)
-                printAlways("WARNING: no release year found anywhere for episode " + str(x.original_title) + " (" + x.getIDString() +
-                            ") -- approximating start_year as " + str(approxYear))
+                printAlways("WARNING: no release year found for episode " + str(x.original_title) + " (" + x.getIDString() +
+                            "). Using " + str(approxYear) + " as an estimate.")
                 x.start_year = approxYear
 
     # 13. finalize and write newly-added media (plus this run's new credits/people) to the DB
@@ -925,7 +925,8 @@ def ensureHelperDBFresh(runAutoRefresh):
               " -- rebuilding automatically...")
         ScrapeIMDbOffline(ScrapeIMDbOnline(config.COVERS_DIR, config.COVERS_SMALL_DIR, config.SCRAPE_DELAY, config.SCRAPE_MAX_COUNT, config.CHROME_PROFILE_DIR, config.SCRAPE_HEADLESS, config.SCRAPE_PAGE_LOAD_WAIT, config.SCRAPE_PAGE_LOAD_TIMEOUT, config.SCRAPE_NETWORK_RETRY_MAX_WAIT, config.SCRAPE_NETWORK_RETRY_DELAY), config.IMDB_HELPER_DB_PATH).updateIMDbOfflineDB()
     except Exception as e:
-        printAlways("WARNING: automatic helper DB update failed: " + str(e))
+        printAlways("WARNING: couldn't update the local copy of IMDb's data files automatically: " + str(e) +
+                    (". The old copy stays in use." if exists else ""))
         return
 
     if runAutoRefresh and config.HELPER_DB_AUTO_REFRESH_ENABLED:
