@@ -708,7 +708,7 @@ class ScrapeIMDbOnline:
             if not isinstance(genreName, str) or genreName.strip() == "":
                 raise ScrapingError("unexpected genre entry on " + expectedIDString + ": " + repr(genreName))
             if self.__normalizeInterestName(genreName) not in listedNames:
-                printAlways("WARNING: " + expectedIDString + " lists genre '" + genreName.strip() + "', which has no matching interest in its interest list -- not attached")
+                printAlways("WARNING: " + expectedIDString + ": IMDb lists '" + genreName.strip() + "' as a genre in one place, but not among the title's genres and subgenres. '" + genreName.strip() + "' was not added to this title.")
 
         return interests
 
