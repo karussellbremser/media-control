@@ -12,6 +12,7 @@
 	const BOX_PRIORITY = 8; // how much more a box resists being moved aside than the stop of a long connection
 	const MAIN_LINE_PULL = 4; // the weight of a "follows" connection
 	let fades = 0; // the gradients of the shadows of running series, numbered across all maps so that no id is used twice
+	const RUNNING_TAIL = 40; // how far the shadow of a series that is still running goes on past the last step, fading out
 	const MARKER_STEP = 10; // the width of the slim step of the year a series ended in, when no box stands in that year
 	const STACK_STEP = 4; // the layers behind the box of a series (two) or a miniseries (one), each this far offset
 	const GROUP_WEIGHT = 6000; // how firmly the box of a series and its shadow stay together, against 1 for a connection
@@ -175,6 +176,7 @@
 		let step = 0;
 		// a series has a shadow that runs along the timeline to the year it ended in, a step of its own if no box stands in it
 		const seriesNodes = [...nodes.values()].filter(n => n.isSeries && n.year);
+		const tail = seriesNodes.some(n => !n.endYear) ? RUNNING_TAIL : 0; // room beyond the last step for a shadow that fades out there
 		const endYears = new Set(seriesNodes.filter(n => n.endYear && n.endYear > n.sortYear).map(n => n.endYear));
 		const lastStepOf = new Map();
 		[...new Set([...nodes.values()].map(n => n.sortYear).concat([...endYears]))].sort((a, b) => a - b).forEach(year => {
@@ -216,7 +218,7 @@
 		if (horizontal) {
 			const boxSteps = new Set();
 			nodes.forEach((n, id) => boxSteps.add(rank.get(id)));
-			boxW = Math.min(132, Math.floor((W - 2 * PAD - (stepCount - 1) * COLUMN_GAP - (stepCount - boxSteps.size) * MARKER_STEP) / boxSteps.size));
+			boxW = Math.min(132, Math.floor((W - 2 * PAD - (stepCount - 1) * COLUMN_GAP - (stepCount - boxSteps.size) * MARKER_STEP - tail) / boxSteps.size));
 			if (boxW < BOX_MIN) return null;
 		}
 
@@ -417,7 +419,7 @@
 			r.forEach(it => { it.l = p; });
 			p += levSize[k] + gap;
 		});
-		const levEnd = p - gap + PAD;
+		const levEnd = p - gap + PAD + tail;
 
 		// 9. the axis: the year of every step; steps of one year share one label with a bracket over all of them
 		const yearsOf = r => new Set(rows[r].filter(it => (it.node && it.node.sortYear) || it.marker).map(it => it.node ? it.node.sortYear : it.markerYear));
@@ -548,7 +550,7 @@
 			const depth = Math.max(0, ...stackOf(box.node)), start = box.l + depth + 6;
 			const alongOf = it => it.l + (it.node ? it.lev : L.levSize[it.row]) / 2; // the middle of its step
 			const lastItem = L.items.get(l.chain[l.chain.length - 1]);
-			const end = l.span.ended ? alongOf(lastItem) : (l.chain.length > 1 ? lastItem.l + L.levSize[lastItem.row] : box.l + box.lev) + 34;
+			const end = l.span.ended ? alongOf(lastItem) : (l.chain.length > 1 ? lastItem.l + L.levSize[lastItem.row] : box.l + box.lev) + RUNNING_TAIL;
 			const pieces = []; // a piece for every stretch in the same lane (normally one)
 			let from = start;
 			for (let k = 1; k < l.chain.length; k++) {
@@ -567,7 +569,8 @@
 					: 'M' + f(X + w) + ' ' + f(Y) + ' V' + f(Y + h - r) + (r ? ' Q' + f(X + w) + ' ' + f(Y + h) + ' ' + f(X + w - r) + ' ' + f(Y + h) : '') + ' H' + f(X + r) + (r ? ' Q' + f(X) + ' ' + f(Y + h) + ' ' + f(X) + ' ' + f(Y + h - r) : '') + ' V' + f(Y);
 				const path = svgEl('path', { d, class: 'graphShadow graphShadow--' + tint });
 				if (l.span.running && last) { // fill and outline fade out over the last part of it
-					const fade = Math.min(0.6, Math.max(0.25, 70 / along));
+					// a series in the last step has only its stub to fade out in; a longer shadow fades over its last part
+					const fade = l.chain.length === 1 ? Math.min(0.9, RUNNING_TAIL / along) : Math.min(0.6, Math.max(0.25, 70 / along));
 					const gradient = (rgb, alpha) => {
 						const id = 'graphFade' + (++fades);
 						const g = svgEl('linearGradient', { id, gradientUnits: 'userSpaceOnUse', x1: f(L.horizontal ? X : 0), y1: f(L.horizontal ? 0 : Y), x2: f(L.horizontal ? X + along : 0), y2: f(L.horizontal ? 0 : Y + along) });
