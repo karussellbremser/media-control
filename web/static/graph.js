@@ -160,8 +160,8 @@
 		edges = edges.filter(e => !hiddenSet.has(e));
 
 		// 3. steps: every release year is one step, in order. Titles of one year that are connected follow each other in extra
-		// steps (the year is written once, over all of them); a connection that runs against the years -- rare -- pushes its
-		// later title down until it follows.
+		// steps (the year is written once, over all of them). The years decide: a connection that runs against them (a remake
+		// of a title that came out later, say) is drawn backwards, from the later title to the earlier one.
 		const directed = edges.map(e => {
 			if (!SYMMETRIC.includes(e.type)) return { from: e.b, to: e.a, e };
 			const a = nodes.get(e.a), b = nodes.get(e.b);
@@ -179,20 +179,15 @@
 			ids.forEach(id => rank.set(id, step + sub.get(id)));
 			step += Math.max(...sub.values()) + 1;
 		});
-		for (let i = 0; i < nodes.size + 2; i++) {
-			let changed = false;
-			directed.forEach(d => { if (rank.get(d.to) <= rank.get(d.from)) { rank.set(d.to, rank.get(d.from) + 1); changed = true; } });
-			if (!changed) break;
-		}
-		const used = [...new Set(rank.values())].sort((a, b) => a - b);
-		rank.forEach((r, id) => rank.set(id, used.indexOf(r)));
+		// the steps a connection crosses, between its two ends
+		const crossed = d => { const a = rank.get(d.from), b = rank.get(d.to); return [Math.min(a, b) + 1, Math.max(a, b)]; };
 		if (!horizontal) {
 			// a step that is wider than the drawing is split in two, one half below the other (the year stays over both)
 			for (let guard = 0; guard < 200; guard++) {
 				const last = Math.max(...rank.values());
 				const real = Array.from({ length: last + 1 }, () => []), dummies = new Array(last + 1).fill(0);
 				rank.forEach((r, id) => real[r].push(id));
-				directed.forEach(d => { for (let r = rank.get(d.from) + 1; r < rank.get(d.to); r++) dummies[r]++; });
+				directed.forEach(d => { const [first, end] = crossed(d); for (let r = first; r < end; r++) dummies[r]++; });
 				const need = (r, count) => count * boxW + dummies[r] * DUMMY_W + Math.max(0, count + dummies[r] - 1) * GAP;
 				const over = real.findIndex((ids, r) => ids.length > 1 && need(r, ids.length) > W - axisV - 2 * PAD);
 				if (over < 0) break;
@@ -212,14 +207,16 @@
 		nodes.forEach((n, id) => items.set(id, { id, node: n, row: rank.get(id) }));
 		const links = [];
 		directed.forEach(d => {
-			const chain = [d.from];
-			for (let r = rank.get(d.from) + 1; r < rank.get(d.to); r++) {
+			// the chain runs along the steps; one that runs against the years is drawn from its last item back to its first
+			const backward = rank.get(d.to) < rank.get(d.from), [early, late] = backward ? [d.to, d.from] : [d.from, d.to];
+			const chain = [early];
+			for (let r = rank.get(early) + 1; r < rank.get(late); r++) {
 				const id = 'dummy:' + links.length + ':' + r;
 				items.set(id, { id, node: null, row: r });
 				chain.push(id);
 			}
-			chain.push(d.to);
-			links.push({ type: d.e.type, chain, edge: d.e });
+			chain.push(late);
+			links.push({ type: d.e.type, chain, edge: d.e, backward });
 		});
 
 		// 5. box sizes from the wrapped text; "lane" is the extent across the steps, "lev" the extent along them. The year is
@@ -451,20 +448,24 @@
 		const edgeEls = [], nodeEls = new Map();
 		// where a connection leaves / enters an item: its lane position and the extent along the steps (a stop is passed straight through)
 		const pointOf = id => { const it = L.items.get(id); return { c: it.c + it.lane / 2, s: it.l, e: it.node ? it.l + it.lev : it.l + L.levSize[it.row] }; };
-		const curve = points => {
-			const start = XY(points[0].c, points[0].e);
+		// backward: the points run against the steps, so a connection leaves an item on its early side and enters the next on its late side
+		const curve = (points, backward) => {
+			const exit = p => backward ? p.s : p.e, entry = (q, last) => backward ? q.e + (last ? 2 : 0) : q.s - (last ? 2 : 0);
+			const start = XY(points[0].c, exit(points[0]));
 			let d = 'M' + f(start[0]) + ' ' + f(start[1]);
 			for (let k = 1; k < points.length; k++) {
-				const p = points[k - 1], q = points[k], s1 = p.e, s2 = q.s - (k === points.length - 1 ? 2 : 0), mid = (s1 + s2) / 2;
+				const p = points[k - 1], q = points[k], s1 = exit(p), s2 = entry(q, k === points.length - 1), mid = (s1 + s2) / 2;
 				const a = XY(p.c, mid), b = XY(q.c, mid), end = XY(q.c, s2);
 				d += ' C' + f(a[0]) + ' ' + f(a[1]) + ' ' + f(b[0]) + ' ' + f(b[1]) + ' ' + f(end[0]) + ' ' + f(end[1]);
-				if (k < points.length - 1) { const through = XY(q.c, q.e); d += ' L' + f(through[0]) + ' ' + f(through[1]); }
+				if (k < points.length - 1) { const through = XY(q.c, backward ? q.s : q.e); d += ' L' + f(through[0]) + ' ' + f(through[1]); }
 			}
 			return d;
 		};
 
 		L.links.forEach(l => {
-			const path = svgEl('path', { d: curve(l.chain.map(pointOf)), class: 'graphEdge graphEdge--' + l.type });
+			const points = l.chain.map(pointOf);
+			if (l.backward) points.reverse();
+			const path = svgEl('path', { d: curve(points, l.backward), class: 'graphEdge graphEdge--' + l.type });
 			if (ARROW[l.type]) path.setAttribute('marker-end', 'url(#' + ARROW[l.type] + ')');
 			if (DASH[l.type]) path.setAttribute('stroke-dasharray', DASH[l.type]);
 			edgeLayer.appendChild(path);
