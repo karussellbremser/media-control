@@ -11,6 +11,7 @@
 	const MIDDLE_PULL = 0.15; // the weight of that pull, against 1 for a connection that is not a "follows"
 	const BOX_PRIORITY = 8; // how much more a box resists being moved aside than the stop of a long connection
 	const MAIN_LINE_PULL = 4; // the weight of a "follows" connection
+	const CROOKED_COST = 6, MAIN_LINE_COST = 3, STRAIGHTEN_REACH = 160; // see straighten: the fixed cost of a connection that is not straight, how much more the main line counts, how far a connection may be off and still be straightened (px)
 	const COLLAPSE_MIN = 6; // this many titles that are not in the library and hang off one title the same way become one node
 	const SYMMETRIC = ['version_of', 'alternate_language_version_of'];
 	const SENTENCES = {
@@ -32,6 +33,70 @@
 	}
 
 	// ------------------------------------------------------------------------------------------------------ layout
+
+	// Straightening, the last step of the placement: where a connection is off a straight line, the boxes that are already in
+	// line with each other are moved together until it is straight -- when there is room, and the drawing as a whole gets
+	// better: a crooked connection costs a fixed amount plus its offset, one of the main line of sequels three times that. A
+	// stop of a long connection that is in the way is moved along with its line; a box is never pushed aside.
+	function straighten(rows, links, minC, maxC) {
+		const segs = [];
+		links.forEach(l => { for (let k = 0; k + 1 < l.chain.length; k++) segs.push({ a: l.chain[k], b: l.chain[k + 1], w: l.type === 'follows' ? MAIN_LINE_COST : 1 }); });
+		const itemOf = new Map(), incident = new Map();
+		rows.forEach(r => r.forEach(it => itemOf.set(it.id, it)));
+		segs.forEach(s => { [s.a, s.b].forEach(id => { if (!incident.has(id)) incident.set(id, []); incident.get(id).push(s); }); });
+		const mid = id => { const it = itemOf.get(id); return it.c + it.lane / 2; };
+		const offset = s => mid(s.b) - mid(s.a);
+		const cost = (s, da, db) => { const dx = Math.abs(offset(s) + db - da); return dx < 0.5 ? 0 : s.w * (CROOKED_COST + dx); };
+		// the items in line with this one: connected to it by exactly straight connections
+		const lineOf = id => {
+			const seen = new Set([id]), stack = [id];
+			while (stack.length) {
+				const x = stack.pop();
+				(incident.get(x) || []).forEach(s => {
+					if (Math.abs(offset(s)) >= 0.5) return;
+					const y = s.a === x ? s.b : s.a;
+					if (!seen.has(y)) { seen.add(y); stack.push(y); }
+				});
+			}
+			return seen;
+		};
+		const tryMove = (start, delta) => {
+			const members = new Set(start);
+			for (let attempt = 0; ; attempt++) {
+				let blocker = null;
+				for (const id of members) {
+					const it = itemOf.get(id), c = it.c + delta;
+					if (c < minC - 1e-6 || c + it.lane > maxC + 1e-6) return false;
+					const row = rows[it.row], i = row.indexOf(it), left = row[i - 1], right = row[i + 1];
+					if (left && !members.has(left.id) && c < left.c + left.lane + GAP - 1e-6) { blocker = left; break; }
+					if (right && !members.has(right.id) && c + it.lane + GAP > right.c + 1e-6) { blocker = right; break; }
+				}
+				if (!blocker) break;
+				if (blocker.node || attempt > 12) return false;
+				lineOf(blocker.id).forEach(x => members.add(x));
+			}
+			let before = 0, after = 0;
+			const counted = new Set();
+			members.forEach(id => (incident.get(id) || []).forEach(s => {
+				if (counted.has(s)) return;
+				counted.add(s);
+				before += cost(s, 0, 0);
+				after += cost(s, members.has(s.a) ? delta : 0, members.has(s.b) ? delta : 0);
+			}));
+			if (after >= before - 1e-6) return false;
+			members.forEach(id => { itemOf.get(id).c += delta; });
+			return true;
+		};
+		for (let pass = 0; pass < 40; pass++) {
+			let changed = false;
+			segs.slice().sort((p, q) => q.w - p.w || Math.abs(offset(p)) - Math.abs(offset(q))).forEach(s => {
+				const dx = offset(s);
+				if (Math.abs(dx) < 0.5 || Math.abs(dx) > STRAIGHTEN_REACH) return;
+				if (tryMove(lineOf(s.b), -dx) || tryMove(lineOf(s.a), dx)) changed = true;
+			});
+			if (!changed) break;
+		}
+	}
 
 	// Terms: a "step" is one position along the timeline (a row of a downward map, a column of a horizontal one); a "lane" is
 	// the position across it. An item is a box or the invisible stop of a long connection in a step it crosses.
@@ -237,9 +302,10 @@
 		}
 		best.forEach((r, i) => { rows[i] = r; });
 
-		// 7. position across the steps: every item is pulled towards its neighbours on both sides (a connection through a
-		// stop counts more, so long ones run straight), and each step is then set as close to those wishes as its order and
-		// the room the boxes need allow -- chains come out straight and a fan sits centred over what it hangs off
+		// 7. position across the steps: every item is pulled towards its neighbours on both sides (the main line of sequels
+		// and the stops of long connections count more), and each step is then set as close to those wishes as its order and
+		// the room the boxes need allow -- a fan sits centred over what it hangs off. Connections that are only a little off
+		// a straight line are then straightened
 		const laneW = W - axisV, minC = horizontal ? -Infinity : PAD, maxC = horizontal ? Infinity : laneW - PAD;
 		rows.forEach(r => {
 			const total = r.reduce((s, it) => s + it.lane, 0) + (r.length - 1) * GAP;
@@ -279,6 +345,7 @@
 				if (over > 0) row.forEach(it => { it.c = Math.max(minC, it.c - over); });
 			});
 		}
+		straighten(rows, links, minC, maxC);
 		let laneExtent = laneW;
 		{
 			const all = [...items.values()];
