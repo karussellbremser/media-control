@@ -1304,10 +1304,12 @@ def _connectionGraph(cursor, imdb_id, isSeries):
     no connections.
     An episode is a title of its own: nothing connects two episodes just because they are of one series. The page of a
     series starts from the series and all its owned episodes, shown as the series itself (an edge that comes from episodes
-    has them as "via"). Episodes of one series that are connected to exactly the same titles in the same way share one node
-    ("kind": "group"). Titles that are not in the library and all follow exactly the same titles of the library are
-    chained in release order, same-year titles side by side ("assumed": the connections between titles that are not in the
-    library are never stored, so this is the best guess)."""
+    has them as "via"; a series connected through episodes counts as released in the year of those episodes, not of its
+    start, as that is when the connection happens). Episodes of one series that are connected to exactly the same titles in the
+    same way share one node ("kind": "group"). Titles that are not in the library and all follow exactly the same titles of
+    the library, or are all followed by exactly the same titles of it, are chained in release order, same-year titles side
+    by side ("assumed": the connections between titles that are not in the library are never stored, so this is the best
+    guess)."""
     cursor.execute("""
         SELECT mc.imdb_id, mc.foreign_imdb_id, ct.connection_type_name
         FROM media_connections mc JOIN connection_type_enum ct ON mc.connection_type_id = ct.connection_type_id
@@ -1345,6 +1347,7 @@ def _connectionGraph(cursor, imdb_id, isSeries):
     # is the series
     alias = {episode: imdb_id for episode in ownedEpisodes}
     edges = {}
+    viaYears = [] # the years of the episodes a series is connected through
     for a, b, typeName in rows:
         if a not in reached or a == b:
             continue
@@ -1352,6 +1355,7 @@ def _connectionGraph(cursor, imdb_id, isSeries):
         if flip:
             a, b = b, a
         via = [(meta[x][5], meta[x][6]) for x in (a, b) if x in alias and x != imdb_id]
+        viaYears.extend(meta[x][2] for x in (a, b) if x in alias and x != imdb_id and meta[x][2])
         a, b = alias.get(a, a), alias.get(b, b)
         if a == b:
             continue
@@ -1416,26 +1420,32 @@ def _connectionGraph(cursor, imdb_id, isSeries):
                  "yearText": str(year) if year else "", "owned": bool(owned), "imdbId": node}
         if seriesId is not None and node != imdb_id:
             entry.update({"title": episodeTitle(node), "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode})
+        if node == imdb_id and viaYears:
+            lo, hi = min(viaYears), max(viaYears) # a series connected through episodes sits at their years, not at its start
+            entry["year"] = lo
+            entry["yearText"] = str(lo) if lo == hi else "%d–%d" % (lo, hi)
         nodes[node] = entry
 
-    # titles that are not in the library and follow exactly the same titles of the library: a chain in release order
-    predecessors = collections.defaultdict(set)
-    for (a, b, kind) in edges:
-        if kind == "follows":
-            predecessors[a].add(b)
-    siblings = collections.defaultdict(list)
-    for node, preds in predecessors.items():
-        if not nodes[node]["owned"] and all(nodes[p]["owned"] for p in preds):
-            siblings[frozenset(preds)].append(node)
-    for group in siblings.values():
-        byYear = collections.defaultdict(list)
-        for node in group:
-            byYear[nodes[node]["year"] or 9999].append(node)
-        years = sorted(byYear)
-        for earlier, later in zip(years, years[1:]):
-            for a in byYear[later]:
-                for b in byYear[earlier]:
-                    edges.setdefault((a, b, "follows"), {"a": a, "b": b, "type": "follows", "via": [], "assumed": True})
+    # titles that are not in the library and follow exactly the same titles of the library -- or are followed by exactly the
+    # same titles of it --: a chain in release order
+    follows = [(a, b) for (a, b, kind) in edges if kind == "follows"] # a follows b
+    for pairs in (follows, [(b, a) for a, b in follows]):
+        neighbours = collections.defaultdict(set)
+        for node, other in pairs:
+            neighbours[node].add(other)
+        siblings = collections.defaultdict(list)
+        for node, others in neighbours.items():
+            if not nodes[node]["owned"] and all(nodes[o]["owned"] for o in others):
+                siblings[frozenset(others)].append(node)
+        for group in siblings.values():
+            byYear = collections.defaultdict(list)
+            for node in group:
+                byYear[nodes[node]["year"] or 9999].append(node)
+            years = sorted(byYear)
+            for earlier, later in zip(years, years[1:]):
+                for a in byYear[later]:
+                    for b in byYear[earlier]:
+                        edges.setdefault((a, b, "follows"), {"a": a, "b": b, "type": "follows", "via": [], "assumed": True})
 
     out = []
     for edge in edges.values():
