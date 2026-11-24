@@ -1300,6 +1300,7 @@ def _episodeCodes(episodes):
 def _connectionGraph(cursor, imdb_id, isSeries):
     """Every title that can be reached from a title through connections, in either direction, and the connections between
     them: {start, nodes: [{id, kind, title, year, yearText, owned, imdbId, current, ...}], edges: [{a, b, type, assumed?}]};
+    a series (or miniseries) also has "isSeries", "mini", "startYear" and "endYear" (null: no end year known);
     an edge reads "a follows b" (likewise "is a spin-off of", "is a remake of", "is a version of"). Empty when the title has
     no connections.
     An episode is a title of its own: nothing connects two episodes just because they are of one series. The page of a
@@ -1336,8 +1337,9 @@ def _connectionGraph(cursor, imdb_id, isSeries):
         batch = ids[i:i + 500]
         cursor.execute("""
             SELECT m.imdb_id, m.original_title, m.start_year, m.subdir IS NOT NULL, m.series_imdb_id, m.season_number,
-                   m.episode_number, s.original_title
+                   m.episode_number, s.original_title, tt.title_type_name, m.end_year
             FROM media m LEFT JOIN media s ON m.series_imdb_id = s.imdb_id
+                 JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
             WHERE m.imdb_id IN (""" + ",".join("?" for _ in batch) + ")", batch)
         for row in cursor.fetchall():
             meta[row[0]] = row
@@ -1385,7 +1387,7 @@ def _connectionGraph(cursor, imdb_id, isSeries):
     # the nodes
     nodes = {}
     def episodeTitle(i):
-        _, title, year, owned, seriesId, season, episode, seriesTitle = meta[i]
+        _, title, year, owned, seriesId, season, episode, seriesTitle, _, _ = meta[i]
         code = "" if season is None or episode is None else " S%dE%d" % (season, episode)
         return "%s%s \"%s\"" % (seriesTitle, code, title)
     members = collections.defaultdict(list)
@@ -1406,9 +1408,11 @@ def _connectionGraph(cursor, imdb_id, isSeries):
                            "yearText": ("%d" % min(years) if min(years) == max(years) else "%d\u2013%d" % (min(years), max(years))) if years else "",
                            "owned": bool(ownedOnes), "imdbId": lead[0], "seriesId": first[4], "seriesTitle": first[7], "season": lead[5], "episode": lead[6]}
             continue
-        _, title, year, owned, seriesId, season, episode, seriesTitle = meta[node]
+        _, title, year, owned, seriesId, season, episode, seriesTitle, typeName, endYear = meta[node]
         entry = {"id": node, "kind": "title" if seriesId is None else "episode", "title": title, "year": year,
                  "yearText": str(year) if year else "", "owned": bool(owned), "imdbId": node}
+        if typeName in Media.seriesTitleTypes: # the years a series ran; no end year: still running, or not known
+            entry.update({"isSeries": True, "mini": typeName == "tvMiniSeries", "startYear": year, "endYear": endYear})
         if seriesId is not None:
             entry.update({"title": episodeTitle(node), "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode})
         nodes[node] = entry

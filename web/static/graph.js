@@ -11,6 +11,10 @@
 	const MIDDLE_PULL = 0.15; // the weight of that pull, against 1 for a connection that is not a "follows"
 	const BOX_PRIORITY = 8; // how much more a box resists being moved aside than the stop of a long connection
 	const MAIN_LINE_PULL = 4; // the weight of a "follows" connection
+	let fades = 0; // the gradients of the shadows of running series, numbered across all maps so that no id is used twice
+	const MARKER_STEP = 10; // the width of the slim step of the year a series ended in, when no box stands in that year
+	const STACK_STEP = 4; // the layers behind the box of a series (two) or a miniseries (one), each this far offset
+	const GROUP_WEIGHT = 6000; // how firmly the box of a series and its shadow stay together, against 1 for a connection
 	const CROOKED_COST = 6, MAIN_LINE_COST = 3, STRAIGHTEN_REACH = 160; // see straighten: the fixed cost of a connection that is not straight, how much more the main line counts, how far a connection may be off and still be straightened (px)
 	const COLLAPSE_MIN = 6; // this many titles that are not in the library and hang off one title the same way become one node
 	const SYMMETRIC = ['version_of', 'alternate_language_version_of'];
@@ -37,10 +41,10 @@
 	// Straightening, the last step of the placement: where a connection is off a straight line, the boxes that are already in
 	// line with each other are moved together until it is straight -- when there is room, and the drawing as a whole gets
 	// better: a crooked connection costs a fixed amount plus its offset, one of the main line of sequels three times that. A
-	// stop of a long connection that is in the way is moved along with its line; a box is never pushed aside.
+	// stop of a long connection that is in the way is moved along with its line; a box, or the shadow of a series, is never pushed aside.
 	function straighten(rows, links, minC, maxC) {
 		const segs = [];
-		links.forEach(l => { for (let k = 0; k + 1 < l.chain.length; k++) segs.push({ a: l.chain[k], b: l.chain[k + 1], w: l.type === 'follows' ? MAIN_LINE_COST : 1 }); });
+		links.forEach(l => { for (let k = 0; k + 1 < l.chain.length; k++) segs.push({ a: l.chain[k], b: l.chain[k + 1], w: l.type === 'follows' || l.type === 'span' ? MAIN_LINE_COST : 1 }); });
 		const itemOf = new Map(), incident = new Map();
 		rows.forEach(r => r.forEach(it => itemOf.set(it.id, it)));
 		segs.forEach(s => { [s.a, s.b].forEach(id => { if (!incident.has(id)) incident.set(id, []); incident.get(id).push(s); }); });
@@ -72,7 +76,7 @@
 					if (right && !members.has(right.id) && c + it.lane + GAP > right.c + 1e-6) { blocker = right; break; }
 				}
 				if (!blocker) break;
-				if (blocker.node || attempt > 12) return false;
+				if (blocker.node || blocker.shadowOf || attempt > 12) return false;
 				lineOf(blocker.id).forEach(x => members.add(x));
 			}
 			let before = 0, after = 0;
@@ -169,7 +173,11 @@
 		});
 		const rank = new Map();
 		let step = 0;
-		[...new Set([...nodes.values()].map(n => n.sortYear))].sort((a, b) => a - b).forEach(year => {
+		// a series has a shadow that runs along the timeline to the year it ended in, a step of its own if no box stands in it
+		const seriesNodes = [...nodes.values()].filter(n => n.isSeries && n.year);
+		const endYears = new Set(seriesNodes.filter(n => n.endYear && n.endYear > n.sortYear).map(n => n.endYear));
+		const lastStepOf = new Map();
+		[...new Set([...nodes.values()].map(n => n.sortYear).concat([...endYears]))].sort((a, b) => a - b).forEach(year => {
 			const ids = [...nodes.keys()].filter(id => nodes.get(id).sortYear === year), sub = new Map(ids.map(id => [id, 0]));
 			for (let i = 0; i <= ids.length; i++) {
 				let changed = false;
@@ -177,8 +185,10 @@
 				if (!changed) break;
 			}
 			ids.forEach(id => rank.set(id, step + sub.get(id)));
-			step += Math.max(...sub.values()) + 1;
+			step += ids.length ? Math.max(...sub.values()) + 1 : 1;
+			lastStepOf.set(year, step - 1);
 		});
+		seriesNodes.forEach(n => { if (n.endYear && n.endYear > n.sortYear) rank.set('end:' + n.id, lastStepOf.get(n.endYear)); });
 		// the steps a connection crosses, between its two ends
 		const crossed = d => { const a = rank.get(d.from), b = rank.get(d.to); return [Math.min(a, b) + 1, Math.max(a, b)]; };
 		if (!horizontal) {
@@ -186,9 +196,15 @@
 			for (let guard = 0; guard < 200; guard++) {
 				const last = Math.max(...rank.values());
 				const real = Array.from({ length: last + 1 }, () => []), dummies = new Array(last + 1).fill(0);
-				rank.forEach((r, id) => real[r].push(id));
+				rank.forEach((r, id) => { if (!String(id).startsWith('end:')) real[r].push(id); });
+				// a shadow takes the room of a box in every step it covers
+				const shadows = new Array(last + 1).fill(0);
+				seriesNodes.forEach(n => {
+					const r0 = rank.get(n.id), r1 = rank.has('end:' + n.id) ? rank.get('end:' + n.id) : (n.endYear ? r0 : last);
+					for (let r = r0 + 1; r <= r1; r++) shadows[r]++;
+				});
 				directed.forEach(d => { const [first, end] = crossed(d); for (let r = first; r < end; r++) dummies[r]++; });
-				const need = (r, count) => count * boxW + dummies[r] * DUMMY_W + Math.max(0, count + dummies[r] - 1) * GAP;
+				const need = (r, count) => (count + shadows[r]) * boxW + dummies[r] * DUMMY_W + Math.max(0, count + shadows[r] + dummies[r] - 1) * GAP;
 				const over = real.findIndex((ids, r) => ids.length > 1 && need(r, ids.length) > W - axisV - 2 * PAD);
 				if (over < 0) break;
 				const ids = real[over].slice().sort((x, y) => String(x).localeCompare(String(y)));
@@ -198,7 +214,9 @@
 		}
 		const stepCount = Math.max(...rank.values()) + 1;
 		if (horizontal) {
-			boxW = Math.min(132, Math.floor((W - 2 * PAD - (stepCount - 1) * COLUMN_GAP) / stepCount));
+			const boxSteps = new Set();
+			nodes.forEach((n, id) => boxSteps.add(rank.get(id)));
+			boxW = Math.min(132, Math.floor((W - 2 * PAD - (stepCount - 1) * COLUMN_GAP - (stepCount - boxSteps.size) * MARKER_STEP) / boxSteps.size));
 			if (boxW < BOX_MIN) return null;
 		}
 
@@ -217,6 +235,23 @@
 			}
 			chain.push(late);
 			links.push({ type: d.e.type, chain, edge: d.e, backward });
+		});
+
+		// the shadow of a series: an item as wide as its box in every step up to the one of its last year (a marker in that one);
+		// a series without an end year has one to the last step
+		seriesNodes.forEach(n => {
+			const r0 = rank.get(n.id), chain = [n.id];
+			const shadow = r => { const id = 'shadow:' + n.id + ':' + r; items.set(id, { id, node: null, row: r, shadowOf: n.id }); chain.push(id); };
+			if (n.endYear && n.endYear > n.sortYear) {
+				const endId = 'end:' + n.id;
+				for (let r = r0 + 1; r < rank.get(endId); r++) shadow(r);
+				items.set(endId, { id: endId, node: null, row: rank.get(endId), marker: true, markerYear: n.endYear, shadowOf: n.id });
+				chain.push(endId);
+				links.push({ type: 'span', chain, edge: { a: n.id, b: n.id, type: 'span' }, span: { id: n.id, ended: true } });
+			} else if (!n.endYear) {
+				for (let r = r0 + 1; r < stepCount; r++) shadow(r);
+				links.push({ type: 'span', chain, edge: { a: n.id, b: n.id, type: 'span' }, span: { id: n.id, running: true } });
+			}
 		});
 
 		// 5. box sizes from the wrapped text; "lane" is the extent across the steps, "lev" the extent along them. The year is
@@ -239,8 +274,11 @@
 				i.lines = wrap(i.node);
 				i.w = boxW; i.h = i.lines.length * LINE_H + 12;
 				i.lane = horizontal ? i.h : i.w; i.lev = horizontal ? i.w : i.h;
-			} else { i.lane = DUMMY_W; i.lev = 0; i.w = DUMMY_W; i.h = 0; }
+			} else { i.lane = DUMMY_W; i.lev = i.marker ? MARKER_STEP : 0; i.w = DUMMY_W; i.h = 0; }
 		});
+		// the box of a series and its shadow are one group, which keeps one position across the steps
+		items.forEach(i => { if (i.shadowOf) { i.lane = items.get(i.shadowOf).lane; i.group = i.shadowOf; } });
+		links.forEach(l => { if (l.type === 'span') items.get(l.chain[0]).group = l.chain[0]; });
 
 		// 6. order within the steps: sweeps that put each item at the average position of its neighbours, with swaps of
 		// neighbours wherever that saves a crossing; the order with the fewest crossings wins
@@ -253,12 +291,13 @@
 				if (!up.has(b)) up.set(b, []);
 				up.get(b).push(a);
 				// the main line of sequels runs straightest; a stop of a long connection counts double, so long ones run straight too
-				const w = (l.type === 'follows' ? MAIN_LINE_PULL : 1) * (items.get(a).node ? 1 : 2) * (items.get(b).node ? 1 : 2);
+				const w = (l.type === 'follows' || l.type === 'span' ? MAIN_LINE_PULL : 1) * (items.get(a).node ? 1 : 2) * (items.get(b).node ? 1 : 2);
 				pull.set(a + '|' + b, (pull.get(a + '|' + b) || 0) + w);
 				pull.set(b + '|' + a, (pull.get(b + '|' + a) || 0) + w);
 			}
 		});
-		rows.forEach(r => r.sort((a, b) => ((a.node ? a.node.sortYear : 1e9) - (b.node ? b.node.sortYear : 1e9)) || String(a.id).localeCompare(String(b.id))));
+		// among items that want the same place a shadow comes first, so the lines of its series run beside it
+		rows.forEach(r => r.sort((a, b) => ((a.node ? a.node.sortYear : 1e9) - (b.node ? b.node.sortYear : 1e9)) || ((b.shadowOf ? 1 : 0) - (a.shadowOf ? 1 : 0)) || String(a.id).localeCompare(String(b.id))));
 		const crossingsBelow = r => { // crossings between step r and the one after it
 			if (r < 0 || r + 1 >= rows.length) return 0;
 			const lower = new Map(rows[r + 1].map((it, i) => [it.id, i])), segs = [];
@@ -290,7 +329,7 @@
 			order.forEach(r => {
 				const pos = posOf(), nb = goingDown ? up : down;
 				const key = it => { const ns = nb.get(it.id); return ns && ns.length ? ns.reduce((s, n) => s + pos.get(n), 0) / ns.length : pos.get(it.id); };
-				const keys = new Map(rows[r].map(it => [it.id, key(it)]));
+				const keys = new Map(rows[r].map(it => [it.id, key(it) - (it.shadowOf ? 1e-4 : 0)]));
 				rows[r].sort((a, b) => keys.get(a.id) - keys.get(b.id));
 			});
 			transpose();
@@ -312,12 +351,29 @@
 		const centre = it => it.c + it.lane / 2, middle = horizontal ? 0 : laneW / 2;
 		for (let pass = 0; pass < 120; pass++) {
 			const order = pass % 2 === 0 ? rows.map((_, i) => i) : rows.map((_, i) => rows.length - 1 - i);
+			// a series box and its shadow are one thing. At first it wants to be where the connections of the box pull it; later
+			// where the members of the group actually are on average, so that they agree even where a step has to make room
+			const pulls = new Map(), where = new Map(), targets = new Map();
+			rows.forEach(r => r.forEach(it => {
+				if (!it.group) return;
+				const w = where.get(it.group) || { sum: 0, n: 0 };
+				w.sum += centre(it); w.n++; where.set(it.group, w);
+				const a = pulls.get(it.group) || { sw: MIDDLE_PULL, sc: MIDDLE_PULL * middle };
+				[...new Set((up.get(it.id) || []).concat(down.get(it.id) || []))].forEach(n => {
+					if (items.get(n).group === it.group) return;
+					const k = pull.get(it.id + '|' + n);
+					a.sw += k; a.sc += k * centre(items.get(n));
+				});
+				pulls.set(it.group, a);
+			}));
+			pulls.forEach((a, g) => { const own = a.sc / a.sw, mean = where.get(g).sum / where.get(g).n; targets.set(g, pass < 15 ? own : pass < 30 ? (own + mean) / 2 : mean); });
 			order.forEach(r => {
 				const row = rows[r], offset = [];
 				let acc = 0;
 				row.forEach(it => { offset.push(acc); acc += it.lane + GAP; });
 				// wishes, shifted by the room taken by the items before them: they must come out in the same order
 				const wish = row.map((it, i) => {
+					if (it.group) return { q: targets.get(it.group) - it.lane / 2 - offset[i], w: GROUP_WEIGHT };
 					const ns = [...new Set((up.get(it.id) || []).concat(down.get(it.id) || []))];
 					if (!ns.length) return { q: it.c - offset[i], w: 0.01 };
 					// a faint pull towards the middle: without it a chain may run along any slanted line
@@ -364,7 +420,7 @@
 		const levEnd = p - gap + PAD;
 
 		// 9. the axis: the year of every step; steps of one year share one label with a bracket over all of them
-		const yearsOf = r => new Set(rows[r].filter(it => it.node && it.node.sortYear).map(it => it.node.sortYear));
+		const yearsOf = r => new Set(rows[r].filter(it => (it.node && it.node.sortYear) || it.marker).map(it => it.node ? it.node.sortYear : it.markerYear));
 		const axis = [];
 		for (let k = 0; k < stepCount; k++) {
 			const ys = yearsOf(k);
@@ -391,8 +447,20 @@
 
 	// --------------------------------------------------------------------------------------------------------- drawing
 
+	// the layers behind the box of a series, from the back (a miniseries has one, a series two)
+	function stackOf(n) {
+		return !n.isSeries ? [] : n.mini ? [STACK_STEP] : [2 * STACK_STEP, STACK_STEP];
+	}
+
+	// the years a series ran: "2011–2013", "2011–" (no end year known), "2014" (one year)
+	function runtime(n) {
+		if (!n.startYear) return '';
+		return n.endYear == null ? n.startYear + '–' : n.endYear === n.startYear ? String(n.startYear) : n.startYear + '–' + n.endYear;
+	}
+
 	function label(n) {
-		return n.title + (n.yearText ? ' (' + n.yearText + ')' : '');
+		const years = n.isSeries ? runtime(n) : n.yearText;
+		return n.title + (years ? ' (' + years + ')' : '');
 	}
 
 	function render(container, graph, hooks) {
@@ -443,8 +511,8 @@
 			svg.appendChild(g);
 		}
 
-		const edgeLayer = svgEl('g'), overlay = svgEl('g'), nodeLayer = svgEl('g');
-		svg.append(edgeLayer, overlay, nodeLayer);
+		const shadowLayer = svgEl('g'), stackLayer = svgEl('g'), edgeLayer = svgEl('g'), overlay = svgEl('g'), nodeLayer = svgEl('g');
+		svg.append(shadowLayer, stackLayer, edgeLayer, overlay, nodeLayer); // the layers behind a series box are beneath the lines
 		const edgeEls = [], nodeEls = new Map();
 		// where a connection leaves / enters an item: its lane position and the extent along the steps (a stop is passed straight through)
 		const pointOf = id => { const it = L.items.get(id); return { c: it.c + it.lane / 2, s: it.l, e: it.node ? it.l + it.lev : it.l + L.levSize[it.row] }; };
@@ -463,6 +531,7 @@
 		};
 
 		L.links.forEach(l => {
+			if (l.type === 'span') { drawShadow(l); return; }
 			const points = l.chain.map(pointOf);
 			if (l.backward) points.reverse();
 			const path = svgEl('path', { d: curve(points, l.backward), class: 'graphEdge graphEdge--' + l.type });
@@ -471,6 +540,47 @@
 			edgeLayer.appendChild(path);
 			edgeEls.push({ el: path, edge: l.edge });
 		});
+
+		// the shadow of a series: its box's silhouette, layers included, stretched along the timeline from where the box ends to
+		// the middle of the step of its last year; one that is still running fades out. Square where it starts, behind the layers.
+		function drawShadow(l) {
+			const box = L.items.get(l.chain[0]), tint = box.node.owned ? 'owned' : 'other';
+			const depth = Math.max(0, ...stackOf(box.node)), start = box.l + depth + 6;
+			const alongOf = it => it.l + (it.node ? it.lev : L.levSize[it.row]) / 2; // the middle of its step
+			const lastItem = L.items.get(l.chain[l.chain.length - 1]);
+			const end = l.span.ended ? alongOf(lastItem) : (l.chain.length > 1 ? lastItem.l + L.levSize[lastItem.row] : box.l + box.lev) + 34;
+			const pieces = []; // a piece for every stretch in the same lane (normally one)
+			let from = start;
+			for (let k = 1; k < l.chain.length; k++) {
+				const it = L.items.get(l.chain[k]), to = k === l.chain.length - 1 ? end : alongOf(it), prev = pieces[pieces.length - 1];
+				const c = Math.abs(it.c - box.c) < 12 ? box.c : it.c;
+				if (prev && Math.abs(prev.c - c) < 0.5) prev.to = to; else pieces.push({ c, from, to });
+				from = to;
+			}
+			if (l.chain.length === 1) pieces.push({ c: box.c, from: start, to: end });
+			pieces.forEach((p, k) => {
+				const [X, Y] = XY(p.c, p.from), along = p.to - p.from, last = k === pieces.length - 1;
+				const w = L.horizontal ? along : box.lane + depth, h = L.horizontal ? box.lane + depth : along, r = last && !l.span.running ? 6 : 0;
+				// no outline along its start; rounded only at its far end
+				const d = L.horizontal
+					? 'M' + f(X) + ' ' + f(Y) + ' H' + f(X + w - r) + (r ? ' Q' + f(X + w) + ' ' + f(Y) + ' ' + f(X + w) + ' ' + f(Y + r) : '') + ' V' + f(Y + h - r) + (r ? ' Q' + f(X + w) + ' ' + f(Y + h) + ' ' + f(X + w - r) + ' ' + f(Y + h) : '') + ' H' + f(X)
+					: 'M' + f(X + w) + ' ' + f(Y) + ' V' + f(Y + h - r) + (r ? ' Q' + f(X + w) + ' ' + f(Y + h) + ' ' + f(X + w - r) + ' ' + f(Y + h) : '') + ' H' + f(X + r) + (r ? ' Q' + f(X) + ' ' + f(Y + h) + ' ' + f(X) + ' ' + f(Y + h - r) : '') + ' V' + f(Y);
+				const path = svgEl('path', { d, class: 'graphShadow graphShadow--' + tint });
+				if (l.span.running && last) { // fill and outline fade out over the last part of it
+					const fade = Math.min(0.6, Math.max(0.25, 70 / along));
+					const gradient = (rgb, alpha) => {
+						const id = 'graphFade' + (++fades);
+						const g = svgEl('linearGradient', { id, gradientUnits: 'userSpaceOnUse', x1: f(L.horizontal ? X : 0), y1: f(L.horizontal ? 0 : Y), x2: f(L.horizontal ? X + along : 0), y2: f(L.horizontal ? 0 : Y + along) });
+						g.append(svgEl('stop', { offset: 0, 'stop-color': rgb, 'stop-opacity': alpha }), svgEl('stop', { offset: 1 - fade, 'stop-color': rgb, 'stop-opacity': alpha }), svgEl('stop', { offset: 1, 'stop-color': rgb, 'stop-opacity': 0 }));
+						defs.appendChild(g);
+						return 'url(#' + id + ')';
+					};
+					path.style.fill = tint === 'owned' ? gradient('rgb(56,142,60)', 0.16) : gradient('rgb(255,255,255)', 0.06);
+					path.style.stroke = tint === 'owned' ? gradient('rgb(130,200,135)', 0.40) : gradient('rgb(255,255,255)', 0.28);
+				}
+				shadowLayer.appendChild(path);
+			});
+		}
 
 		// what a title is connected to, in words, for the hover text
 		const relationLines = id => {
@@ -556,7 +666,21 @@
 				el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCluster(n, el); } });
 			}
 			const [x, y] = XY(it.c, it.l);
-			el.appendChild(svgEl('rect', { x: f(x), y: f(y), width: it.w, height: it.h, rx: 6 }));
+			// a series is a stack of cards: the layers behind it solid and beneath the lines, the front one solid as well, so
+			// nothing shows through it
+			const card = (parent, offset) => {
+				const base = svgEl('rect', { x: f(x + offset), y: f(y + offset), width: it.w, height: it.h, rx: 6 });
+				base.style.fill = 'var(--detailBg, #2a2b30)';
+				base.style.stroke = 'none';
+				parent.appendChild(base);
+				return svgEl('rect', { x: f(x + offset), y: f(y + offset), width: it.w, height: it.h, rx: 6 });
+			};
+			stackOf(n).forEach(offset => {
+				const layer = svgEl('g', { class: 'graphNode' + (n.owned ? ' graphNode--owned' : '') });
+				layer.appendChild(card(layer, offset));
+				stackLayer.appendChild(layer);
+			});
+			el.appendChild(n.isSeries ? card(el, 0) : svgEl('rect', { x: f(x), y: f(y), width: it.w, height: it.h, rx: 6 }));
 			it.lines.forEach((line, k) => {
 				const text = svgEl('text', { x: f(x + it.w / 2), y: f(y + 13.5 + k * LINE_H), 'text-anchor': 'middle', 'dominant-baseline': 'central' });
 				text.textContent = line;
@@ -601,7 +725,25 @@
 		// the boxes of the title shown: itself, or for a series its episodes and, if it has connections of its own, the series
 		const mine = [...L.nodes.values()].filter(n => n.current);
 		const ownText = mine.some(n => n.kind !== 'title') ? (mine.some(n => n.kind === 'title') ? 'This series and its episodes' : 'Episodes of this series') : 'This title';
+		// series and miniseries: the same stack of cards as on the map
+		const stackSwatch = (layers, text) => {
+			const item = document.createElement('span');
+			const sv = svgEl('svg', { width: 28, height: 16, viewBox: '0 0 28 16', 'aria-hidden': 'true' });
+			const g = svgEl('g', { class: 'graphNode' });
+			[...layers.map(o => o / 1.6), 0].forEach(off => {
+				const base = svgEl('rect', { x: 0.5 + off, y: 0.5 + off, width: 19, height: 10, rx: 3 });
+				base.style.fill = 'var(--detailBg, #2a2b30)';
+				base.style.stroke = 'none';
+				g.append(base, svgEl('rect', { x: 0.5 + off, y: 0.5 + off, width: 19, height: 10, rx: 3 }));
+			});
+			sv.appendChild(g);
+			item.append(sv, document.createTextNode(text));
+			return item;
+		};
+		const hasSeries = [...L.nodes.values()].some(n => n.isSeries && !n.mini), hasMini = [...L.nodes.values()].some(n => n.isSeries && n.mini);
 		legend.append(swatch('graphNode--owned', 'In the library'), swatch('', 'Not in the library'), swatch('graphNode--owned graphNode--current', ownText));
+		if (hasSeries) legend.appendChild(stackSwatch([8, 4], 'Series'));
+		if (hasMini) legend.appendChild(stackSwatch([4], 'Miniseries'));
 		const present = new Set(L.links.map(l => l.type === 'alternate_language_version_of' ? 'version_of' : l.type));
 		[['follows', 'Followed by'], ['spin_off_from', 'Spin-off'], ['remake_of', 'Remake'], ['version_of', 'Version of']].forEach(([type, text]) => { if (present.has(type)) legend.appendChild(line(type, text)); });
 		container.appendChild(legend);
