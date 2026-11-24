@@ -118,7 +118,7 @@
 		edges.forEach(e => {
 			[[e.a, e.b, 'a'], [e.b, e.a, 'b']].forEach(([leaf, other, side]) => {
 				const n = nodes.get(leaf);
-				if (n.owned || leaf === graph.start || degree.get(leaf) !== 1) return;
+				if (n.owned || n.current || degree.get(leaf) !== 1) return;
 				const key = other + '|' + e.type + '|' + (SYMMETRIC.includes(e.type) ? '*' : side);
 				if (!leaves.has(key)) leaves.set(key, []);
 				leaves.get(key).push({ leaf, edge: e, other });
@@ -380,7 +380,7 @@
 			}
 		}
 		const width = horizontal ? levEnd : W, height = horizontal ? laneExtent + (axis.length ? AXIS_H : 0) : levEnd;
-		return { items, links, hidden, realEdges, nodes, width, height, start: graph.start, horizontal, axisV, axis, levSize, laneExtent };
+		return { items, links, hidden, realEdges, nodes, width, height, horizontal, axisV, axis, levSize, laneExtent };
 	}
 
 	// the map runs left to right when its steps fit the width and that is not taller than downward, otherwise downward
@@ -480,7 +480,7 @@
 				const other = L.nodes.get(e.a === id ? e.b : e.a), mine = e.a === id;
 				const key = { follows: mine ? 'follows' : 'followed_by', spin_off_from: mine ? 'spin_off_from' : 'spin_off', remake_of: mine ? 'remake_of' : 'remade_as',
 					version_of: 'version_of', alternate_language_version_of: 'alternate_language_version_of' }[e.type];
-				const text = label(other) + (e.via ? ' (' + e.via + ')' : '');
+				const text = label(other);
 				if (!byLabel.has(key)) byLabel.set(key, []);
 				byLabel.get(key).push(text);
 			});
@@ -540,7 +540,7 @@
 
 		L.items.forEach(it => {
 			if (!it.node) return;
-			const n = it.node, current = n.id === L.start, cluster = n.kind === 'cluster';
+			const n = it.node, current = !!n.current, cluster = n.kind === 'cluster';
 			const target = current || cluster ? null : hooks.linkFor(n);
 			const el = svgEl(target ? 'a' : 'g', { class: 'graphNode' + (n.owned ? ' graphNode--owned' : '') + (current ? ' graphNode--current' : '') + (cluster ? ' graphNode--cluster' : '') });
 			if (target) {
@@ -563,7 +563,7 @@
 				el.appendChild(text);
 			});
 			const tip = svgEl('title');
-			tip.textContent = [label(n) + (cluster ? ' – click for the list' : target ? (target.external ? ' – not in the library' : '') : ' – this title')].concat(relationLines(n.id)).join('\n');
+			tip.textContent = [label(n) + (cluster ? ' – click for the list' : target ? (target.external ? ' – not in the library' : '') : n.kind === 'title' ? ' – this title' : ' – an episode of this series')].concat(relationLines(n.id)).join('\n');
 			el.appendChild(tip);
 			el.addEventListener('mouseenter', () => highlight(n.id));
 			el.addEventListener('mouseleave', unhighlight);
@@ -598,7 +598,10 @@
 			item.append(s, document.createTextNode(text));
 			return item;
 		};
-		legend.append(swatch('graphNode--owned', 'In the library'), swatch('', 'Not in the library'), swatch('graphNode--owned graphNode--current', 'This title'));
+		// the boxes of the title shown: itself, or for a series its episodes and, if it has connections of its own, the series
+		const mine = [...L.nodes.values()].filter(n => n.current);
+		const ownText = mine.some(n => n.kind !== 'title') ? (mine.some(n => n.kind === 'title') ? 'This series and its episodes' : 'Episodes of this series') : 'This title';
+		legend.append(swatch('graphNode--owned', 'In the library'), swatch('', 'Not in the library'), swatch('graphNode--owned graphNode--current', ownText));
 		const present = new Set(L.links.map(l => l.type === 'alternate_language_version_of' ? 'version_of' : l.type));
 		[['follows', 'Followed by'], ['spin_off_from', 'Spin-off'], ['remake_of', 'Remake'], ['version_of', 'Version of']].forEach(([type, text]) => { if (present.has(type)) legend.appendChild(line(type, text)); });
 		container.appendChild(legend);
@@ -608,7 +611,7 @@
 		sentences.className = 'srOnly';
 		L.realEdges.forEach(e => {
 			const item = document.createElement('li');
-			item.textContent = label(L.nodes.get(e.a)) + ' ' + SENTENCES[e.type] + ' ' + label(L.nodes.get(e.b)) + (e.via ? ' (' + e.via + ')' : '');
+			item.textContent = label(L.nodes.get(e.a)) + ' ' + SENTENCES[e.type] + ' ' + label(L.nodes.get(e.b));
 			sentences.appendChild(item);
 		});
 		container.appendChild(sentences);

@@ -1299,14 +1299,13 @@ def _episodeCodes(episodes):
 
 def _connectionGraph(cursor, imdb_id, isSeries):
     """Every title that can be reached from a title through connections, in either direction, and the connections between
-    them: {start, nodes: [{id, kind, title, year, yearText, owned, imdbId, ...}], edges: [{a, b, type, via?, assumed?}]};
+    them: {start, nodes: [{id, kind, title, year, yearText, owned, imdbId, current, ...}], edges: [{a, b, type, assumed?}]};
     an edge reads "a follows b" (likewise "is a spin-off of", "is a remake of", "is a version of"). Empty when the title has
     no connections.
     An episode is a title of its own: nothing connects two episodes just because they are of one series. The page of a
-    series starts from the series and all its owned episodes, shown as the series itself (an edge that comes from episodes
-    has them as "via"; a series connected through episodes counts as released in the year of those episodes, not of its
-    start, as that is when the connection happens). Episodes of one series that are connected to exactly the same titles in the
-    same way share one node ("kind": "group"). Titles that are not in the library and all follow exactly the same titles of
+    series starts from the series and all its owned episodes, each a box of its own ("current": the boxes of the title
+    shown; the series itself is a box only if it has connections of its own). Episodes of one series that are connected to
+    exactly the same titles in the same way share one node ("kind": "group"). Titles that are not in the library and all follow exactly the same titles of
     the library, or are all followed by exactly the same titles of it, are chained in release order, same-year titles side
     by side ("assumed": the connections between titles that are not in the library are never stored, so this is the best
     guess)."""
@@ -1319,7 +1318,7 @@ def _connectionGraph(cursor, imdb_id, isSeries):
     if isSeries:
         cursor.execute("SELECT imdb_id FROM media WHERE series_imdb_id = ? AND subdir IS NOT NULL", (imdb_id,))
         ownedEpisodes = [row[0] for row in cursor.fetchall()]
-    start = {imdb_id, *ownedEpisodes}
+    start = {imdb_id, *ownedEpisodes} # what the page shows, and where the search for connected titles starts
 
     neighbours = collections.defaultdict(list)
     for a, b, _ in rows:
@@ -1343,31 +1342,22 @@ def _connectionGraph(cursor, imdb_id, isSeries):
         for row in cursor.fetchall():
             meta[row[0]] = row
 
-    # one edge per connection (both directions of a pair are the same edge); an owned episode of the series being shown
-    # is the series
-    alias = {episode: imdb_id for episode in ownedEpisodes}
+    # one edge per connection (both directions of a pair are the same edge)
     edges = {}
-    viaYears = [] # the years of the episodes a series is connected through
     for a, b, typeName in rows:
         if a not in reached or a == b:
             continue
         kind, flip = _EDGE_TYPES[typeName]
         if flip:
             a, b = b, a
-        via = [(meta[x][5], meta[x][6]) for x in (a, b) if x in alias and x != imdb_id]
-        viaYears.extend(meta[x][2] for x in (a, b) if x in alias and x != imdb_id and meta[x][2])
-        a, b = alias.get(a, a), alias.get(b, b)
-        if a == b:
-            continue
         if flip is None and a > b:
             a, b = b, a
-        edge = edges.setdefault((a, b, kind), {"a": a, "b": b, "type": kind, "via": []})
-        edge["via"].extend(via)
+        edges.setdefault((a, b, kind), {"a": a, "b": b, "type": kind})
     if not edges:
         return {"start": imdb_id, "nodes": [], "edges": []}
 
     # episodes of one series with exactly the same connections become one node
-    episodeOf = lambda i: meta[i][4] if i in meta and i != imdb_id else None
+    episodeOf = lambda i: meta[i][4] if i in meta else None
     signature = collections.defaultdict(set)
     for (a, b, kind) in edges:
         if episodeOf(a) is not None:
@@ -1389,8 +1379,7 @@ def _connectionGraph(cursor, imdb_id, isSeries):
             a2, b2 = groupOf.get(a, a), groupOf.get(b, b)
             if kind in ("version_of", "alternate_language_version_of") and str(a2) > str(b2):
                 a2, b2 = b2, a2
-            target = remapped.setdefault((a2, b2, kind), {"a": a2, "b": b2, "type": kind, "via": []})
-            target["via"].extend(edge["via"])
+            remapped.setdefault((a2, b2, kind), {"a": a2, "b": b2, "type": kind})
         edges = remapped
 
     # the nodes
@@ -1402,7 +1391,9 @@ def _connectionGraph(cursor, imdb_id, isSeries):
     members = collections.defaultdict(list)
     for episode, groupId in groupOf.items():
         members[groupId].append(episode)
-    used = {x for (a, b, _) in edges for x in (a, b)} | {imdb_id}
+    used = {x for (a, b, _) in edges for x in (a, b)}
+    if not isSeries or imdb_id in used:
+        used.add(imdb_id) # a series is a box only if it has connections of its own
     for node in used:
         if isinstance(node, str):
             eps = sorted(members[node], key=lambda i: (meta[i][5] is None, meta[i][5] or 0, meta[i][6] is None, meta[i][6] or 0, i))
@@ -1416,15 +1407,13 @@ def _connectionGraph(cursor, imdb_id, isSeries):
                            "owned": bool(ownedOnes), "imdbId": lead[0], "seriesId": first[4], "seriesTitle": first[7], "season": lead[5], "episode": lead[6]}
             continue
         _, title, year, owned, seriesId, season, episode, seriesTitle = meta[node]
-        entry = {"id": node, "kind": "title" if seriesId is None or node == imdb_id else "episode", "title": title, "year": year,
+        entry = {"id": node, "kind": "title" if seriesId is None else "episode", "title": title, "year": year,
                  "yearText": str(year) if year else "", "owned": bool(owned), "imdbId": node}
-        if seriesId is not None and node != imdb_id:
+        if seriesId is not None:
             entry.update({"title": episodeTitle(node), "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode})
-        if node == imdb_id and viaYears:
-            lo, hi = min(viaYears), max(viaYears) # a series connected through episodes sits at their years, not at its start
-            entry["year"] = lo
-            entry["yearText"] = str(lo) if lo == hi else "%d–%d" % (lo, hi)
         nodes[node] = entry
+    for node, entry in nodes.items():
+        entry["current"] = node in start or (isinstance(node, str) and any(i in start for i in members[node]))
 
     # titles that are not in the library and follow exactly the same titles of the library -- or are followed by exactly the
     # same titles of it --: a chain in release order
@@ -1445,13 +1434,11 @@ def _connectionGraph(cursor, imdb_id, isSeries):
             for earlier, later in zip(years, years[1:]):
                 for a in byYear[later]:
                     for b in byYear[earlier]:
-                        edges.setdefault((a, b, "follows"), {"a": a, "b": b, "type": "follows", "via": [], "assumed": True})
+                        edges.setdefault((a, b, "follows"), {"a": a, "b": b, "type": "follows", "assumed": True})
 
     out = []
     for edge in edges.values():
         item = {"a": edge["a"], "b": edge["b"], "type": edge["type"]}
-        if edge["via"]:
-            item["via"] = _episodeCodes(edge["via"])
         if edge.get("assumed"):
             item["assumed"] = True
         out.append(item)
