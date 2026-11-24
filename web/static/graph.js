@@ -20,8 +20,10 @@
 		version_of: 'is a version of',
 		alternate_language_version_of: 'is an alternate-language version of'
 	};
-	// the dash of a connection type; "follows" is the solid main line
-	const DASH = { follows: '', spin_off_from: '5 4', remake_of: '8 3 2 3', version_of: '2 3', alternate_language_version_of: '2 3' };
+	// how a connection type is drawn: "follows" is the solid main line; the colour of each type is in the stylesheet. The
+	// arrowhead is a marker (below); a version has none, as it reads the same in both directions.
+	const DASH = { follows: '', spin_off_from: '7 4', remake_of: '10 3 2 3', version_of: '2 3.5', alternate_language_version_of: '2 3.5' };
+	const ARROW = { follows: 'graphArrow', spin_off_from: 'graphArrowSpinOff', remake_of: 'graphArrowRemake' };
 
 	function svgEl(tag, attrs) {
 		const el = document.createElementNS(SVG_NS, tag);
@@ -336,9 +338,15 @@
 		svg.style.width = Math.ceil(L.width) + 'px';
 		svg.style.maxWidth = '100%';
 		const defs = svgEl('defs');
-		const marker = svgEl('marker', { id: 'graphArrow', viewBox: '0 0 10 10', refX: '8', refY: '5', markerWidth: '6', markerHeight: '6', orient: 'auto-start-reverse' });
-		marker.appendChild(svgEl('path', { d: 'M2 1L8 5L2 9', fill: 'none', stroke: 'context-stroke', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-		defs.appendChild(marker);
+		// the arrowheads, in the colour of their line: an open chevron (followed by), a filled triangle (spin-off) and a
+		// diamond (remake) that is open, i.e. filled with the colour of the panel the map is on
+		const chevron = svgEl('marker', { id: 'graphArrow', viewBox: '0 0 10 10', refX: '8', refY: '5', markerWidth: '6', markerHeight: '6', orient: 'auto-start-reverse' });
+		chevron.appendChild(svgEl('path', { d: 'M2 1L8 5L2 9', fill: 'none', stroke: 'context-stroke', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+		const triangle = svgEl('marker', { id: 'graphArrowSpinOff', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
+		triangle.appendChild(svgEl('path', { d: 'M1 1.2L9.5 5L1 8.8Z', fill: 'context-stroke', stroke: 'context-stroke', 'stroke-width': '1', 'stroke-linejoin': 'round' }));
+		const diamond = svgEl('marker', { id: 'graphArrowRemake', viewBox: '0 0 12 12', refX: '11', refY: '6', markerWidth: '8', markerHeight: '8', orient: 'auto-start-reverse' });
+		diamond.appendChild(svgEl('path', { d: 'M1 6L6 2L11 6L6 10Z', class: 'graphDiamond', stroke: 'context-stroke', 'stroke-width': '1.4', 'stroke-linejoin': 'round' }));
+		defs.append(chevron, triangle, diamond);
 		svg.appendChild(defs);
 
 		// (lane position, position along the steps) -> x, y
@@ -390,7 +398,7 @@
 
 		L.links.forEach(l => {
 			const path = svgEl('path', { d: curve(l.chain.map(pointOf)), class: 'graphEdge graphEdge--' + l.type });
-			if (l.type !== 'version_of' && l.type !== 'alternate_language_version_of') path.setAttribute('marker-end', 'url(#graphArrow)');
+			if (ARROW[l.type]) path.setAttribute('marker-end', 'url(#' + ARROW[l.type] + ')');
 			if (DASH[l.type]) path.setAttribute('stroke-dasharray', DASH[l.type]);
 			edgeLayer.appendChild(path);
 			edgeEls.push({ el: path, edge: l.edge });
@@ -516,7 +524,7 @@
 			const item = document.createElement('span');
 			const s = svgEl('svg', { width: 30, height: 14, viewBox: '0 0 30 14', 'aria-hidden': 'true' });
 			const path = svgEl('path', { d: 'M1 7 H27', class: 'graphEdge graphEdge--' + type });
-			if (type !== 'version_of') path.setAttribute('marker-end', 'url(#graphArrow)');
+			if (ARROW[type]) path.setAttribute('marker-end', 'url(#' + ARROW[type] + ')');
 			if (DASH[type]) path.setAttribute('stroke-dasharray', DASH[type]);
 			s.appendChild(path);
 			item.append(s, document.createTextNode(text));

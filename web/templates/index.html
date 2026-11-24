@@ -1286,14 +1286,30 @@
 			stroke-width: 1;
 		}
 
+		/* the connection types differ in colour, dash pattern and arrowhead (the dashes and heads are set in graph.js) */
 		.graphEdge {
 			fill: none;
-			stroke: rgba(255, 255, 255, 0.42);
-			stroke-width: 1.5;
+			stroke: #e2e2e8;
+			stroke-width: 2;
 		}
 
-		.graphEdge--spin_off_from, .graphEdge--remake_of, .graphEdge--version_of, .graphEdge--alternate_language_version_of {
-			stroke-width: 1;
+		.graphEdge--spin_off_from {
+			stroke: #f0a93b;
+			stroke-width: 1.7;
+		}
+
+		.graphEdge--remake_of {
+			stroke: #e08ac2;
+			stroke-width: 1.7;
+		}
+
+		.graphEdge--version_of, .graphEdge--alternate_language_version_of {
+			stroke: #5dbbe8;
+			stroke-width: 1.7;
+		}
+
+		.graphDiamond {
+			fill: var(--detailBg, #2a2b30);
 		}
 
 		.graphNode rect {
@@ -1353,14 +1369,14 @@
 
 		.graphFocus .graphEdge.graphLit {
 			opacity: 1;
-			stroke: #8fb0ea;
-			stroke-width: 2;
+			stroke-width: 2.6;
 		}
 
+		/* the direct connections the drawing leaves out because a chain implies them (always "followed by") */
 		.graphHidden {
 			fill: none;
-			stroke: #8fb0ea;
-			stroke-width: 1.5;
+			stroke: #e2e2e8;
+			stroke-width: 2.6;
 		}
 
 		.graphLegend {
