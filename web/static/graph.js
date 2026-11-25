@@ -1,5 +1,6 @@
 // The connection map of the detail view: the titles connected to the shown one (see _connectionGraph in server.py) as a
-// timeline -- every release year one step of it, the main line of sequels with spin-offs, remakes and versions beside it --
+// timeline -- every release year one step of it, the main line of sequels (each run of them in one straight line) with
+// spin-offs, remakes and versions beside it --
 // that runs from left to right when its steps fit the width and downward otherwise, with the years on an axis.
 // ConnectionGraph.render(container, graph, hooks) draws it; hooks = {width, fontFamily, labels, linkFor(node)}.
 (function () {
@@ -18,6 +19,7 @@
 	const STACK_STEP = 4; // the layers behind the box of a series (two) or a miniseries (one), each this far offset
 	const GROUP_WEIGHT = 6000; // how firmly the box of a series and its shadow stay together, against 1 for a connection
 	const CROOKED_COST = 6, MAIN_LINE_COST = 3, STRAIGHTEN_REACH = 160; // see straighten: the fixed cost of a connection that is not straight, how much more the main line counts, how far a connection may be off and still be straightened (px)
+	const SNAP_REACH = 8; // a run of sequels (or a series with its shadow) that is no more than this far off one line is put exactly on it (px)
 	const COLLAPSE_MIN = 6; // this many titles that are not in the library and hang off one title the same way become one node
 	const SYMMETRIC = ['version_of', 'alternate_language_version_of'];
 	const SENTENCES = {
@@ -115,6 +117,39 @@
 			});
 			if (!changed) break;
 		}
+	}
+
+	// Snapping, after the straightening: a group (a run of sequels, a series with its shadow) whose items are only a few pixels off one
+	// line is put exactly on it. Whatever is in the way in a step moves aside, unless it belongs to a group of its own.
+	function snapGroups(rows, minC, maxC) {
+		const byGroup = new Map();
+		rows.forEach(r => r.forEach(it => { if (it.group) { if (!byGroup.has(it.group)) byGroup.set(it.group, []); byGroup.get(it.group).push(it); } }));
+		byGroup.forEach(members => {
+			const centres = members.map(it => it.c + it.lane / 2), lo = Math.min(...centres), hi = Math.max(...centres);
+			if (hi - lo < 1e-9 || hi - lo > SNAP_REACH) return;
+			const tryLine = line => {
+				const was = new Map(), move = (it, c) => { if (!was.has(it)) was.set(it, it.c); it.c = c; };
+				let ok = true;
+				members.forEach(it => move(it, line - it.lane / 2));
+				members.forEach(it => {
+					const row = rows[it.row], i = row.indexOf(it);
+					for (let n = i - 1, edge = it.c; n >= 0 && ok; n--) {
+						const o = row[n];
+						if (o.c + o.lane + GAP <= edge + 1e-6) break;
+						if (o.group) ok = false; else { move(o, edge - GAP - o.lane); edge = o.c; }
+					}
+					for (let n = i + 1, edge = it.c + it.lane; n < row.length && ok; n++) {
+						const o = row[n];
+						if (o.c >= edge + GAP - 1e-6) break;
+						if (o.group) ok = false; else { move(o, edge + GAP); edge = o.c + o.lane; }
+					}
+				});
+				was.forEach((_, it) => { if (it.c < minC - 1e-6 || it.c + it.lane > maxC + 1e-6) ok = false; });
+				if (!ok) was.forEach((c, it) => { it.c = c; });
+				return ok;
+			};
+			[(lo + hi) / 2, lo, hi].some(tryLine); // the middle, else either end of the range
+		});
 	}
 
 	// Terms: a "step" is one position along the timeline (a row of a downward map, a column of a horizontal one); a "lane" is
@@ -240,11 +275,20 @@
 		const items = new Map();
 		nodes.forEach((n, id) => items.set(id, { id, node: n, row: rank.get(id) }));
 		const links = [];
+		// the steps a series' shadow covers: a "follows" line that leaves the series runs through it, at the same position, instead of round it
+		const shadowRows = id => {
+			const n = nodes.get(id), covered = new Set();
+			if (!n || !n.isSeries || !n.year) return covered;
+			const r0 = rank.get(id), r1 = rank.has('end:' + id) ? rank.get('end:' + id) : (n.endYear ? r0 : stepCount - 1);
+			for (let r = r0 + 1; r <= r1; r++) covered.add(r);
+			return covered;
+		};
 		directed.forEach(d => {
 			// the chain runs along the steps; one that runs against the years is drawn from its last item back to its first
 			const backward = rank.get(d.to) < rank.get(d.from), [early, late] = backward ? [d.to, d.from] : [d.from, d.to];
 			const chain = [early];
 			for (let r = rank.get(early) + 1; r < rank.get(late); r++) {
+				if (d.e.type === 'follows' && !backward && shadowRows(d.from).has(r)) continue;
 				const id = 'dummy:' + links.length + ':' + r;
 				items.set(id, { id, node: null, row: r });
 				chain.push(id);
@@ -292,9 +336,39 @@
 				i.lane = horizontal ? i.h : i.w; i.lev = horizontal ? i.w : i.h;
 			} else { i.lane = DUMMY_W; i.lev = i.marker ? MARKER_STEP : 0; i.w = DUMMY_W; i.h = 0; }
 		});
-		// the box of a series and its shadow are one group, which keeps one position across the steps
-		items.forEach(i => { if (i.shadowOf) { i.lane = items.get(i.shadowOf).lane; i.group = i.shadowOf; } });
-		links.forEach(l => { if (l.type === 'span') items.get(l.chain[0]).group = l.chain[0]; });
+		// the box of a series and its shadow are one group, which keeps one position across the steps; so are the titles of a run of
+		// sequels, with the stops of the "follows" connections between them
+		items.forEach(i => { if (i.shadowOf) i.lane = items.get(i.shadowOf).lane; });
+		const parent = new Map([...items.keys()].map(id => [id, id]));
+		const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+		const union = (a, b) => parent.set(find(a), find(b));
+		links.forEach(l => { if (l.type === 'span') l.chain.forEach(id => union(id, l.chain[0])); });
+		// a group never has two items in one step
+		const clashes = ids => {
+			const roots = new Set(ids.map(find)), seen = new Set();
+			for (const it of items.values()) {
+				if (!roots.has(find(it.id))) continue;
+				if (seen.has(it.row)) return true;
+				seen.add(it.row);
+			}
+			return false;
+		};
+		// A title is in line with one successor and one predecessor at most. The direct "follows" connections (no stop between)
+		// are taken first; one that would give a title a second one, or put two items of a group into a step, is drawn as it comes.
+		const hasNext = new Set(), hasPrev = new Set();
+		links.map((l, k) => ({ l, k })).filter(({ l }) => l.type === 'follows').sort((p, q) => (p.l.chain.length - q.l.chain.length) || (p.k - q.k)).forEach(({ l }) => {
+			const from = l.backward ? l.chain[l.chain.length - 1] : l.chain[0], to = l.backward ? l.chain[0] : l.chain[l.chain.length - 1];
+			if (hasNext.has(from) || hasPrev.has(to) || clashes(l.chain)) return;
+			hasNext.add(from);
+			hasPrev.add(to);
+			l.inLine = true;
+			l.chain.forEach(id => union(id, from));
+		});
+		const size = new Map();
+		items.forEach(i => size.set(find(i.id), (size.get(find(i.id)) || 0) + 1));
+		items.forEach(i => { if (size.get(find(i.id)) > 1) i.group = find(i.id); });
+		links.forEach(l => { if (l.type === 'span' && !items.get(l.chain[0]).group) items.get(l.chain[0]).group = l.chain[0]; }); // a series of one step too
+		const runs = new Set(links.filter(l => l.inLine).map(l => find(l.chain[0]))); // the groups that are a run of sequels
 
 		// 6. order within the steps: sweeps that put each item at the average position of its neighbours, with swaps of
 		// neighbours wherever that saves a crossing; the order with the fewest crossings wins
@@ -328,6 +402,8 @@
 				let improved = false;
 				rows.forEach((row, r) => {
 					for (let i = 0; i + 1 < row.length; i++) {
+						// two runs of sequels stay in the order the sweeps gave them: they run side by side
+						if (row[i].group !== row[i + 1].group && runs.has(row[i].group) && runs.has(row[i + 1].group)) continue;
 						const before = crossingsBelow(r - 1) + crossingsBelow(r);
 						[row[i], row[i + 1]] = [row[i + 1], row[i]];
 						if (crossingsBelow(r - 1) + crossingsBelow(r) < before) improved = true;
@@ -342,10 +418,26 @@
 		for (let sweep = 0; sweep < 24 && bestCount > 0; sweep++) {
 			const goingDown = sweep % 2 === 0;
 			const order = goingDown ? rows.map((_, i) => i) : rows.map((_, i) => rows.length - 1 - i);
+			// a run of sequels is ordered as one: a single key for all its titles, from what they are connected to
+			const runKey = new Map();
+			{
+				const pos0 = posOf(), acc = new Map();
+				rows.forEach(row2 => row2.forEach(m => {
+					if (!runs.has(m.group)) return;
+					(up.get(m.id) || []).concat(down.get(m.id) || []).forEach(n => {
+						if (items.get(n).group === m.group) return;
+						const a = acc.get(m.group) || { s: 0, n: 0 };
+						a.s += pos0.get(n);
+						a.n++;
+						acc.set(m.group, a);
+					});
+				}));
+				acc.forEach((a, g) => runKey.set(g, a.s / a.n));
+			}
 			order.forEach(r => {
 				const pos = posOf(), nb = goingDown ? up : down;
 				const key = it => { const ns = nb.get(it.id); return ns && ns.length ? ns.reduce((s, n) => s + pos.get(n), 0) / ns.length : pos.get(it.id); };
-				const keys = new Map(rows[r].map(it => [it.id, key(it) - (it.shadowOf ? 1e-4 : 0)]));
+				const keys = new Map(rows[r].map(it => [it.id, (runKey.has(it.group) ? runKey.get(it.group) : key(it)) - (it.shadowOf ? 1e-4 : 0)]));
 				rows[r].sort((a, b) => keys.get(a.id) - keys.get(b.id));
 			});
 			transpose();
@@ -415,6 +507,7 @@
 			});
 		}
 		straighten(rows, links, minC, maxC);
+		snapGroups(rows, minC, maxC);
 		let laneExtent = laneW;
 		{
 			const all = [...items.values()];
