@@ -11,6 +11,7 @@
 	const MIDDLE_PULL = 0.15; // the weight of that pull, against 1 for a connection that is not a "follows"
 	const BOX_PRIORITY = 8; // how much more a box resists being moved aside than the stop of a long connection
 	const MAIN_LINE_PULL = 4; // the weight of a "follows" connection
+	let clips = 0; // the clip paths of the marks on titles that will not be added, numbered across all maps like the fades
 	let fades = 0; // the gradients of the shadows of running series, numbered across all maps so that no id is used twice
 	const RUNNING_TAIL = 40; // how far the shadow of a series that is still running goes on past the last step, fading out
 	const MARKER_STEP = 10; // the width of the slim step of the year a series ended in, when no box stands in that year
@@ -30,6 +31,19 @@
 	// arrowhead is a marker (below); a version has none, as it reads the same in both directions.
 	const DASH = { follows: '', spin_off_from: '7 4', remake_of: '10 3 2 3', version_of: '2 3.5', alternate_language_version_of: '2 3.5' };
 	const ARROW = { follows: 'graphArrow', spin_off_from: 'graphArrowSpinOff', remake_of: 'graphArrowRemake' };
+
+	// Thin parallel diagonals through a box, clipped to its shape: a title that is not in the library and will not be added.
+	function crossOut(x, y, w, h, spacing, radius) {
+		const id = 'graphClip' + (++clips);
+		const g = svgEl('g', { class: 'graphWontMarks', 'clip-path': 'url(#' + id + ')' });
+		const clip = svgEl('clipPath', { id });
+		clip.appendChild(svgEl('rect', { x: x.toFixed(1), y: y.toFixed(1), width: w, height: h, rx: radius }));
+		g.appendChild(clip);
+		for (let k = -h + spacing / 2; k < w; k += spacing) {
+			g.appendChild(svgEl('line', { x1: (x + k).toFixed(1), y1: (y + h).toFixed(1), x2: (x + k + h).toFixed(1), y2: y.toFixed(1), class: 'graphWontLine' }));
+		}
+		return g;
+	}
 
 	function svgEl(tag, attrs) {
 		const el = document.createElementNS(SVG_NS, tag);
@@ -136,7 +150,7 @@
 			const id = 'cluster:' + key, side = key.split('|')[2], e0 = members[0].edge;
 			nodes.set(id, {
 				id, kind: 'cluster', title: members.length + ' titles', year: years.length ? lo : null, sortYear: years.length ? lo : 0,
-				yearText: !years.length ? '' : lo === hi ? String(lo) : lo + '–' + hi, owned: false,
+				yearText: !years.length ? '' : lo === hi ? String(lo) : lo + '–' + hi, owned: false, wontAdd: members.every(m => nodes.get(m.leaf).wontAdd),
 				members: members.map(m => nodes.get(m.leaf))
 			});
 			const gone = new Set(members.map(m => m.edge));
@@ -684,13 +698,17 @@
 				stackLayer.appendChild(layer);
 			});
 			el.appendChild(n.isSeries ? card(el, 0) : svgEl('rect', { x: f(x), y: f(y), width: it.w, height: it.h, rx: 6 }));
+			if (n.wontAdd && !n.owned) { // will not be added: lines through the box
+				el.classList.add('graphNode--wontadd');
+				el.appendChild(crossOut(x, y, it.w, it.h, 18, 6));
+			}
 			it.lines.forEach((line, k) => {
 				const text = svgEl('text', { x: f(x + it.w / 2), y: f(y + 13.5 + k * LINE_H), 'text-anchor': 'middle', 'dominant-baseline': 'central' });
 				text.textContent = line;
 				el.appendChild(text);
 			});
 			const tip = svgEl('title');
-			tip.textContent = [label(n) + (cluster ? ' – click for the list' : target ? (target.external ? ' – not in the library' : '') : n.kind === 'title' ? ' – this title' : ' – an episode of this series')].concat(relationLines(n.id)).join('\n');
+			tip.textContent = [label(n) + (n.wontAdd && !n.owned ? " – won't be added" : '') + (cluster ? ' – click for the list' : target ? (target.external ? ' – not in the library' : '') : n.kind === 'title' ? ' – this title' : ' – an episode of this series')].concat(relationLines(n.id)).join('\n');
 			el.appendChild(tip);
 			el.addEventListener('mouseenter', () => highlight(n.id));
 			el.addEventListener('mouseleave', unhighlight);
@@ -747,6 +765,15 @@
 		legend.append(swatch('graphNode--owned', 'In the library'), swatch('', 'Not in the library'), swatch('graphNode--owned graphNode--current', ownText));
 		if (hasSeries) legend.appendChild(stackSwatch([8, 4], 'Series'));
 		if (hasMini) legend.appendChild(stackSwatch([4], 'Miniseries'));
+		if ([...L.nodes.values()].some(n => n.wontAdd && !n.owned)) {
+			const item = document.createElement('span');
+			const sv = svgEl('svg', { width: 22, height: 14, viewBox: '0 0 22 14', 'aria-hidden': 'true' });
+			const g = svgEl('g', { class: 'graphNode graphNode--wontadd' });
+			g.append(svgEl('rect', { x: 0.5, y: 0.5, width: 21, height: 13, rx: 3 }), crossOut(0.5, 0.5, 21, 13, 10, 3));
+			sv.appendChild(g);
+			item.append(sv, document.createTextNode("Won't be added"));
+			legend.appendChild(item);
+		}
 		const present = new Set(L.links.map(l => l.type === 'alternate_language_version_of' ? 'version_of' : l.type));
 		[['follows', 'Followed by'], ['spin_off_from', 'Spin-off'], ['remake_of', 'Remake'], ['version_of', 'Version of']].forEach(([type, text]) => { if (present.has(type)) legend.appendChild(line(type, text)); });
 		container.appendChild(legend);

@@ -287,16 +287,53 @@ document.addEventListener('DOMContentLoaded', () => {
 	// focus ({season, episode}, optional): returns a reveal() to call once the section is on screen, which brings that
 	// episode's season into view -- the "+ N more" tile expanded if the season sits behind it, a partly owned season
 	// opened with the episode's row marked, a fully owned season's tile marked
+	// a small check mark (an inline SVG, in the colour of the text around it)
+	function checkIcon() {
+		const ns = 'http://www.w3.org/2000/svg';
+		const svg = document.createElementNS(ns, 'svg');
+		svg.setAttribute('viewBox', '0 0 12 12');
+		svg.setAttribute('width', '11');
+		svg.setAttribute('height', '11');
+		svg.setAttribute('aria-hidden', 'true');
+		svg.classList.add('checkIcon');
+		const path = document.createElementNS(ns, 'path');
+		path.setAttribute('d', 'M2.2 6.5 L4.9 9.1 L9.9 3.3');
+		path.setAttribute('fill', 'none');
+		path.setAttribute('stroke', 'currentColor');
+		path.setAttribute('stroke-width', '1.8');
+		path.setAttribute('stroke-linecap', 'round');
+		path.setAttribute('stroke-linejoin', 'round');
+		svg.appendChild(path);
+		return svg;
+	}
+
+	// the badge of a series on its cover: "owned / total" episodes, green when all are owned. A series that is on the "won't
+	// add" list is as complete as it will ever get: green too, with a check and the owned count only.
+	function ownershipBadge(owned, total, wontAdd, grid) {
+		const badge = makeEl('span', 'ownershipBadge' + (grid ? ' ownershipBadge--grid' : ''));
+		if (wontAdd && owned < total) {
+			badge.classList.add('ownershipBadge--complete');
+			badge.appendChild(checkIcon());
+			badge.appendChild(document.createTextNode(String(owned)));
+			badge.title = owned + ' of ' + total + ' episodes available -- no more planned to be added';
+		} else {
+			if (owned === total) badge.classList.add('ownershipBadge--complete');
+			badge.textContent = owned + ' / ' + total;
+		}
+		return badge;
+	}
+
 	function seasonLabel(s) {
 		return s.season === null ? 'Unnumbered' : s.season === 0 ? 'Specials' : 'Season ' + s.season;
 	}
 
-	function seasonsSection(seriesId, seasons, focus) {
+	function seasonsSection(seriesId, seasons, focus, wontAdd) {
 		const section = document.createDocumentFragment();
+		if (wontAdd) seasons = seasons.filter(s => s.owned > 0); // no more episodes planned: only the seasons there are some of
 		const owned = seasons.reduce((sum, s) => sum + s.owned, 0);
 		const total = seasons.reduce((sum, s) => sum + s.total, 0);
 		const heading = makeEl('h3', '', 'Seasons');
-		heading.appendChild(makeEl('span', 'seasonsSummary', owned + ' of ' + total + ' episodes available'));
+		heading.appendChild(makeEl('span', 'seasonsSummary', wontAdd ? owned + (owned === 1 ? ' episode' : ' episodes') + ' available' : owned + ' of ' + total + ' episodes available'));
 		section.appendChild(heading);
 
 		// a tile with owned episodes opens the season's card below the tiles: the owned episodes first when the season is only
@@ -310,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const card = makeEl('div', 'seasonCard');
 			const head = makeEl('div', 'seasonCardHead');
 			head.appendChild(makeEl('b', '', seasonLabel(s)));
-			head.appendChild(makeEl('span', '', s.owned === s.total ? s.owned + (s.owned === 1 ? ' episode' : ' episodes') : s.owned + ' of ' + s.total + ' episodes available'));
+			head.appendChild(makeEl('span', '', s.owned === s.total || wontAdd ? s.owned + (s.owned === 1 ? ' episode' : ' episodes') : s.owned + ' of ' + s.total + ' episodes available'));
 			card.appendChild(head);
 			data.blocks.forEach(block => card.appendChild(versionCard(block, data.blocks.length > 1)));
 			if (data.modified) card.appendChild(modifiedLine(data.modified));
@@ -374,11 +411,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		const tileOf = new Map(); // season number (null: unnumbered) -> {el, s}
 
 		function tile(s) {
-			const state = s.owned === s.total ? 'full' : s.owned === 0 ? 'none' : 'part';
+			const state = wontAdd || s.owned === s.total ? 'full' : s.owned === 0 ? 'none' : 'part'; // all there is going to be: green
 			const el = makeEl(state === 'none' ? 'div' : 'button', 'seasonTile seasonTile--' + state);
-			el.title = s.owned + ' of ' + s.total + ' episodes available';
+			el.title = wontAdd ? s.owned + (s.owned === 1 ? ' episode' : ' episodes') : s.owned + ' of ' + s.total + ' episodes available';
 			el.appendChild(makeEl('span', 'seasonLabel', seasonLabel(s)));
-			el.appendChild(makeEl('span', 'seasonCount', s.owned + '/' + s.total));
+			el.appendChild(makeEl('span', 'seasonCount', wontAdd ? s.owned + (s.owned === 1 ? ' episode' : ' episodes') : s.owned + '/' + s.total));
 			// the year(s) the season came out: its first to its last episode's
 			el.appendChild(makeEl('span', 'seasonYears', s.firstYear === s.lastYear ? String(s.firstYear) : s.firstYear + '\u2013' + s.lastYear));
 			if (state === 'part') {
@@ -620,6 +657,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		detailMeta.textContent = meta;
 
 		detailChips.replaceChildren();
+		if (d.isSeries && d.wontAdd) {
+			const owned = d.seasons.reduce((sum, s) => sum + s.owned, 0), total = d.seasons.reduce((sum, s) => sum + s.total, 0);
+			const notice = makeEl('span', 'detailNotice');
+			notice.title = owned + ' of ' + total + ' episodes available';
+			notice.append(checkIcon(), document.createTextNode('No more episodes planned to be added'));
+			detailChips.appendChild(notice);
+		}
 		// a genre/subgenre chip shows the titles with it (see showTitlesOfInterest)
 		d.interests.forEach(i => {
 			const chip = makeEl('a', 'detailChip' + (i.isGenre ? ' detailChip--genre' : ''), i.name);
@@ -655,7 +699,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (d.versions.length) detailBody.appendChild(versionsSection(d.versions));
 
 		if (d.isSeries && d.seasons.length) {
-			const seasons = seasonsSection(d.imdbId, d.seasons, focus);
+			const seasons = seasonsSection(d.imdbId, d.seasons, focus, d.wontAdd);
 			detailBody.appendChild(seasons.section);
 			reveal = focus ? seasons.reveal : null;
 		}
@@ -1337,7 +1381,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.length === 0) {
                     allLoaded = true;
                 } else {
-                    data.forEach(([imdb_id, originalTitle, startYear, endYear, rating_mul10, numVotes, genres, totalEpisodes, ownedEpisodes, isSeries]) => {
+                    data.forEach(([imdb_id, originalTitle, startYear, endYear, rating_mul10, numVotes, genres, totalEpisodes, ownedEpisodes, isSeries, wontAdd]) => {
 						const img = document.createElement('img');
 						// the placeholder shimmer (see .coverImage in index.html) ends when the image arrives or fails; the
 						// listeners come before src is set, so even an instantly-cached cover can't slip past them
@@ -1381,11 +1425,7 @@ document.addEventListener('DOMContentLoaded', () => {
 							titleElem.appendChild(linkElem);
 
 							if (isPartialSeries || isFullSeries) {
-								const badge = document.createElement('span');
-								badge.classList.add("ownershipBadge");
-								if (isFullSeries) badge.classList.add("ownershipBadge--complete");
-								badge.textContent = `${ownedEpisodes} / ${totalEpisodes}`;
-								titleElem.appendChild(badge);
+								titleElem.appendChild(ownershipBadge(ownedEpisodes, totalEpisodes, wontAdd, false));
 							}
 
 							const wrapper = document.createElement('div');
@@ -1427,11 +1467,7 @@ document.addEventListener('DOMContentLoaded', () => {
 							imgWrapper.appendChild(overlay);
 
 							if (isPartialSeries || isFullSeries) {
-								const badge = document.createElement('span');
-								badge.classList.add("ownershipBadge", "ownershipBadge--grid");
-								if (isFullSeries) badge.classList.add("ownershipBadge--complete");
-								badge.textContent = `${ownedEpisodes} / ${totalEpisodes}`;
-								imgWrapper.appendChild(badge);
+								imgWrapper.appendChild(ownershipBadge(ownedEpisodes, totalEpisodes, wontAdd, true));
 							}
 
 							linkElem.appendChild(imgWrapper);

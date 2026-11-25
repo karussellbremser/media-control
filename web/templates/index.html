@@ -535,6 +535,12 @@
 			background: rgba(56, 142, 60, 0.85);
 		}
 
+		/* the check mark in the badge of a series that will get no more episodes */
+		.ownershipBadge .checkIcon {
+			vertical-align: -1px;
+			margin-right: 3px;
+		}
+
 		.ownershipBadge--grid {
 			position: absolute;
 			top: 8px;
@@ -826,6 +832,18 @@
 
 		a.detailChip--genre:hover {
 			background: rgba(90, 140, 235, 0.45);
+		}
+
+		/* a series that will get no more episodes: green, like a complete one, with a check */
+		.detailNotice {
+			display: inline-flex;
+			align-items: center;
+			gap: 5px;
+			font-size: 12px;
+			padding: 3px 10px;
+			border-radius: 10px;
+			background: rgba(56, 142, 60, 0.30);
+			color: #d3ecd4;
 		}
 
 		#detailChips a.imdbLink {
@@ -1306,6 +1324,18 @@
 		.graphEdge--version_of, .graphEdge--alternate_language_version_of {
 			stroke: #5dbbe8;
 			stroke-width: 1.7;
+		}
+
+		/* a title that will not be added: thin parallel diagonals through its box, the text dimmed */
+		.graphWontLine {
+			fill: none;
+			stroke: rgba(235, 235, 240, 0.2);
+			stroke-width: 1;
+			pointer-events: none;
+		}
+
+		.graphNode--wontadd text {
+			fill: #8a8a92;
 		}
 
 		.graphDiamond {

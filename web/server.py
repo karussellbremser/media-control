@@ -341,7 +341,8 @@ def queryMedia(filters, sort_by, order, limit, offset, random_seed=0):
     CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN (
         SELECT COUNT(*) FROM media me WHERE me.series_imdb_id = m.imdb_id AND me.subdir IS NOT NULL
     ) ELSE 0 END as owned_episodes,
-    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN 1 ELSE 0 END as is_series
+    CASE WHEN tt.title_type_name IN (""" + seriesTypePlaceholders + """) THEN 1 ELSE 0 END as is_series,
+    EXISTS (SELECT 1 FROM wontadd_ids w WHERE w.imdb_id = m.imdb_id) as wont_add
     FROM media m
     JOIN title_type_enum tt ON m.title_type_id = tt.title_type_id
     """
@@ -1300,7 +1301,8 @@ def _episodeCodes(episodes):
 def _connectionGraph(cursor, imdb_id, isSeries):
     """Every title that can be reached from a title through connections, in either direction, and the connections between
     them: {start, nodes: [{id, kind, title, year, yearText, owned, imdbId, current, ...}], edges: [{a, b, type, assumed?}]};
-    a series (or miniseries) also has "isSeries", "mini", "startYear" and "endYear" (null: no end year known);
+    a series (or miniseries) also has "isSeries", "mini", "startYear" and "endYear" (null: no end year known); a title that
+    will not be added (on the "won't add" list, or an episode of a series that is) has "wontAdd";
     an edge reads "a follows b" (likewise "is a spin-off of", "is a remake of", "is a version of"). Empty when the title has
     no connections.
     An episode is a title of its own: nothing connects two episodes just because they are of one series. The page of a
@@ -1416,8 +1418,13 @@ def _connectionGraph(cursor, imdb_id, isSeries):
         if seriesId is not None:
             entry.update({"title": episodeTitle(node), "seriesId": seriesId, "seriesTitle": seriesTitle, "season": season, "episode": episode})
         nodes[node] = entry
+    # titles that will not be added: on the list themselves, or an episode of a series that is
+    cursor.execute("SELECT imdb_id FROM wontadd_ids")
+    wontAdd = {row[0] for row in cursor.fetchall()}
     for node, entry in nodes.items():
         entry["current"] = node in start or (isinstance(node, str) and any(i in start for i in members[node]))
+        if node in wontAdd or entry.get("seriesId") in wontAdd:
+            entry["wontAdd"] = True
 
     # titles that are not in the library and follow exactly the same titles of the library -- or are followed by exactly the
     # same titles of it --: a chain in release order
@@ -1636,6 +1643,9 @@ def detail(imdb_id):
         # the versions (files) of a movie -- series and episodes have none to show for now
         versions = [] if title_type_name in Media.seriesTitleTypes + Media.episodeTitleTypes else _versions(cursor, imdb_id)
         graph = _connectionGraph(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
+        # on the "won't add" list: for a series, no more of its episodes are planned to be added
+        cursor.execute("SELECT EXISTS (SELECT 1 FROM wontadd_ids WHERE imdb_id = ?)", (imdb_id,))
+        wontAdd = bool(cursor.fetchone()[0])
         conn.close()
     except sqlite3.Error as e:
         return jsonify({"error": str(e)}), 503
@@ -1656,6 +1666,7 @@ def detail(imdb_id):
         "versions": versions,
         "countries": countries,
         "allEpisodesOwned": allEpisodesOwned,
+        "wontAdd": wontAdd,
         "seasons": seasons,
         "creators": credits["creators"],
         "sources": credits["source"],
