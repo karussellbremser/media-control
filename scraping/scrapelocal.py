@@ -37,22 +37,48 @@ class ScrapeLocal:
     def __scrapeSingleMovie(self, subdir, files):
         currentMovie = Media(subdir, False)
         
-        media_files, sources_file, versions_exists = self.__checkMovieFilenames(subdir, files)
+        media_files, sources_file, versions_exists, partGroups = self.__checkMovieFilenames(subdir, files)
 
         src_dict = self.__parseDictFile(subdir, sources_file)
         if versions_exists:
             versions_dict = self.__parseDictFile(subdir, "versions.txt")
             self.__checkVersionsFileKeys('subdirectory ' + subdir, versions_dict, media_files)
 
+        # The files of a film that comes in several parts (an intermission, say), NAME_contPt1.mkv, NAME_contPt2.mkv, ...,
+        # are one version each in the DB, named "Part 1", "Part 2", ... -- or "<name>, Part 1", ... when the film's version has a
+        # name, which is the one the versions.txt entry of the FIRST part (or the OTHER entry, if the part has none) gives:
+        # that is how the web UI recognizes them and shows them as one version (see _mergeParts in web/server.py). Like an
+        # episode's Intro files, they need no versions.txt. A later part with no sources.txt entry of its own takes that of
+        # the first part (before the OTHER entry), so one entry is enough.
+        partVersions = {} # file name -> (version name, the first part's file name)
+        for members in partGroups.values():
+            firstFile = members[0][1]
+            for _, partFile in members[1:]:
+                if versions_exists and partFile in versions_dict:
+                    raise LocalLibraryError('versions.txt in subdirectory ' + subdir + ' has an entry for ' + partFile +
+                                             ', a continuation part: the version name goes on its first part, ' + firstFile)
+            base = None
+            if versions_exists:
+                base = versions_dict.get(firstFile, versions_dict.get("OTHER"))
+                if base is not None and base.strip() == "":
+                    raise LocalLibraryError('Blank version name for ' + firstFile + ' in subdirectory ' + subdir)
+            for number, partFile in members:
+                partVersions[partFile] = ("Part " + str(number) if base is None else base + ", Part " + str(number), firstFile)
+
         for media_file in media_files:
+            firstFile = partVersions[media_file][1] if media_file in partVersions else None
             if media_file in src_dict:
                 src = src_dict[media_file]
+            elif firstFile is not None and firstFile in src_dict: # a later part has the source of its first
+                src = src_dict[firstFile]
             elif "OTHER" in src_dict:
                 src = src_dict["OTHER"]
             else:
                 raise LocalLibraryError('Bad source file in subdirectory ' + subdir)
 
-            if not versions_exists:
+            if media_file in partVersions:
+                version = partVersions[media_file][0]
+            elif not versions_exists:
                 version = None
             elif media_file in versions_dict:
                 version = versions_dict[media_file]
@@ -232,14 +258,15 @@ class ScrapeLocal:
         this scan otherwise requires to have exactly one '.')."""
         return any(fnmatch.fnmatch(file, pattern) for pattern in config.LOCAL_SCAN_IGNORED_FILE_PATTERNS)
 
-    def __checkMovieFilenames(self, subdir, files): # returns media_files, sources_file, versions_exists
+    def __checkMovieFilenames(self, subdir, files): # returns media_files, sources_file, versions_exists, partGroups
         # rules:
         # - files matching config.LOCAL_SCAN_IGNORED_FILE_PATTERNS are ignored (see config.ini)
         # - src-[...].txt or sources.txt must exist once
         # - 1 or more media files (.mkv, or .kscape for a Kaleidescape-owned title with no local
         #   file at all -- see MediaVersion.isKaleidescapeOnly) must exist
         # - a .kscape file must be empty; it's a placeholder, not real content
-        # - versions.txt may exist. if > 1 media file exists, versions.txt must exist
+        # - versions.txt may exist. if there is more than one version, versions.txt must exist; the files of a film that
+        #   comes in several parts (NAME_contPt1.mkv, NAME_contPt2.mkv, ... -- see __groupMovieParts) are one version
         # - no other files must exist
 
         media_files = []
@@ -274,10 +301,33 @@ class ScrapeLocal:
             else:
                 raise LocalLibraryError('Bad content of subdirectory ' + subdir + " in file " + file)
 
-        if sources_file == "" or len(media_files) == 0 or (len(media_files) > 1 and versions_exists == False):
+        partGroups = self.__groupMovieParts(subdir, media_files)
+        versionCount = len(media_files) - sum(len(members) for members in partGroups.values()) + len(partGroups)
+
+        if sources_file == "" or len(media_files) == 0 or (versionCount > 1 and versions_exists == False):
             raise LocalLibraryError('Bad content of subdirectory ' + subdir)
 
-        return media_files, sources_file, versions_exists
+        return media_files, sources_file, versions_exists, partGroups
+
+    def __groupMovieParts(self, subdir, media_files):
+        """The continuation parts among a movie's media files: a file NAME_contPt<N>.mkv is part N of the film NAME (the
+        suffix is that specific so that a title like "Insidious: Part 2" can't pass for one). Returns {NAME: [(N, file), ...]},
+        each list in order of N. The parts of a film must be numbered 1 to n without a gap, n >= 2, and be real .mkv files
+        (a Kaleidescape placeholder can't be a part); anything else is an error -- a missing part must not go unnoticed."""
+        groups = {}
+        for media_file in media_files:
+            match = re.fullmatch(r"(.+)_contPt(\d+)", os.path.splitext(media_file)[0])
+            if match:
+                groups.setdefault(match.group(1), []).append((int(match.group(2)), media_file))
+        for members in groups.values():
+            members.sort()
+            files = ", ".join(partFile for _, partFile in members)
+            if any(not partFile.endswith(".mkv") for _, partFile in members):
+                raise LocalLibraryError('Bad content of subdirectory ' + subdir + ': a continuation part must be an .mkv file (' + files + ')')
+            if len(members) < 2 or [number for number, _ in members] != list(range(1, len(members) + 1)):
+                raise LocalLibraryError('Bad content of subdirectory ' + subdir + ': the continuation parts (' + files +
+                                         ') must be numbered 1 to n without a gap, with at least two (NAME_contPt1.mkv, NAME_contPt2.mkv, ...)')
+        return groups
 
     def __checkSeasonFilenames(self, subdir, seasonDir, files): # returns media_files, sources_file, versions_exists, intended_order_file
         # same file-type rules as __checkMovieFilenames (including the .mkv/.kscape media-file
