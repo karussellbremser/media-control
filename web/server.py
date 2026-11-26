@@ -845,9 +845,11 @@ def _hardcodedSubtitleLanguage(cursor, videoTitle, videoLanguage):
     row = cursor.fetchone()
     return row[0] if row else word.capitalize()
 
-def _versions(cursor, imdb_id, internal=False):
+def _versions(cursor, imdb_id, internal=False, mergeParts=False):
     """The versions of a title as a list of dicts ready to display, sorted by version name (unnamed first):
     {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
+    mergeParts=True (the movie view) turns the versions that are the parts of one film with an intermission, a file each, into
+    one version that says so ("intermission": True), see _mergeParts.
     sources link to blu-ray.com for discs (dvd/br/uhd); a source that is a fan restoration out of several (a role with
     several fanres sources) is one {label, title, parts: [{text, url}]} instead. Text strings are final, built here so there
     is one place that decides how a version reads. internal=True keeps the keys that start with "_" (_seconds, the runtime,
@@ -1009,12 +1011,86 @@ def _versions(cursor, imdb_id, internal=False):
         if hardcoded and filename in versions:
             versions[filename]["subtitles"].append({"text": hardcoded, "note": "hardcoded"})
 
+    if mergeParts:
+        _mergeParts(versions)
     ordered = sorted(versions.values(), key=lambda v: (v["name"] is not None, (v["name"] or "").casefold(), v["_filename"].casefold()))
     if not internal:
         for version in ordered:
             for key in [key for key in version if key.startswith("_")]:
                 del version[key] # the file name and the like are internal: they only tie the tables together
     return ordered
+
+# ---- parts: a film with an intermission comes in a file per part, each a version of its own named "Part 1", "Part 2", ...
+
+# "Part 2", "part2", "Director's Cut, Part 2", "Director's Cut Part 2": only the word Part ignores case; what comes before it
+# (after the comma or the space) names the version the parts are of
+_PART_VERSION = re.compile(r"(?:(?P<prefix>.*?)(?:\s*,\s*|\s+))?(?i:part)\s*(?P<number>\d+)")
+
+def _mergeParts(versions):
+    """Replaces, in versions (the dict _versions is building, by file name), the parts of a film with an intermission by one
+    version each: the versions named "Part 1", "Part 2", ... or "<name>, Part 1", "<name>, Part 2", ... form a group per
+    <name> (compared exactly), which is merged when its numbers run from 1 to n without a gap (n >= 2) and the parts agree
+    (see _mergedParts). Anything else stays as it is: the separate versions show what is missing or different."""
+    groups = {}
+    for filename, version in versions.items():
+        match = _PART_VERSION.fullmatch(version["name"] or "")
+        if match:
+            groups.setdefault((match.group("prefix") or "").strip(), []).append((int(match.group("number")), filename))
+    for prefix, members in groups.items():
+        members.sort()
+        if len(members) < 2 or [number for number, _ in members] != list(range(1, len(members) + 1)):
+            continue
+        parts = [versions[filename] for _, filename in members]
+        merged = _mergedParts(prefix or None, parts)
+        if merged is None:
+            continue
+        for _, filename in members:
+            del versions[filename]
+        versions[merged["_filename"]] = merged
+
+def _mergedParts(name, parts):
+    """The parts of a film (versions as _versions has built them, in order) as one version named name, or None when they do
+    not agree: the video (resolution, 3D, codec, HDR, frame rate, aspect ratio within 0.02), the audio tracks, the sources
+    and the subtitles other than forced ones must be the same, as the one version shows them once. The runtime is the total
+    (each part's in its hover text), the bitrate the total's (the parts' average, by their runtimes), the modification date
+    the latest, and a forced subtitle track that only some of the parts have (an intermission's second half may lack one)
+    counts for the whole film, as for the episodes of a season."""
+    facets = [part["_facets"] for part in parts]
+    for key in ("resolution", "stereo", "codec", "hdr", "fps"):
+        if len({facet[key] for facet in facets}) > 1:
+            return None
+    ratios = [tuple(float(ratio[:-2]) for ratio in facet["ratios"]) for facet in facets]
+    if any(len(shape) != len(ratios[0]) or any(abs(x - y) > 0.02 for x, y in zip(ratios[0], shape)) for shape in ratios):
+        return None
+    if len({tuple(track["text"] for track in part["audio"]) for part in parts}) > 1:
+        return None
+    if len({tuple(_sourceKey(source) for source in part["sources"]) for part in parts}) > 1:
+        return None
+    tracksOf = lambda part: [(track["text"], track["note"]) for track in part["subtitles"]]
+    if len({tuple(sorted(collections.Counter(track for track in tracksOf(part) if not _isForcedSubtitle(track[1])).items(), key=repr)) for part in parts}) > 1:
+        return None
+    forced = list(dict.fromkeys(track for part in parts for track in tracksOf(part) if _isForcedSubtitle(track[1])))
+
+    seconds = sum(part["_seconds"] for part in parts)
+    rated = [(facet["bitrate"], part["_seconds"]) for facet, part in zip(facets, parts) if facet["bitrate"]]
+    bitrate = sum(mbps * length for mbps, length in rated) / sum(length for _, length in rated) if rated else None
+    video = [chip for chip in parts[0]["video"] if not chip["text"].endswith(" Mbps")]
+    if bitrate:
+        # where the bitrate chip stands in a single file's version: before the frame rate, if that is said
+        position = next((i for i, chip in enumerate(video) if chip["text"].endswith(" fps")), len(video))
+        video.insert(position, {"text": ("%.0f" if bitrate >= 10 else "%.1f") % bitrate + " Mbps", "kind": "video"})
+
+    merged = dict(parts[0]) # what is the same in all of them is that of the first
+    merged.update({
+        "name": name, "video": video, "intermission": True, "_seconds": seconds,
+        "runtime": _runtimeText(seconds),
+        "runtimeTitle": "\n".join("Part %d %s" % (number, _runtimeText(part["_seconds"])) for number, part in enumerate(parts, 1)),
+        "modified": max((part["modified"] for part in parts if part["modified"]), default=None),
+        "subtitles": [{"text": track["text"], "note": track["note"]} for track in parts[0]["subtitles"] if not _isForcedSubtitle(track["note"])]
+                     + [{"text": text, "note": note} for text, note in forced],
+        "_facets": dict(facets[0], bitrate=bitrate),
+    })
+    return merged
 
 # ---- seasons: the technical data of a season's episodes, aggregated, for the card a season tile opens
 
@@ -1641,7 +1717,7 @@ def detail(imdb_id):
 
         _addTitleCounts(cursor, credits)
         # the versions (files) of a movie -- series and episodes have none to show for now
-        versions = [] if title_type_name in Media.seriesTitleTypes + Media.episodeTitleTypes else _versions(cursor, imdb_id)
+        versions = [] if title_type_name in Media.seriesTitleTypes + Media.episodeTitleTypes else _versions(cursor, imdb_id, mergeParts=True)
         graph = _connectionGraph(cursor, imdb_id, title_type_name in Media.seriesTitleTypes)
         # on the "won't add" list: for a series, no more of its episodes are planned to be added
         cursor.execute("SELECT EXISTS (SELECT 1 FROM wontadd_ids WHERE imdb_id = ?)", (imdb_id,))

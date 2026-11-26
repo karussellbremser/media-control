@@ -554,6 +554,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			chips.appendChild(chip);
 		});
 		v.video.forEach(x => chips.appendChild(makeEl('span', 'versionChip' + (x.kind === 'hdr' ? ' versionChip--hdr' : x.kind === '3d' ? ' versionChip--3d' : ''), x.text)));
+		// a film that comes in a file per part (see _mergeParts in server.py): one version, with the runtime of all of them
+		if (v.intermission) chips.appendChild(makeEl('span', 'versionChip', 'with intermission'));
 		// the episodes of a season that differ from the rest: a text, or for a differing source {episodes, parts} whose discs link
 		(v.differences || []).forEach(note => {
 			if (typeof note === 'string') {
