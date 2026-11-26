@@ -61,6 +61,10 @@ class ScrapeIMDbOnline:
         self.network_retry_max_wait = network_retry_max_wait # total seconds to keep retrying a navigation/download after a connectivity failure, see _retryOnNetworkError
         self.network_retry_delay = network_retry_delay # seconds between retries, see _retryOnNetworkError
         self.__interestNameMap = None # lazily-fetched cache, see __getGlobalInterestNameMap
+        # integer interest id -> the slug of its page address ("epic-adventure"): IMDb's links to interests no longer carry the
+        # id (/interest/epic-adventure/, not /interest/in0000015/), so an interest's page is reached through its slug, which is
+        # learned wherever the ids are (a title page's interest list, the interest directory) -- see __scrapeAllInterests
+        self.__interestSlugs = {}
 
         # the browser itself is started lazily, on first __navigate call -- a sync run that never
         # needs to scrape anything online (nothing newly added) never has to launch Chrome at all
@@ -261,7 +265,7 @@ class ScrapeIMDbOnline:
 
     def scrapeMainPages(self, mediaDict, knownInterestIDs, isoLanguageLookup, isoCountryLookup, knownIgnoredIDs):
         """For every medium in mediaDict, visits its IMDb main page (and possibly, briefly, one or
-        more /interest/<id>/ pages while classifying newly-discovered chips) and:
+        more /interest/<slug>/ pages while classifying newly-discovered chips) and:
         - always scrapes its interests (standard genres and subgenres alike), its languages and
           countries of origin (from the page's Details section, in IMDb's order -- the first
           language is the primary language) and its plot summary. The interest chip row on the page
@@ -599,7 +603,9 @@ class ScrapeIMDbOnline:
 
     def __scrapeInterestChips(self):
         """Scrapes the interests chip list from the currently-loaded title main page.
-        Returns a list of (imdb_interest_id, name) tuples. Raises on any unexpected structure,
+        Returns a list of (key, name) tuples, key being what the chip's link names: the interest's
+        slug ("epic-adventure", the form IMDb's links have now) or, should a link still have the
+        older form (/interest/in0000015/), its "in..." id string. Raises on any unexpected structure,
         rather than silently skipping or guessing. NOT the title's complete interests:
         IMDb shows at most 10 chips here -- subgenres first, then genres, then cut off -- so a title
         with many subgenres can be missing some of them and some or all of its genres. Only used as a
@@ -621,19 +627,19 @@ class ScrapeIMDbOnline:
             raise ScrapingError("interests block present but contains no chips")
 
         result = []
-        seenIDs = set()
+        seenKeys = set()
         for chip in chips:
-            match = re.search(r"^/interest/(in\d+)/", chip.get("href") or "")
+            match = re.search(r"^/interest/([^/?#]+)/", chip.get("href") or "")
             if not match:
                 raise ScrapingError("interest chip href not properly formatted: " + str(chip.get("href")))
-            chip_id = parseInterestID(match.group(1))
+            key = match.group(1)
             name = (chip.get("text") or "").strip()
             if name == "":
-                raise ScrapingError("interest chip has empty name: " + str(chip_id))
-            if chip_id in seenIDs:
-                raise ScrapingError("duplicate interest chip on page: " + str(chip_id))
-            seenIDs.add(chip_id)
-            result.append((chip_id, name))
+                raise ScrapingError("interest chip has empty name: " + key)
+            if key in seenKeys:
+                raise ScrapingError("duplicate interest chip on page: " + key)
+            seenKeys.add(key)
+            result.append((key, name))
 
         return result
 
@@ -644,7 +650,10 @@ class ScrapeIMDbOnline:
         __scrapeInterestChips), and the aboveTheFoldData.interests list behind it, are capped at 10
         entries -- subgenres first, then genres -- so a title with many subgenres loses its last
         subgenres and some or all of its genres there; relatedInterests isn't capped (seen with 19
-        entries) and carries the interest ids directly.
+        entries) and carries the interest ids directly -- together with each interest's slug, the
+        address of its page (the visible links no longer have the id, only the slug; the ids are only
+        in this embedded data, which is why they are read from here: should IMDb take them out of it
+        too, the interest tables, keyed by these ids, need a new key -- see the raise below).
 
         Cross-checked rather than trusted blindly: every visible chip must be in the list (else the
         data's structure isn't what this assumes -> raises), and every genre in aboveTheFoldData.genres
@@ -671,6 +680,7 @@ class ScrapeIMDbOnline:
                 mainId: main.id,
                 interests: main.relatedInterests.edges.map(e => ({
                     id: e && e.node && e.node.id,
+                    slug: e && e.node && e.node.slug,
                     name: e && e.node && e.node.primaryText && e.node.primaryText.text
                 })),
                 genres: atf.genres === null ? [] : atf.genres.genres.map(g => g && g.text)
@@ -686,20 +696,26 @@ class ScrapeIMDbOnline:
 
         interests = []
         seenIDs = set()
+        knownKeys = set() # what a chip's link may name: an interest's slug, or its id string
         for entry in result["interests"]:
             match = re.search(r"^(in\d+)$", entry.get("id") or "")
-            name = entry.get("name")
-            if not match or not isinstance(name, str) or name.strip() == "":
+            name, slug = entry.get("name"), entry.get("slug")
+            if not match:
+                raise ScrapingError("an interest on " + expectedIDString + " has no 'in...' id in the page's interest list: " + repr(entry) +
+                                    " -- if IMDb has stopped giving these ids, the interest tables (keyed by them) need another key")
+            if not isinstance(name, str) or name.strip() == "" or not isinstance(slug, str) or slug.strip() == "" or "/" in slug:
                 raise ScrapingError("unexpected interest entry on " + expectedIDString + ": " + repr(entry))
             interest_id = parseInterestID(match.group(1))
             if interest_id in seenIDs:
                 raise ScrapingError("duplicate interest in the page's interest list on " + expectedIDString + ": " + str(interest_id))
             seenIDs.add(interest_id)
+            knownKeys.update((match.group(1), slug))
+            self.__interestSlugs[interest_id] = slug
             interests.append((interest_id, name.strip()))
 
-        for chip_id, chip_name in chips:
-            if chip_id not in seenIDs:
-                raise ScrapingError("interest chip '" + chip_name + "' (" + str(chip_id) + ") on " + expectedIDString +
+        for chip_key, chip_name in chips:
+            if chip_key not in knownKeys:
+                raise ScrapingError("interest chip '" + chip_name + "' (" + chip_key + ") on " + expectedIDString +
                                     " is missing from the page's complete interest list")
 
         listedNames = {self.__normalizeInterestName(name) for _, name in interests}
@@ -926,7 +942,7 @@ class ScrapeIMDbOnline:
         newIgnoredRegistrations is a list of (imdb_interest_id, name, type) tuples, type being
         "Franchise" or "Language" -- persist via DBControl (see main.py's step 13) in the order
         returned; navigatedAway is True if classifying any chip navigated the browser
-        away from the title's own main page (to a /interest/<id>/ page), False if every chip was
+        away from the title's own main page (to a /interest/<slug>/ page), False if every chip was
         already known and the browser never left -- callers that need to be back on the main page
         afterwards (e.g. to download the cover) should check this rather than assume either way.
 
@@ -964,7 +980,26 @@ class ScrapeIMDbOnline:
         def classify(interest_id, name):
             nonlocal navigatedAway
             navigatedAway = True
-            self.__navigate("https://www.imdb.com/interest/" + formatInterestID(interest_id) + "/")
+            # the page's address is its slug, learned with the id (see __interestSlugs); the interest directory knows them all
+            if interest_id not in self.__interestSlugs:
+                self.__getGlobalInterestNameMap()
+            slug = self.__interestSlugs.get(interest_id)
+            if slug is None:
+                raise ScrapingError("no page address (slug) known for interest " + formatInterestID(interest_id) + " (" + name + ")")
+            self.__navigate("https://www.imdb.com/interest/" + slug + "/")
+
+            # the page must be the interest asked for: its embedded data names its id
+            pageInterestId = self.browser.execute_script("""
+                const el = document.getElementById('__NEXT_DATA__');
+                if (!el) return null;
+                try {
+                    const data = JSON.parse(el.textContent);
+                    const interest = data.props.pageProps.interestData;
+                    return interest && interest.id || null;
+                } catch (e) { return null; }
+            """)
+            if pageInterestId != formatInterestID(interest_id):
+                raise ScrapingError("the page of interest " + formatInterestID(interest_id) + " (" + name + ") at /interest/" + slug + "/ is for " + str(pageInterestId))
 
             typeText = self.browser.execute_script("""
                 const el = document.querySelector('[data-testid="interest-hero-type"]');
@@ -1065,22 +1100,47 @@ class ScrapeIMDbOnline:
 
         self.__navigate("https://www.imdb.com/interest/all/")
 
-        links = self.browser.execute_script("""
-            return Array.from(document.querySelectorAll('a[href^="/interest/in"]'))
-                .map(a => ({text: a.innerText.trim(), href: a.getAttribute('href')}))
-                .filter(l => l.text !== '');
+        # read from the page's embedded data, not from its links: those have only the slug now, the ids are in the data
+        result = self.browser.execute_script("""
+            const el = document.getElementById('__NEXT_DATA__');
+            if (!el) return {error: 'no __NEXT_DATA__ element on the interest directory'};
+            let data;
+            try { data = JSON.parse(el.textContent); } catch (e) { return {error: '__NEXT_DATA__ is not valid JSON'}; }
+            const categories = data && data.props && data.props.pageProps && data.props.pageProps.interestCategories;
+            if (!Array.isArray(categories)) return {error: 'no interestCategories at props.pageProps in __NEXT_DATA__'};
+            const entries = [];
+            for (const category of categories) {
+                const edges = category && category.interests && category.interests.edges;
+                if (!Array.isArray(edges)) return {error: 'unexpected structure of an interest category in __NEXT_DATA__'};
+                for (const e of edges) {
+                    entries.push({
+                        id: e && e.node && e.node.id,
+                        slug: e && e.node && e.node.slug,
+                        name: e && e.node && e.node.primaryText && e.node.primaryText.text
+                    });
+                }
+            }
+            return {entries: entries};
         """)
-
-        if len(links) == 0:
+        if not isinstance(result, dict):
+            raise ScrapingError("reading the interest directory (/interest/all/) returned no data")
+        if "error" in result:
+            raise ScrapingError("interest directory (/interest/all/): " + result["error"])
+        if len(result["entries"]) == 0:
             raise ScrapingError("IMDb interest directory (/interest/all/) returned no entries")
 
         nameMap = {}
-        for link in links:
-            match = re.search(r"^/interest/(in\d+)/", link.get("href") or "")
-            if not match:
-                raise ScrapingError("interest directory entry href not properly formatted: " + str(link.get("href")))
-            nameMap.setdefault(link["text"], set()).add(parseInterestID(match.group(1)))
+        slugs = {}
+        for entry in result["entries"]:
+            match = re.search(r"^(in\d+)$", entry.get("id") or "")
+            name, slug = entry.get("name"), entry.get("slug")
+            if not match or not isinstance(name, str) or name.strip() == "" or not isinstance(slug, str) or slug.strip() == "" or "/" in slug:
+                raise ScrapingError("interest directory entry not properly formatted: " + repr(entry))
+            interest_id = parseInterestID(match.group(1))
+            nameMap.setdefault(name.strip(), set()).add(interest_id)
+            slugs[interest_id] = slug
 
+        self.__interestSlugs.update(slugs)
         self.__interestNameMap = nameMap
         return nameMap
 
