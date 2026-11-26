@@ -318,7 +318,7 @@ class ScrapeIMDbOnline:
             currentMedia.languages = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             currentMedia.countries = self.__resolveCountryCodes(countries, isoCountryLookup)
 
-            attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(interests, knownInterestIDs, knownIgnoredIDs)
+            attachedInterestIDs, newInterestRegs, newIgnoredRegs, navigatedAway = self.__classifyChips(interests, knownInterestIDs, knownIgnoredIDs, currentMedia.getIDString())
             currentMedia.interests = attachedInterestIDs
             newInterestRegistrations.extend(newInterestRegs)
             newIgnoredRegistrations.extend(newIgnoredRegs)
@@ -380,7 +380,7 @@ class ScrapeIMDbOnline:
             languageCodes = self.__resolveLanguageCodes(languages, isoLanguageLookup)
             countryCodes = self.__resolveCountryCodes(countries, isoCountryLookup)
 
-            attachedInterestIDs, newInterestRegs, newIgnoredRegs, _ = self.__classifyChips(interests, knownInterestIDs, knownIgnoredIDs)
+            attachedInterestIDs, newInterestRegs, newIgnoredRegs, _ = self.__classifyChips(interests, knownInterestIDs, knownIgnoredIDs, currentMedia.getIDString())
             results[currentMedia.imdb_id] = (attachedInterestIDs, languageCodes, countryCodes, plotSummary)
             newInterestRegistrations.extend(newInterestRegs)
             newIgnoredRegistrations.extend(newIgnoredRegs)
@@ -645,7 +645,7 @@ class ScrapeIMDbOnline:
 
     def __scrapeAllInterests(self, expectedIDString):
         """Scrapes the title's COMPLETE interest list -- genres, subgenres and any franchise/language
-        interests, as [(imdb_interest_id, name)] -- from the currently-loaded main page's embedded
+        interests, as [(imdb_interest_id, name)] (an id is None for a genre only the page's genre list names, see below) -- from the currently-loaded main page's embedded
         __NEXT_DATA__ (mainColumnData.relatedInterests). The visible chip row (see
         __scrapeInterestChips), and the aboveTheFoldData.interests list behind it, are capped at 10
         entries -- subgenres first, then genres -- so a title with many subgenres loses its last
@@ -657,8 +657,9 @@ class ScrapeIMDbOnline:
 
         Cross-checked rather than trusted blindly: every visible chip must be in the list (else the
         data's structure isn't what this assumes -> raises), and every genre in aboveTheFoldData.genres
-        (the page's separate, names-only genre list) should be too -- one that isn't is warned about
-        and left out (e.g. "Adult", which IMDb has no interest for). Also checks the embedded data
+        (the page's separate, names-only genre list) should be too -- one that isn't is returned as
+        (None, name), to be resolved to its interest by __classifyChips: IMDb's page sometimes lacks
+        genres in its interest list, and the genre list is taken as the reference then. Also checks the embedded data
         really belongs to expectedIDString (a merged/redirected title). Raises on any other
         unexpected structure, rather than silently skipping or guessing."""
         chips = self.__scrapeInterestChips()
@@ -718,12 +719,18 @@ class ScrapeIMDbOnline:
                 raise ScrapingError("interest chip '" + chip_name + "' (" + chip_key + ") on " + expectedIDString +
                                     " is missing from the page's complete interest list")
 
+        # a genre the page's separate genre list names but its interest list lacks (IMDb's page sometimes drops genres from the
+        # interest list): the genre list is the reference, so the genre goes on as (None, name) -- no id yet, since finding it
+        # needs the interest directory, a page of its own, which this method must not leave the title page for.
+        # __classifyChips resolves it (and says so, or that IMDb has no interest for it).
         listedNames = {self.__normalizeInterestName(name) for _, name in interests}
         for genreName in result["genres"]:
             if not isinstance(genreName, str) or genreName.strip() == "":
                 raise ScrapingError("unexpected genre entry on " + expectedIDString + ": " + repr(genreName))
-            if self.__normalizeInterestName(genreName) not in listedNames:
-                printAlways("WARNING: " + expectedIDString + ": IMDb lists '" + genreName.strip() + "' as a genre in one place, but not among the title's genres and subgenres. '" + genreName.strip() + "' was not added to this title.")
+            key = self.__normalizeInterestName(genreName)
+            if key not in listedNames:
+                listedNames.add(key)
+                interests.append((None, genreName.strip()))
 
         return interests
 
@@ -905,7 +912,7 @@ class ScrapeIMDbOnline:
             resolved.append(isoCountryLookup[code])
         return resolved
 
-    def __classifyChips(self, chips, knownInterestIDs, knownIgnoredIDs):
+    def __classifyChips(self, chips, knownInterestIDs, knownIgnoredIDs, expectedIDString):
         """Classifies every (imdb_interest_id, name) in chips as a top-level interest (IMDb's hero
         page labels these "Genre" for most, but "Form" for e.g. Documentary/Short and "Style" for
         Anime -- all three are treated identically here, just different IMDb labels for the same
@@ -935,6 +942,10 @@ class ScrapeIMDbOnline:
         genre name is a genuine surprise, not something to guess at or paper over -- see the raise
         below; add another entry to BREADCRUMB_CATEGORY_ALIASES once its real target is known.
 
+        A chip with the id None is a genre that only the page's genre list names (see __scrapeAllInterests): it is
+        resolved by name against the interest directory first, with a warning that says it was taken from the genre list --
+        or that IMDb has no interest for it. expectedIDString is the title's id, for those warnings.
+
         Returns (attachedInterestIDs, newInterestRegistrations, newIgnoredRegistrations,
         navigatedAway): attachedInterestIDs are the genre/subgenre ids actually attached to this
         title (for media_interests -- ignored ids are never included); newInterestRegistrations is
@@ -954,6 +965,33 @@ class ScrapeIMDbOnline:
         newInterestRegistrations = []
         newIgnoredRegistrations = []
         navigatedAway = False
+
+        # A chip without an id is a genre that only the page's separate genre list names, not its interest list (see
+        # __scrapeAllInterests): IMDb's page sometimes lacks genres in the latter, and the genre list is the reference then, so
+        # the genre is looked up by name in the interest directory and goes on like any other chip. Said once per genre, with
+        # what came of it. A genre without an interest of its own on IMDb (e.g. "Adult") is left out.
+        resolved = []
+        for chip_id, chip_name in chips:
+            if chip_id is not None:
+                resolved.append((chip_id, chip_name))
+                continue
+            if self.__interestNameMap is None:
+                navigatedAway = True # the directory is fetched now
+            key = self.__normalizeInterestName(chip_name)
+            candidates = {interest_id for directoryName, ids in self.__getGlobalInterestNameMap().items()
+                          if self.__normalizeInterestName(directoryName) == key for interest_id in ids}
+            if len(candidates) != 1:
+                printAlways("WARNING: " + expectedIDString + ": IMDb lists '" + chip_name + "' as a genre, but " +
+                            ("has no interest for it" if not candidates else "has several interests of that name") +
+                            ", so '" + chip_name + "' was not added to this title.")
+                continue
+            interest_id = next(iter(candidates))
+            if any(interest_id == other_id for other_id, _ in chips):
+                continue # the interest list has it after all, under another name
+            printAlways("WARNING: " + expectedIDString + ": IMDb lists '" + chip_name + "' as a genre in one place, but not among the title's genres and subgenres on its page. '" +
+                        chip_name + "' was added to this title anyway, taking the genre list as the reference.")
+            resolved.append((interest_id, chip_name))
+        chips = resolved
 
         # a breadcrumb category text that is itself only a display-section heading on IMDb's
         # browse-all-interests page, not a real genre's own name -- see this method's docstring.
