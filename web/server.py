@@ -849,7 +849,7 @@ def _versions(cursor, imdb_id, internal=False, mergeParts=False):
     """The versions of a title as a list of dicts ready to display, sorted by version name (unnamed first):
     {name, runtime, modified, sources: [{text, url}], video: [{text, kind}], audio: [{text, note}], subtitles: [{text, note}]}.
     mergeParts=True (the movie view) turns the versions that are the parts of one film with an intermission, a file each, into
-    one version that says so ("intermission": True), see _mergeParts.
+    one version that says so in its runtime ("3h 17m (with intermission)"), see _mergeParts.
     sources link to blu-ray.com for discs (dvd/br/uhd); a source that is a fan restoration out of several (a role with
     several fanres sources) is one {label, title, parts: [{text, url}]} instead. Text strings are final, built here so there
     is one place that decides how a version reads. internal=True keeps the keys that start with "_" (_seconds, the runtime,
@@ -1052,7 +1052,7 @@ def _mergedParts(name, parts):
     """The parts of a film (versions as _versions has built them, in order) as one version named name, or None when they do
     not agree: the video (resolution, 3D, codec, HDR, frame rate, aspect ratio within 0.02), the audio tracks, the sources
     and the subtitles other than forced ones must be the same, as the one version shows them once. The runtime is the total
-    (each part's in its hover text), the bitrate the total's (the parts' average, by their runtimes), the modification date
+    (each part's in its hover text), followed by "(with intermission)", the bitrate the total's (the parts' average, by their runtimes), the modification date
     the latest, and a forced subtitle track that only some of the parts have (an intermission's second half may lack one)
     counts for the whole film, as for the episodes of a season."""
     facets = [part["_facets"] for part in parts]
@@ -1082,8 +1082,8 @@ def _mergedParts(name, parts):
 
     merged = dict(parts[0]) # what is the same in all of them is that of the first
     merged.update({
-        "name": name, "video": video, "intermission": True, "_seconds": seconds,
-        "runtime": _runtimeText(seconds),
+        "name": name, "video": video, "_seconds": seconds,
+        "runtime": _runtimeText(seconds) + " (with intermission)",
         "runtimeTitle": "\n".join("Part %d %s" % (number, _runtimeText(part["_seconds"])) for number, part in enumerate(parts, 1)),
         "modified": max((part["modified"] for part in parts if part["modified"]), default=None),
         "subtitles": [{"text": track["text"], "note": track["note"]} for track in parts[0]["subtitles"] if not _isForcedSubtitle(track["note"])]
