@@ -1402,11 +1402,21 @@
 		}
 
 		/* pointing at a title: its direct connections stand out, the rest steps back */
-		.graphFocus .graphNode, .graphFocus .graphEdge {
+		.graphFocus .graphEdge, .graphFocus .graphNode:not(.graphSolid), .graphFocus .graphShadow {
 			opacity: 0.25;
 		}
 
-		.graphFocus .graphNode.graphLit {
+		.graphFocus .graphNode.graphLit, .graphFocus .graphShadow.graphLit {
+			opacity: 1;
+		}
+
+		/* the cards of a series (and the layers behind them) have a solid base that hides what is behind them, so as a whole they
+		   cannot fade: only what is drawn on the base does, which looks the same as a box that is not a series stepping back */
+		.graphFocus .graphSolid > :not(.graphBase) {
+			opacity: 0.25;
+		}
+
+		.graphFocus .graphSolid.graphLit > :not(.graphBase) {
 			opacity: 1;
 		}
 

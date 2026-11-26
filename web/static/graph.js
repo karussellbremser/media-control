@@ -623,6 +623,9 @@
 		const shadowLayer = svgEl('g'), stackLayer = svgEl('g'), edgeLayer = svgEl('g'), overlay = svgEl('g'), nodeLayer = svgEl('g');
 		svg.append(shadowLayer, stackLayer, edgeLayer, overlay, nodeLayer); // the layers behind a series box are beneath the lines
 		const edgeEls = [], nodeEls = new Map();
+		// the layers behind a series' box and its shadow, by the series' id: they step back or stand out with the box (see highlight)
+		const seriesParts = new Map();
+		const addSeriesPart = (id, part) => { if (!seriesParts.has(id)) seriesParts.set(id, []); seriesParts.get(id).push(part); };
 		// where a connection leaves / enters an item: its lane position and the extent along the steps (a stop is passed straight through)
 		const pointOf = id => { const it = L.items.get(id); return { c: it.c + it.lane / 2, s: it.l, e: it.node ? it.l + it.lev : it.l + L.levSize[it.row] }; };
 		// backward: the points run against the steps, so a connection leaves an item on its early side and enters the next on its late side
@@ -689,6 +692,7 @@
 					path.style.stroke = tint === 'owned' ? gradient('rgb(130,200,135)', 0.40) : gradient('rgb(255,255,255)', 0.28);
 				}
 				shadowLayer.appendChild(path);
+				addSeriesPart(box.node.id, path);
 			});
 		}
 
@@ -745,6 +749,7 @@
 			L.realEdges.forEach(e => { if (e.a === id) lit.add(e.b); else if (e.b === id) lit.add(e.a); });
 			svg.classList.add('graphFocus');
 			nodeEls.forEach((el, nid) => el.classList.toggle('graphLit', lit.has(nid)));
+			seriesParts.forEach((parts, nid) => parts.forEach(part => part.classList.toggle('graphLit', lit.has(nid))));
 			edgeEls.forEach(({ el, edge }) => el.classList.toggle('graphLit', !edge.assumed && (edge.a === id || edge.b === id)));
 			// the direct connections the drawing leaves out because a chain implies them
 			L.hidden.filter(e => !e.assumed && (e.a === id || e.b === id)).forEach(e => {
@@ -754,6 +759,7 @@
 		function unhighlight() {
 			svg.classList.remove('graphFocus');
 			nodeEls.forEach(el => el.classList.remove('graphLit'));
+			seriesParts.forEach(parts => parts.forEach(part => part.classList.remove('graphLit')));
 			edgeEls.forEach(({ el }) => el.classList.remove('graphLit'));
 			overlay.replaceChildren();
 		}
@@ -779,16 +785,19 @@
 			// a series is a stack of cards: the layers behind it solid and beneath the lines, the front one solid as well, so
 			// nothing shows through it
 			const card = (parent, offset) => {
-				const base = svgEl('rect', { x: f(x + offset), y: f(y + offset), width: it.w, height: it.h, rx: 6 });
+				const base = svgEl('rect', { x: f(x + offset), y: f(y + offset), width: it.w, height: it.h, rx: 6, class: 'graphBase' });
 				base.style.fill = 'var(--detailBg, #2a2b30)';
 				base.style.stroke = 'none';
 				parent.appendChild(base);
 				return svgEl('rect', { x: f(x + offset), y: f(y + offset), width: it.w, height: it.h, rx: 6 });
 			};
+			// solid cards stay solid when the map steps back (see .graphSolid in the stylesheet): only what is drawn on their base fades
+			if (n.isSeries) el.classList.add('graphSolid');
 			stackOf(n).forEach(offset => {
-				const layer = svgEl('g', { class: 'graphNode' + (n.owned ? ' graphNode--owned' : '') });
+				const layer = svgEl('g', { class: 'graphNode graphSolid' + (n.owned ? ' graphNode--owned' : '') });
 				layer.appendChild(card(layer, offset));
 				stackLayer.appendChild(layer);
+				addSeriesPart(n.id, layer);
 			});
 			el.appendChild(n.isSeries ? card(el, 0) : svgEl('rect', { x: f(x), y: f(y), width: it.w, height: it.h, rx: 6 }));
 			if (n.wontAdd && !n.owned) { // will not be added: lines through the box
